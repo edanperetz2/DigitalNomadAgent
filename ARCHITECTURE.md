@@ -1,0 +1,181 @@
+# PlaceMatch — Architecture
+
+This document explains how PlaceMatch is built and, more importantly, *why* it is an autonomous
+agent rather than a fixed pipeline. See `assets/model_architecture.png` (also served at
+`GET /api/model_architecture`) for the visual diagram, generated deterministically by
+`scripts/generate_architecture.py`.
+
+## 1. Canonical modules
+
+`app/core/module_names.py` is the single source of truth for the seven canonical names used
+throughout the code, the diagram, `/api/agent_info`, LLM-call tracing, and this document:
+
+| Canonical name | File | Calls the LLM? |
+|---|---|---|
+| Request Interpreter | `app/agent/request_interpreter.py` | Yes — 1 call |
+| Agentic Research | `app/agent/agentic_research.py` | Yes — 1 call (candidate generation only) |
+| Tool Registry | `app/tools/registry.py` | No |
+| Evidence Memory | `app/evidence/memory.py` | No |
+| Dynamic Evaluation | `app/agent/dynamic_evaluation.py` | No |
+| Recommendation Validator | `app/agent/recommendation_validator.py` | No |
+| Recommendation Generator | `app/agent/recommendation_generator.py` | Yes — 1 call |
+
+Only three modules ever produce a `steps` entry in `/api/execute`'s response, because only three
+modules ever call an LLM. Everything else — tool selection, scoring, validation — is deterministic
+Python, which is both cheaper (course budget is $13 total) and easier to test exhaustively.
+
+## 2. State machine and conditional flow
+
+`app/agent/state.py` defines the states exactly as specified: `received`, `interpreting`,
+`clarification_required`, `planning_research`, `executing_tools`, `evaluating`, `validating`,
+`researching_gap`, `generating_response`, `completed`, `failed`. `app/agent/orchestrator.py` drives
+transitions with structured conditions rather than a fixed sequence:
+
+- **`interpreting → clarification_required`** only when the Request Interpreter marks
+  `clarification_required=True` (e.g. purpose is entirely unclear, or a study request has no
+  discernible academic field). This short-circuits the rest of the pipeline — no candidates are
+  generated, no tools run — and the response is simply the clarification question, still wrapped
+  in the required four-field envelope.
+- **`planning_research → executing_tools`**: Agentic Research generates 4–5 diverse candidates
+  (one LLM call) and deterministically decides which of the 10 tools are relevant to *this*
+  request (`select_tools()` in `agentic_research.py`) — see §4 below for why this is deterministic.
+- **`executing_tools`**: `ToolRegistry.verify_candidates()` runs GeocodingTool first for every
+  candidate; unverifiable candidates are dropped. Only then are the other selected tools run,
+  concurrently, bounded by `MAX_CONCURRENT_TOOL_REQUESTS`.
+- **`validating → researching_gap`**: the Recommendation Validator (deterministic) can send control
+  back to Agentic Research exactly once, only when a high-weight criterion is missing evidence for
+  a top-3 candidate. The orchestrator tracks a `gap_iteration_used` flag so this can never loop
+  more than once, satisfying the "at most one additional research iteration" requirement. Notably,
+  this gap round makes **zero** additional LLM calls — it re-runs only the specific missing
+  `(place, criterion)` tool calls — which keeps typical execution at 3 LLM calls total (Interpreter,
+  Agentic Research, Recommendation Generator), well under `MAX_LLM_CALLS_PER_REQUEST=4`.
+- **`generating_response`**: the Recommendation Generator makes one LLM call with a compact,
+  pre-scored payload (never raw tool output). If that call fails for any reason (budget refusal,
+  provider error, malformed output after the repair attempt), a deterministic Python template
+  (`app/core/rendering.py::render_recommendation_markdown`) builds the same Markdown structure
+  directly from the already-computed scores — so `/api/execute` never crashes and never fabricates
+  facts, it just discloses that a limited automated summary was used.
+- Any unhandled exception, from any state, is caught by the orchestrator and converted to
+  `status="error"` while preserving every `steps` entry already recorded — never a raw traceback,
+  never a lost trace.
+
+A hard cap (`MAX_STATE_TRANSITIONS = 30`) prevents runaway loops regardless of any bug in the
+transition logic above.
+
+## 3. Why tool selection is deterministic, not LLM-driven
+
+`Agentic Research` still needs to decide *which* of the 10 tools matter for a given request. The
+course's optimization requirements (§6 of the spec) explicitly ask for deterministic Python logic
+"whenever an LLM is unnecessary" and a hard cap on LLM calls. Tool relevance is a classification
+problem cleanly solvable from the interpreted profile (`purpose`, `relevant_criteria`,
+`mobility_requirements`, etc.) — see `select_tools()` in `agentic_research.py` — so it does not need
+an LLM call at all. This is also what makes the system genuinely *not* a fixed pipeline: a
+remote-work prompt and a vacation prompt produce different tool sets by construction (verified by
+`tests/unit/test_tool_selection_rules.py` and `tests/integration/test_agent_autonomy.py`), even
+though the *code path* through the state machine is identical.
+
+The one place an LLM *is* used to shape the search space is candidate generation — deciding *which
+places* to consider — because that benefits from broader world knowledge than a rule table can
+encode. Even there, MockLLMClient's fallback is a curated, purpose-keyed seed list so the system
+remains fully testable offline.
+
+## 4. Evidence Memory and Dynamic Evaluation
+
+Every tool call returns a `ToolResult` (source name/URL, retrieval timestamp, confidence, staleness,
+optional error). `Orchestrator._persist_evidence()` converts successful results into
+`EvidenceRecord`s stored in the SQLite `evidence` table (deduplicated on
+`place, criterion, source_name`), giving full traceability from a claim back to its source.
+
+`Dynamic Evaluation` (`evaluate_candidates()`) is a pure function: it reads the evidence collected
+for each candidate, computes per-criterion `[0,1]` ratings, and combines them as
+`score = Σ(weight_i · rating_i) − uncertainty_penalty`, where:
+
+- Weights start from the Request Interpreter's `inferred_weights` (derived from language cues —
+  "most important" → 0.9, "prefer" → 0.6, "would be nice" → 0.3, "do not care about X" → dropped)
+  and fall back to a small per-criterion default otherwise.
+- A criterion with **no evidence is excluded** from both the weighted sum and the weight
+  normalization — it is never scored as 0 or 1, and it is recorded in `missing_evidence` so the
+  Validator and the final response can disclose the gap honestly.
+- Hard constraints are checked **before** ranking, independently of the weighted score. A violated
+  hard constraint (e.g. a `car-free` requirement against a car-dependent destination, or a strict
+  budget requirement against a candidate whose estimated cost is far above it) sets
+  `eliminated=True` with an `elimination_reason` — the candidate is removed from ranking entirely,
+  not merely penalized.
+
+This is deterministic and extensively unit-tested (`tests/unit/test_dynamic_evaluation.py`) — the
+same inputs always produce the same score.
+
+## 5. Recommendation Validator
+
+`validate_recommendations()` is also a pure function. It checks: at least 3 viable candidates when
+reasonably possible, every viable candidate has recorded drawbacks, ranking stability (top two
+scores within a small margin are flagged "uncertain"), and — most importantly — whether any
+high-weight criterion is missing evidence for a top-3 candidate. If so, and no gap iteration has
+run yet, `should_research_again=True` triggers the `researching_gap` state described in §2. This
+is the feedback loop shown in the architecture diagram.
+
+## 6. Budget enforcement
+
+`app/llm/budget.py::BudgetManager` is consulted by `TracedLLMClient` **before** every LLM call:
+
+1. Refuse if the request has already made `MAX_LLM_CALLS_PER_REQUEST` calls.
+2. Compute a conservative worst-case cost (`max_output_tokens` × configured per-token pricing) and
+   refuse if `running_total + worst_case > MAX_PROJECT_BUDGET_USD`.
+
+Every call (successful or not) is recorded in the `llm_usage` SQLite table with provider-reported
+cost when available, otherwise a clearly-flagged (`is_estimated=True`) local estimate. This ledger
+is an additional local safeguard, not a substitute for the actual LLMod.ai account limit — it never
+claims to know the real provider-side balance (see README "Budget control").
+
+## 7. Failure handling and graceful degradation
+
+- Individual tool failures (timeout, HTTP 429/5xx, malformed JSON, empty response) are caught
+  inside each tool and converted to a `ToolResult(error=...)` — never raised — so one flaky source
+  never aborts the whole request. `ToolRegistry.run_tools()` adds a second layer of the same
+  protection around every tool call.
+- Cached data is preferred; if a live call fails and only stale cache is available, the stale
+  result is returned with `stale=True` explicitly set, never silently presented as current.
+- LLM failures (malformed JSON, schema-invalid output) get one repair attempt
+  (`MAX_JSON_REPAIR_ATTEMPTS=1`) inside `TracedLLMClient`; if that also fails, the orchestrator
+  either continues with a deterministic fallback (Recommendation Generator) or surfaces a clean
+  `status="error"` response while preserving every already-completed `steps` entry.
+
+## 8. Security boundaries
+
+- **Outbound allow-list** (`app/core/security.py`): only `https`, only exact/allow-listed hostnames
+  (Nominatim, Overpass, Open-Meteo, Wikivoyage/Wikipedia, plus the curated official-source domains),
+  raw IP literals rejected, DNS-resolved private/loopback/reserved addresses rejected, redirects
+  disabled. There is no generic URL-fetch tool anywhere in the codebase.
+- **Prompt-injection resistance**: every system prompt sent to the LLM (Request Interpreter,
+  Agentic Research, Recommendation Generator) explicitly instructs the model to treat its input as
+  untrusted data and ignore any embedded instructions.
+- **Secret handling**: the LLMod API key is read only from the environment, registered with the
+  logging redaction filter (`app/core/logging.py`) so it can never appear in logs, and never
+  included in exceptions or API responses.
+- **Strict API contracts**: every response model uses `ConfigDict(extra="forbid")`; custom
+  exception handlers guarantee `/api/execute` always returns the exact four-field envelope, never
+  FastAPI's default `{"detail": [...]}`.
+
+## 9. SQLite usage
+
+One database (`SQLITE_PATH`, default `./data/placematch.db`) with three tables, created idempotently
+at startup (`app/evidence/database.py`): `evidence` (Evidence Memory), `tool_cache` (generic
+per-tool cache with per-source TTLs), and `llm_usage` (the budget ledger). WAL mode is enabled to
+avoid "database is locked" errors under concurrent requests.
+
+## 10. UI → API flow
+
+The UI (`app/templates/index.html` + `app/static/app.js`) is a static page served by the same
+FastAPI app. It only ever calls `POST /api/execute` — it holds no agent logic of its own. Markdown
+from the response is rendered client-side through a small, whitelist-only transform
+(`safeMarkdownToHtml` in `app.js`) that HTML-escapes all text *before* applying any structural
+formatting, so raw LLM output is never inserted as live HTML.
+
+## 11. Why this is autonomous, not a fixed pipeline
+
+Two requests with the same *shape* of prompt but different purposes traverse the *same* state
+machine code but produce materially different behavior: different candidate seeds, different tool
+sets, different scoring weights, and a possible extra research round for one but not the other.
+Nothing in the orchestrator hard-codes "always call these N tools" or "always ask these questions" —
+every branch point reads from the interpreted profile. That is what makes this a conditional agent
+rather than a linear script with optional steps.

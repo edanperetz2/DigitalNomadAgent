@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PlaceMatch — Autonomous Evidence-Based Place Recommendation Agent</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <h1>PlaceMatch</h1>
+      <p class="subtitle">Autonomous Evidence-Based Place Recommendation Agent</p>
+      <p class="description">
+        Describe what you're looking for &mdash; remote work, studies, vacation, relocation, or a
+        mix &mdash; in plain language. PlaceMatch will interpret your request, decide which
+        research is relevant, gather evidence from open data sources, and return ranked,
+        explainable recommendations with sources and trade-offs.
+      </p>
+      <nav class="links" aria-label="Agent resources">
+        <a href="/api/agent_info">Agent info</a>
+        <a href="/api/model_architecture">Architecture diagram</a>
+      </nav>
+    </header>
+
+    <section class="examples" aria-label="Example prompts">
+      <h2>Try an example</h2>
+      <div class="example-buttons">
+        <button type="button" class="example-btn" data-example="remote_work">Remote work</button>
+        <button type="button" class="example-btn" data-example="study">Study</button>
+        <button type="button" class="example-btn" data-example="vacation">Vacation</button>
+      </div>
+    </section>
+
+    <section class="request-form" aria-label="Request form">
+      <form id="execute-form">
+        <label for="prompt-input">Describe your request</label>
+        <textarea
+          id="prompt-input"
+          name="prompt"
+          rows="5"
+          maxlength="4000"
+          placeholder="e.g. I want to spend three months somewhere in Europe where I can work remotely, live without a car, and stay within €1,800 per month."
+          required
+        ></textarea>
+        <button type="submit" id="submit-btn">Get recommendations</button>
+      </form>
+      <p id="loading-indicator" class="loading" hidden>Thinking through your request&hellip;</p>
+      <p id="error-display" class="error" role="alert" hidden></p>
+    </section>
+
+    <section id="results" class="results" aria-label="Recommendations" hidden>
+      <h2>Recommendations</h2>
+      <div id="results-content"></div>
+
+      <details id="steps-details" class="steps">
+        <summary>Execution steps</summary>
+        <div id="steps-content"></div>
+      </details>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

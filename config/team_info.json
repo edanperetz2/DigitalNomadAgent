@@ -1,0 +1,18 @@
+{
+  "group_batch_order_number": "REPLACE_WITH_BATCH#_REPLACE_WITH_ORDER#",
+  "team_name": "REPLACE_WITH_TEAM_NAME",
+  "students": [
+    {
+      "name": "REPLACE_WITH_STUDENT_1_NAME",
+      "email": "REPLACE_WITH_STUDENT_1_EMAIL"
+    },
+    {
+      "name": "REPLACE_WITH_STUDENT_2_NAME",
+      "email": "REPLACE_WITH_STUDENT_2_EMAIL"
+    },
+    {
+      "name": "REPLACE_WITH_STUDENT_3_NAME",
+      "email": "REPLACE_WITH_STUDENT_3_EMAIL"
+    }
+  ]
+}

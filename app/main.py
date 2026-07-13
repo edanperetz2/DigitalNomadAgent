@@ -1,0 +1,154 @@
+"""FastAPI application factory: DI wiring, startup validation, route mounting."""
+
+from __future__ import annotations
+
+import json
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from app.agent.orchestrator import Orchestrator
+from app.api.exception_handlers import (
+    budget_exceeded_handler,
+    place_match_error_handler,
+    unhandled_exception_handler,
+    validation_exception_handler,
+)
+from app.api.routes import router
+from app.api.schemas import TeamInfoResponse
+from app.core.config import REPO_ROOT, get_settings
+from app.core.exceptions import BudgetExceededError, ConfigurationError, PlaceMatchError
+from app.core.logging import logger
+from app.evidence.cache import ToolCache
+from app.evidence.database import Database
+from app.evidence.memory import EvidenceMemory
+from app.llm.base import BaseLLMClient
+from app.llm.budget import BudgetManager
+from app.llm.llmod import LLModClient
+from app.llm.mock import MockLLMClient
+from app.tools.accessibility import AccessibilityTool
+from app.tools.activities import ActivitiesTool
+from app.tools.amenities import AmenitiesTool
+from app.tools.budget_fit import BudgetFitTool
+from app.tools.education_options import EducationOptionsTool
+from app.tools.geocoding import GeocodingTool
+from app.tools.official_sources import OfficialSourceTool
+from app.tools.place_context import PlaceContextTool
+from app.tools.registry import ToolRegistry
+from app.tools.timezone_fit import TimezoneFitTool
+from app.tools.weather import WeatherTool
+
+TEAM_INFO_PATH = REPO_ROOT / "config" / "team_info.json"
+TEMPLATES_DIR = REPO_ROOT / "app" / "templates"
+STATIC_DIR = REPO_ROOT / "app" / "static"
+
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+def _load_team_info() -> TeamInfoResponse:
+    if not TEAM_INFO_PATH.exists():
+        raise ConfigurationError(f"config/team_info.json is missing at {TEAM_INFO_PATH}.")
+    try:
+        data = json.loads(TEAM_INFO_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ConfigurationError(f"config/team_info.json is not valid JSON: {exc}") from exc
+    return TeamInfoResponse.model_validate(data)
+
+
+def _build_llm_client(settings) -> BaseLLMClient:
+    if settings.mock_llm:
+        return MockLLMClient()
+    return LLModClient(
+        api_key=settings.llmod_api_key,
+        base_url=settings.llmod_base_url,
+        chat_completions_path=settings.llmod_chat_completions_path,
+        model=settings.llmod_model,
+        auth_header=settings.llmod_auth_header,
+        auth_scheme=settings.llmod_auth_scheme,
+        timeout_seconds=settings.http_timeout_seconds,
+    )
+
+
+def _build_tool_registry(cache: ToolCache, timeout: float, max_concurrent: int) -> ToolRegistry:
+    tools = {
+        "GeocodingTool": GeocodingTool(cache, timeout),
+        "WeatherTool": WeatherTool(cache, timeout),
+        "AmenitiesTool": AmenitiesTool(cache, timeout),
+        "PlaceContextTool": PlaceContextTool(cache, timeout),
+        "TimezoneFitTool": TimezoneFitTool(),
+        "BudgetFitTool": BudgetFitTool(),
+        "EducationOptionsTool": EducationOptionsTool(),
+        "AccessibilityTool": AccessibilityTool(cache, timeout),
+        "ActivitiesTool": ActivitiesTool(cache, timeout),
+        "OfficialSourceTool": OfficialSourceTool(),
+    }
+    return ToolRegistry(tools, max_concurrent_requests=max_concurrent)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings = get_settings()
+    app.state.settings = settings
+    app.state.team_info = _load_team_info()
+
+    db = Database(settings.sqlite_path_resolved)
+    await db.connect()
+    app.state.db = db
+
+    cache = ToolCache(db, default_ttl_hours=settings.cache_ttl_hours)
+    evidence_memory = EvidenceMemory(db)
+    budget_manager = BudgetManager(
+        db,
+        max_project_budget_usd=settings.max_project_budget_usd,
+        max_llm_calls_per_request=settings.max_llm_calls_per_request,
+        input_cost_per_1m=settings.llm_input_cost_per_1m,
+        output_cost_per_1m=settings.llm_output_cost_per_1m,
+    )
+    llm_client = getattr(app.state, "llm_client_override", None) or _build_llm_client(settings)
+    tool_registry = getattr(app.state, "tool_registry_override", None) or _build_tool_registry(
+        cache, settings.http_timeout_seconds, settings.max_concurrent_tool_requests
+    )
+
+    app.state.orchestrator = Orchestrator(
+        tool_registry,
+        evidence_memory,
+        llm_client,
+        budget_manager,
+        max_output_tokens=settings.llm_max_output_tokens,
+        max_candidates=settings.max_candidates,
+        max_final_recommendations=settings.max_final_recommendations,
+        max_prompt_length=settings.max_prompt_length,
+    )
+
+    logger.info("PlaceMatch started (mock_llm=%s)", settings.mock_llm)
+    yield
+    await db.close()
+
+
+def create_app(*, tool_registry_override=None, llm_client_override=None) -> FastAPI:
+    """Build the FastAPI app. Test code may inject a fake tool registry and/or
+    LLM client so `pytest` never makes real network or paid LLM calls."""
+    app = FastAPI(title="PlaceMatch", lifespan=lifespan)
+    app.state.tool_registry_override = tool_registry_override
+    app.state.llm_client_override = llm_client_override
+
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(BudgetExceededError, budget_exceeded_handler)
+    app.add_exception_handler(PlaceMatchError, place_match_error_handler)
+    app.add_exception_handler(Exception, unhandled_exception_handler)
+
+    app.include_router(router)
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+    @app.get("/", response_class=HTMLResponse)
+    async def index(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(request, "index.html", {})
+
+    return app
+
+
+app = create_app()
