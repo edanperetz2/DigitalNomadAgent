@@ -22,7 +22,5 @@ def test_architecture_png_has_reasonable_dimensions():
 
 
 def test_canonical_module_names_available_for_diagram():
-    # scripts/generate_architecture.py imports these same names directly, so
-    # the diagram cannot drift from the canonical names used elsewhere.
     assert len(ALL_MODULES) == 7
     assert all(isinstance(name, str) and name for name in ALL_MODULES)

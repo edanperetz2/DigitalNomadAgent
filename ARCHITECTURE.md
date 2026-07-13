@@ -2,8 +2,7 @@
 
 This document explains how PlaceMatch is built and, more importantly, *why* it is an autonomous
 agent rather than a fixed pipeline. See `assets/model_architecture.png` (also served at
-`GET /api/model_architecture`) for the visual diagram, generated deterministically by
-`scripts/generate_architecture.py`.
+`GET /api/model_architecture`) for the visual diagram.
 
 ## 1. Canonical modules
 

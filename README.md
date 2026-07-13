@@ -283,17 +283,6 @@ purposes, UI markup).
 
 ---
 
-## Architecture-image generation
-
-```powershell
-python scripts/generate_architecture.py
-```
-
-Deterministic, Pillow-only (no system Graphviz dependency), writes `assets/model_architecture.png`,
-which is also what `GET /api/model_architecture` serves.
-
----
-
 ## FastAPI startup
 
 ```powershell
