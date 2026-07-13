@@ -18,8 +18,10 @@
         explainable recommendations with sources and trade-offs.
       </p>
       <nav class="links" aria-label="Agent resources">
+        <a href="/api/team_info">Team info</a>
         <a href="/api/agent_info">Agent info</a>
         <a href="/api/model_architecture">Architecture diagram</a>
+        <a href="/api/execute" title="POST only &mdash; use the form below, or POST a JSON body with curl/Postman">Execute API</a>
       </nav>
     </header>
 
@@ -45,7 +47,10 @@
         ></textarea>
         <button type="submit" id="submit-btn">Get recommendations</button>
       </form>
-      <p id="loading-indicator" class="loading" hidden>Thinking through your request&hellip;</p>
+      <div id="loading-indicator" class="loading" hidden>
+        <span class="spinner" aria-hidden="true"></span>
+        <p id="loading-stage">Thinking through your request&hellip;</p>
+      </div>
       <p id="error-display" class="error" role="alert" hidden></p>
     </section>
 

@@ -114,8 +114,40 @@ textarea {
 }
 
 .loading {
+  align-items: center;
+  gap: 0.65rem;
   color: var(--color-muted);
   font-style: italic;
+}
+
+.loading:not([hidden]) {
+  display: flex;
+}
+
+.loading p {
+  margin: 0;
+  transition: opacity 0.25s ease;
+  opacity: 1;
+}
+
+.loading p.fade {
+  opacity: 0;
+}
+
+.spinner {
+  flex: none;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .error {

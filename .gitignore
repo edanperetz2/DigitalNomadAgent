@@ -16,3 +16,4 @@ data/
 *.log
 dist/
 build/
+.playwright-mcp/

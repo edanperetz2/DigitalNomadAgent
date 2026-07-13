@@ -14,10 +14,30 @@
   const promptInput = document.getElementById("prompt-input");
   const submitBtn = document.getElementById("submit-btn");
   const loadingIndicator = document.getElementById("loading-indicator");
+  const loadingStage = document.getElementById("loading-stage");
   const errorDisplay = document.getElementById("error-display");
   const resultsSection = document.getElementById("results");
   const resultsContent = document.getElementById("results-content");
   const stepsContent = document.getElementById("steps-content");
+
+  // Simulated stage labels shown while waiting for /api/execute. These mirror
+  // the agent's real state-machine order but are not driven by live backend
+  // events (the API is a single request/response call, not a stream).
+  const LOADING_STAGES = [
+    "Interpreting your request…",
+    "Generating candidate destinations…",
+    "Verifying candidates (geocoding)…",
+    "Checking weather & climate fit…",
+    "Matching time zones…",
+    "Running budget-fit tool…",
+    "Checking amenities & walkability…",
+    "Gathering official sources…",
+    "Scoring & ranking candidates…",
+    "Validating recommendation quality…",
+    "Writing your recommendation…",
+  ];
+  const LOADING_STAGE_INTERVAL_MS = 1300;
+  let loadingStageTimer = null;
 
   document.querySelectorAll(".example-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -142,6 +162,23 @@
   function setLoading(isLoading) {
     submitBtn.disabled = isLoading;
     loadingIndicator.hidden = !isLoading;
+
+    if (loadingStageTimer) {
+      clearInterval(loadingStageTimer);
+      loadingStageTimer = null;
+    }
+
+    if (!isLoading) return;
+
+    let stageIndex = 0;
+    loadingStage.textContent = LOADING_STAGES[stageIndex];
+    loadingStage.classList.remove("fade");
+    loadingStageTimer = setInterval(() => {
+      stageIndex = (stageIndex + 1) % LOADING_STAGES.length;
+      loadingStage.classList.add("fade");
+      loadingStage.textContent = LOADING_STAGES[stageIndex];
+      requestAnimationFrame(() => loadingStage.classList.remove("fade"));
+    }, LOADING_STAGE_INTERVAL_MS);
   }
 
   function showError(message) {

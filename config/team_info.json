@@ -1,18 +1,18 @@
 {
-  "group_batch_order_number": "REPLACE_WITH_BATCH#_REPLACE_WITH_ORDER#",
-  "team_name": "REPLACE_WITH_TEAM_NAME",
+  "group_batch_order_number": "Batch 2 Order 4",
+  "team_name": "Shani, Idan & Ilay",
   "students": [
     {
-      "name": "REPLACE_WITH_STUDENT_1_NAME",
-      "email": "REPLACE_WITH_STUDENT_1_EMAIL"
+      "name": "Idan Peretz",
+      "email": "edanp@campus.technion.ac.il"
     },
     {
-      "name": "REPLACE_WITH_STUDENT_2_NAME",
-      "email": "REPLACE_WITH_STUDENT_2_EMAIL"
+      "name": "Shani Goren",
+      "email": "shanigoren@campus.technion.ac.il"
     },
     {
-      "name": "REPLACE_WITH_STUDENT_3_NAME",
-      "email": "REPLACE_WITH_STUDENT_3_EMAIL"
+      "name": "Ilay Braunshtein",
+      "email": "bilay@campus.technion.ac.il"
     }
   ]
 }
