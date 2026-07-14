@@ -68,3 +68,14 @@ def test_geocoding_always_included():
         if purpose == "study":
             kwargs["study_field"] = "law"
         assert "GeocodingTool" in select_tools(_profile(**kwargs))
+
+
+def test_place_context_is_deferred_for_all_purposes():
+    profiles = [
+        _profile(purpose="remote_work"),
+        _profile(purpose="study", study_field="law"),
+        _profile(purpose="vacation"),
+        _profile(purpose="mixed", secondary_purposes=["remote_work", "study"]),
+    ]
+
+    assert all("PlaceContextTool" not in select_tools(profile) for profile in profiles)

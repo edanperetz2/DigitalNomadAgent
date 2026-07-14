@@ -142,3 +142,15 @@ def test_scoring_is_deterministic():
     result1 = evaluate_candidates([candidate], profile, evidence)[0]
     result2 = evaluate_candidates([candidate], profile, evidence)[0]
     assert result1.total_score == result2.total_score
+
+
+def test_place_context_excerpt_is_not_treated_as_an_advantage():
+    profile = PlaceRequestProfile(purpose="remote_work", budget=Budget())
+    candidate = _candidate("City")
+    excerpt = "City is a scenic destination, but this generic description does not establish request fit."
+    evidence = {"City": [_tool_result("PlaceContextTool", "City", {"excerpt": excerpt})]}
+
+    evaluation = evaluate_candidates([candidate], profile, evidence)[0]
+
+    assert all(excerpt[:30] not in advantage for advantage in evaluation.advantages)
+    assert evaluation.criterion_scores == {}

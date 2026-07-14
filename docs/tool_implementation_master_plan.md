@@ -23,6 +23,7 @@ Unrelated user changes are never staged. If they overlap the active unit, stop a
 
 - `IN PROGRESS`: approved and currently being implemented or reviewed.
 - `PLANNED`: scoped but implementation has not been approved for that unit yet.
+- `DEFERRED`: deliberately removed from the active sequence and retained only for possible later reconsideration.
 - `BLOCKED`: intentionally waiting for required external data.
 - `COMPLETE`: implemented, reviewed, explicitly approved, and committed.
 
@@ -50,13 +51,15 @@ Planned commit: `feat(tools): harden destination geocoding`
 - Cache for 30 days, process candidates serially, and persist geocoding evidence rather than discarding it.
 - Test ambiguity, country mismatch, low importance, rate limiting, cache fallback, and malformed responses.
 
-### 2. PlaceContextTool — PLANNED
+### 2. PlaceContextTool — DEFERRED
 
-Planned commit: `feat(tools): improve destination context evidence`
+Commit: `refactor(tools): defer destination context enrichment`
 
-- Use the canonical geocoded title, handle redirects, and return a bounded introduction, resolved page title, revision ID, and exact Wikivoyage source.
-- Use the shared MediaWiki client also intended for SafetyTool.
-- Test missing pages, redirects, empty extracts, stale cache, and excerpt limits.
+- Remove PlaceContextTool from active study, remote-work, vacation, and mixed-purpose tool selection.
+- Stop treating a generic destination introduction as a recommendation advantage or scoring signal.
+- Retain the current implementation and shared MediaWiki client only for possible future post-ranking enrichment of final recommendations.
+- Any future reactivation must run only for finalists, remain non-scoring, and expose a bounded introduction, resolved title, revision identity, and exact source.
+- SafetyTool remains independent and may still use the shared MediaWiki client for its specific Stay safe evidence component.
 
 ### 3. WeatherTool — PLANNED
 

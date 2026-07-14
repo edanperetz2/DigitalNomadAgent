@@ -103,9 +103,9 @@ def select_tools(profile: PlaceRequestProfile) -> set[str]:
         purposes = set(profile.secondary_purposes) or {"remote_work", "vacation"}
 
     if "study" in purposes:
-        tools |= {"EducationOptionsTool", "PlaceContextTool", "BudgetFitTool"}
+        tools |= {"EducationOptionsTool", "BudgetFitTool"}
     if "remote_work" in purposes:
-        tools |= {"AmenitiesTool", "BudgetFitTool", "PlaceContextTool"}
+        tools |= {"AmenitiesTool", "BudgetFitTool"}
         if any(w in haystack for w in _TIMEZONE_TRIGGER_WORDS):
             tools.add("TimezoneFitTool")
     if "vacation" in purposes:

@@ -140,9 +140,6 @@ def _extract_criterion_scores(
                 else:
                     drawbacks.append("The specific academic field could not be confirmed for this city.")
 
-        elif r.tool_name == "PlaceContextTool" and nd.get("excerpt"):
-            advantages.append(nd["excerpt"][:150])
-
     return scores, advantages, drawbacks
 
 
