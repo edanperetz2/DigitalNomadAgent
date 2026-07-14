@@ -73,6 +73,7 @@ def test_candidate_evaluation_defaults():
     e = CandidateEvaluation(place="Lisbon")
     assert e.eliminated is False
     assert e.total_score == 0.0
+    assert e.criterion_component_scores == {}
 
 
 def test_validation_result_requires_approved():

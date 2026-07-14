@@ -61,16 +61,28 @@ Commit: `refactor(tools): defer destination context enrichment`
 - Any future reactivation must run only for finalists, remain non-scoring, and expose a bounded introduction, resolved title, revision identity, and exact source.
 - SafetyTool remains independent and may still use the shared MediaWiki client for its specific Stay safe evidence component.
 
-### 3. WeatherTool — PLANNED
+### 3. WeatherTool — COMPLETE
 
 Planned commit: `feat(tools): add requested-season climate evidence`
 
 - Resolve requested months from structured profile fields, with a documented current-month fallback.
-- Query the last ten complete years from the Open-Meteo archive.
-- Return target-month averages, precipitation, rainy-day frequency, and extreme-heat frequency; label the result climatology rather than forecast.
-- Test seasons spanning calendar years, leap years, missing days, absent dates, and incomplete responses.
+- Query the five previous calendar years from the Open-Meteo archive and label the result climatology rather than forecast.
+- Return a multidimensional climate profile covering actual and apparent temperature, humidity, rain, snow, sunshine/daylight, cloud cover, wind/gusts, heavy-precipitation and high-wind proxies, heat/freezing frequencies, interannual variability, and per-variable coverage. Do not claim a thunderstorm frequency because the archive variables do not establish one reliably.
+- Score every explicitly requested climate preference as a separate component; average only available requested components, name unavailable requested components, reduce confidence for them, and produce no universal climate score when the user states no climate preference.
+- Treat missing dimensions as missing rather than zero, never use a climate result for hard elimination in this unit, and retain every raw metric and threshold used by scoring.
+- Test seasons spanning calendar years, leap years, current-month fallback, missing dates/values, misaligned arrays, insufficient coverage, stale cache, and preference-specific scoring.
 
-### 4. TimezoneFitTool — PLANNED
+### 4. WikivoyageClimateTool — PLANNED
+
+Planned commit: `feat(tools): add Wikivoyage climate corroboration`
+
+- Extract only the resolved Wikivoyage Climate section and climate chart, with revision identity, exact source URL, bounded excerpts, and independently persisted evidence.
+- Deterministically score only chart values and observable, preference-relevant climate statements; ignore generic claims such as pleasant or perfect weather.
+- Combine each available preference component at 80% WeatherTool and 20% WikivoyageClimateTool, renormalizing to WeatherTool alone when Wikivoyage has no relevant evidence.
+- Cap Wikivoyage confidence at medium, expose contradictions and reduce combined confidence, and never let Wikivoyage evidence alone satisfy or violate a hard constraint.
+- Test missing sections, redirects, chart parsing, negation, irrelevant prose, source weighting, contradictions, and missing-source renormalization.
+
+### 5. TimezoneFitTool — PLANNED
 
 Planned commit: `feat(tools): support global timezone overlap`
 
@@ -79,7 +91,7 @@ Planned commit: `feat(tools): support global timezone overlap`
 - Return unknown for ambiguous or country-only origins rather than guessing.
 - Test DST transitions, half-hour zones, ambiguous origins, missing coordinates, and fallback behavior.
 
-### 5. AmenitiesTool — PLANNED
+### 6. AmenitiesTool — PLANNED
 
 Planned commit: `feat(tools): return category-level amenity evidence`
 
@@ -88,7 +100,7 @@ Planned commit: `feat(tools): return category-level amenity evidence`
 - Remove the aggregate count. Score work infrastructure from coworking/cafes and student life from universities/libraries.
 - Test category query generation, independent counts, deduplication, fallback endpoints, rate errors, and partial results.
 
-### 6. LocalMobilityTool — PLANNED
+### 7. LocalMobilityTool — PLANNED
 
 Planned commit: `feat(tools): add local car-free mobility evidence`
 
@@ -98,7 +110,7 @@ Planned commit: `feat(tools): add local car-free mobility evidence`
 - Permit hard elimination only for non-stale, medium-or-higher-confidence `unlikely` results.
 - Test dense, sparse, missing, stale, and contradictory mobility evidence.
 
-### 7. TransportAccessTool — PLANNED
+### 8. TransportAccessTool — PLANNED
 
 Planned commit: `refactor(tools): separate destination transport access`
 
@@ -107,7 +119,7 @@ Planned commit: `refactor(tools): separate destination transport access`
 - Route origin, distance, and arrival-access concerns here; stop using arrival infrastructure as proof of car-free living.
 - Avoid claims about live routes, schedules, prices, or travel times.
 
-### 8. ActivitiesTool — PLANNED
+### 9. ActivitiesTool — PLANNED
 
 Planned commit: `feat(tools): add category-specific activity evidence`
 
@@ -116,7 +128,7 @@ Planned commit: `feat(tools): add category-specific activity evidence`
 - Treat absent evidence as missing, not zero.
 - Test multi-category requests, hiking relations, duplicated OSM elements, generic vacation fallback, and unsupported activities.
 
-### 9. EducationOptionsTool — PLANNED
+### 10. EducationOptionsTool — PLANNED
 
 Planned commit: `feat(tools): expand education evidence coverage`
 
@@ -126,7 +138,7 @@ Planned commit: `feat(tools): expand education evidence coverage`
 - Never infer current programs, admissions, or eligibility.
 - Test institution deduplication, field aliases, missing disciplines, Wikidata failure, and curated fallback.
 
-### 10. SafetyTool — PLANNED
+### 11. SafetyTool — PLANNED
 
 Planned commit: `feat(tools): add composite destination safety evidence`
 
@@ -137,7 +149,7 @@ Planned commit: `feat(tools): add composite destination safety evidence`
 - Renormalize when one component is missing, require at least two components for a score, cap confidence at medium with all three and low with two, and expose every component/date/excerpt.
 - Route the `safety` criterion to this tool and never present the result as an objective universal city-safety rating.
 
-### 11. BudgetFitTool — BLOCKED
+### 12. BudgetFitTool — BLOCKED
 
 Planned commit: `feat(tools): complete currency-aware budget evidence`
 
@@ -147,7 +159,7 @@ Planned commit: `feat(tools): complete currency-aware budget evidence`
 - Never compare different currencies; unavailable conversion means missing evidence.
 - Validate candidate coverage, dates, URLs, ranges, fixture behavior, conversion, and hard-budget handling before committing.
 
-### 12. OfficialSourceTool — BLOCKED
+### 13. OfficialSourceTool — BLOCKED
 
 Planned commit: `feat(tools): complete curated official-source evidence`
 

@@ -79,6 +79,7 @@ class CandidateEvaluation(BaseModel):
     place: str
     country: str = ""
     criterion_scores: dict[str, float] = Field(default_factory=dict)
+    criterion_component_scores: dict[str, dict[str, float]] = Field(default_factory=dict)
     criterion_weights: dict[str, float] = Field(default_factory=dict)
     total_score: float = 0.0
     confidence_score: float = 0.0

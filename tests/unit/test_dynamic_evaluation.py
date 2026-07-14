@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+import pytest
+
 from app.agent.dynamic_evaluation import evaluate_candidates
 from app.agent.models import Budget, CandidatePlace, PlaceRequestProfile
 from app.evidence.models import ToolResult
@@ -99,6 +101,7 @@ def test_do_not_care_removes_criterion_weight():
     profile_not_caring = PlaceRequestProfile(
         purpose="vacation",
         relevant_criteria=["climate"],
+        climate_preferences=["warm"],
         inferred_weights={"climate": 0.9},
         budget=Budget(),
     )
@@ -136,12 +139,131 @@ def test_eliminated_candidates_sorted_last():
 
 
 def test_scoring_is_deterministic():
-    profile = PlaceRequestProfile(purpose="vacation", relevant_criteria=["climate"], budget=Budget())
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        relevant_criteria=["climate"],
+        climate_preferences=["warm"],
+        budget=Budget(),
+    )
     candidate = _candidate("City")
     evidence = {"City": [_tool_result("WeatherTool", "City", {"avg_high_c": 24.0})]}
     result1 = evaluate_candidates([candidate], profile, evidence)[0]
     result2 = evaluate_candidates([candidate], profile, evidence)[0]
     assert result1.total_score == result2.total_score
+
+
+def test_weather_is_not_scored_without_explicit_climate_preferences():
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        relevant_criteria=["climate"],
+        budget=Budget(),
+    )
+    candidate = _candidate("City")
+    evidence = {
+        "City": [
+            _tool_result(
+                "WeatherTool",
+                "City",
+                {
+                    "avg_high_c": 22.0,
+                    "mean_relative_humidity_pct": 50.0,
+                    "rainy_day_frequency": 0.1,
+                },
+            )
+        ]
+    }
+
+    evaluation = evaluate_candidates([candidate], profile, evidence)[0]
+
+    assert "climate" not in evaluation.criterion_scores
+    assert evaluation.criterion_component_scores == {}
+    assert "climate" in evaluation.missing_evidence
+
+
+def test_climate_score_averages_only_requested_available_dimensions():
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        relevant_criteria=["climate"],
+        climate_preferences=["warm", "low humidity", "sunny", "calm"],
+        budget=Budget(),
+    )
+    candidate = _candidate("City")
+    evidence = {
+        "City": [
+            _tool_result(
+                "WeatherTool",
+                "City",
+                {
+                    "avg_high_c": 22.0,
+                    "mean_relative_humidity_pct": 80.0,
+                    "sunshine_fraction_of_daylight": 0.8,
+                    "p95_daily_max_wind_gust_kmh": 50.0,
+                    "snow_day_frequency": 0.5,
+                },
+            )
+        ]
+    }
+
+    evaluation = evaluate_candidates([candidate], profile, evidence)[0]
+
+    assert evaluation.criterion_component_scores["climate"] == {
+        "temperature": 1.0,
+        "humidity": 0.0,
+        "sunshine": 1.0,
+        "wind": 0.5,
+    }
+    assert evaluation.criterion_scores["climate"] == pytest.approx(0.625)
+    assert "snow" not in evaluation.criterion_component_scores["climate"]
+
+
+def test_missing_requested_climate_dimension_is_missing_not_zero():
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        relevant_criteria=["climate"],
+        climate_preferences=["warm", "low humidity"],
+        budget=Budget(),
+    )
+    candidate = _candidate("City")
+    evidence = {
+        "City": [
+            _tool_result(
+                "WeatherTool",
+                "City",
+                {"avg_high_c": 22.0, "mean_relative_humidity_pct": None},
+            )
+        ]
+    }
+
+    evaluation = evaluate_candidates([candidate], profile, evidence)[0]
+
+    assert evaluation.criterion_component_scores["climate"] == {"temperature": 1.0}
+    assert evaluation.criterion_scores["climate"] == 1.0
+    assert evaluation.confidence_score == 0.5
+    assert any("humidity" in drawback for drawback in evaluation.drawbacks)
+
+
+def test_negated_heat_preference_scores_extreme_heat_without_requesting_hot_weather():
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        relevant_criteria=["climate"],
+        climate_preferences=["not extremely hot"],
+        budget=Budget(),
+    )
+    candidate = _candidate("City")
+    evidence = {
+        "City": [
+            _tool_result(
+                "WeatherTool",
+                "City",
+                {"avg_high_c": 32.0, "extreme_heat_frequency": 0.1},
+            )
+        ]
+    }
+
+    evaluation = evaluate_candidates([candidate], profile, evidence)[0]
+
+    assert evaluation.criterion_component_scores["climate"] == {"extreme_heat": 0.5}
+    assert evaluation.eliminated is False
 
 
 def test_place_context_excerpt_is_not_treated_as_an_advantage():
