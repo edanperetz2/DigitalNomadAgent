@@ -7,6 +7,10 @@ def test_allowed_exact_domain_passes():
     validate_outbound_url("https://nominatim.openstreetmap.org/search?q=Lisbon")
 
 
+def test_open_meteo_geocoding_domain_passes():
+    validate_outbound_url("https://geocoding-api.open-meteo.com/v1/search?name=Lisbon")
+
+
 def test_allowed_suffix_domain_passes():
     validate_outbound_url("https://en.wikivoyage.org/wiki/Lisbon")
 

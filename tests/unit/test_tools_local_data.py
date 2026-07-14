@@ -6,7 +6,6 @@ from app.tools.budget_fit import BudgetFitTool
 from app.tools.education_options import EducationOptionsTool
 from app.tools.official_sources import DATA_PATH as OFFICIAL_SOURCES_DATA_PATH
 from app.tools.official_sources import OfficialSourceTool
-from app.tools.timezone_fit import TimezoneFitTool
 
 
 def _candidate(name, country="Portugal", lat=38.7, lon=-9.1):
@@ -69,30 +68,4 @@ async def test_official_source_tool_never_invents_visa_conclusion():
     tool = OfficialSourceTool()
     profile = PlaceRequestProfile(purpose="vacation")
     result = await tool.run(_candidate("Nowhereland", country="Nowhereland"), profile)
-    assert result.error is not None
-
-
-@pytest.mark.asyncio
-async def test_timezone_fit_tool_unknown_origin():
-    tool = TimezoneFitTool()
-    profile = PlaceRequestProfile(purpose="remote_work")
-    result = await tool.run(_candidate("Lisbon"), profile)
-    assert "origin timezone is unknown" in " ".join(result.warnings).lower()
-
-
-@pytest.mark.asyncio
-async def test_timezone_fit_tool_known_origin_computes_overlap():
-    tool = TimezoneFitTool()
-    profile = PlaceRequestProfile(purpose="remote_work", origin="Israel")
-    result = await tool.run(_candidate("Lisbon"), profile)
-    assert result.error is None
-    assert "estimated_workday_overlap_hours" in result.normalized_data
-
-
-@pytest.mark.asyncio
-async def test_timezone_fit_tool_requires_coordinates():
-    tool = TimezoneFitTool()
-    profile = PlaceRequestProfile(purpose="remote_work", origin="Israel")
-    candidate = CandidatePlace(place_name="Unverified", country="X", reason_for_inclusion="t")
-    result = await tool.run(candidate, profile)
     assert result.error is not None

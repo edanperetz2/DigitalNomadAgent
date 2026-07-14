@@ -87,7 +87,7 @@ def _build_tool_registry(cache: ToolCache, timeout: float, max_concurrent: int) 
         "WikivoyageClimateTool": WikivoyageClimateTool(cache, timeout, mediawiki=mediawiki),
         "AmenitiesTool": AmenitiesTool(cache, timeout, overpass=overpass),
         "PlaceContextTool": PlaceContextTool(cache, timeout, mediawiki=mediawiki),
-        "TimezoneFitTool": TimezoneFitTool(),
+        "TimezoneFitTool": TimezoneFitTool(cache, timeout, http=http),
         "BudgetFitTool": BudgetFitTool(),
         "EducationOptionsTool": EducationOptionsTool(),
         "AccessibilityTool": AccessibilityTool(cache, timeout, overpass=overpass),

@@ -83,14 +83,17 @@ Planned commit: `feat(tools): add Wikivoyage climate corroboration`
 - Cap Wikivoyage confidence at medium, expose contradictions and reduce combined confidence, and carry revision dates, confidence, and staleness into stored evidence and final source rendering.
 - Test missing sections, redirects, chart parsing, negation, irrelevant prose, source weighting, contradictions, and missing-source renormalization.
 
-### 5. TimezoneFitTool — PLANNED
+### 5. TimezoneFitTool — COMPLETE
 
-Planned commit: `feat(tools): support global timezone overlap`
+Planned commit: `feat(tools): make timezone overlap date-aware`
 
-- Resolve arbitrary origin cities through the free Open-Meteo geocoding API; keep the current map as an offline fallback.
-- Compute 09:00–17:00 overlap on a representative requested date so DST is respected.
-- Return unknown for ambiguous or country-only origins rather than guessing.
-- Test DST transitions, half-hour zones, ambiguous origins, missing coordinates, and fallback behavior.
+- Use local aliases and direct IANA timezone input as the fast path. Preserve the existing reasonable country/timezone guesses and add common city aliases and comma-qualified forms.
+- When the fast path has no match, make one free Open-Meteo geocoding request and accept its top usable city or country result containing an IANA timezone. Do not add a separate ambiguity engine; expose the selected canonical place so the guess remains visible.
+- Cache the provider resolution for 30 days through the existing ToolCache so the same origin is resolved once and reused across destination candidates.
+- Compute offsets on the 15th day of the first requested month in its next occurrence so seasonal DST is respected; use the current date with an explicit warning when no target month is available.
+- Retain the simple standard 09:00–17:00 overlap model, with a small circular-offset correction for international-date-line cases, and keep the existing four-hour full-score threshold.
+- Return the selected origin name and country, both IANA timezones, representative date, UTC offsets, offset difference, overlap, resolution method, and confidence. Unknown origins remain missing evidence rather than receiving a positive score.
+- Test local fast-path aliases, provider-resolved cities and countries, top-result visibility, cached reuse, provider failure, requested-season DST, current-date fallback, half-hour zones, date-line correction, direct IANA input, unknown origins, and missing destination coordinates.
 
 ### 6. AmenitiesTool — PLANNED
 

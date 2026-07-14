@@ -22,6 +22,7 @@ ALLOWED_EXACT_DOMAINS: set[str] = {
     "overpass.kumi.systems",
     "api.open-meteo.com",
     "archive-api.open-meteo.com",
+    "geocoding-api.open-meteo.com",
 }
 
 # Domains allowed by exact match OR any subdomain (e.g. en.wikivoyage.org).

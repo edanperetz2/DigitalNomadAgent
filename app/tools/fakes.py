@@ -195,6 +195,10 @@ class FakeTimezoneFitTool:
             normalized_data={
                 "candidate_timezone": "Etc/FakeZone",
                 "origin_timezone": "Etc/UTC",
+                "resolved_origin_name": profile.origin or "Fake origin",
+                "resolved_origin_country": None,
+                "origin_resolution_method": "fake",
+                "representative_date": "2026-01-15",
                 "utc_offset_diff_hours": diff,
                 "estimated_workday_overlap_hours": overlap,
             },
