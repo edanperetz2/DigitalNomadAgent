@@ -115,6 +115,8 @@ def select_tools(profile: PlaceRequestProfile) -> set[str]:
 
     if profile.climate_preferences or "vacation" in purposes or "mixed" in {profile.purpose}:
         tools.add("WeatherTool")
+    if profile.climate_preferences:
+        tools.add("WikivoyageClimateTool")
 
     if any(w in haystack for w in _ACCESSIBILITY_TRIGGER_WORDS):
         tools.add("AccessibilityTool")

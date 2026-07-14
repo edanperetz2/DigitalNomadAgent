@@ -27,7 +27,14 @@ def test_markdown_contains_required_sections():
             },
         ],
         "sources": [
-            {"source_name": "Open-Meteo", "source_url": "https://open-meteo.com/", "retrieved_at": "2026-07-01"}
+            {
+                "source_name": "Open-Meteo",
+                "source_url": "https://open-meteo.com/",
+                "retrieved_at": "2026-07-01",
+                "data_date": "2021-2025 climatology",
+                "confidence": "high",
+                "stale": True,
+            }
         ],
     }
     markdown = render_recommendation_markdown(payload)
@@ -38,6 +45,9 @@ def test_markdown_contains_required_sections():
     assert "### Sources" in markdown
     assert "Assumed budget includes accommodation." in markdown
     assert "Open-Meteo" in markdown
+    assert "data 2021-2025 climatology" in markdown
+    assert "high confidence" in markdown
+    assert "stale fallback" in markdown
     assert "visa" in markdown.lower() or "admission" in markdown.lower()
 
 

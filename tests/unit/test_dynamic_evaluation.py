@@ -266,6 +266,112 @@ def test_negated_heat_preference_scores_extreme_heat_without_requesting_hot_weat
     assert evaluation.eliminated is False
 
 
+def test_wikivoyage_climate_combines_at_twenty_percent_independent_of_result_order():
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        relevant_criteria=["climate"],
+        climate_preferences=["warm", "low humidity"],
+        budget=Budget(),
+    )
+    candidate = _candidate("City")
+    weather = _tool_result(
+        "WeatherTool",
+        "City",
+        {"avg_high_c": 22.0, "mean_relative_humidity_pct": 80.0},
+    )
+    wikivoyage = _tool_result(
+        "WikivoyageClimateTool",
+        "City",
+        {"component_scores": {"temperature": 0.5, "humidity": 1.0}},
+    )
+
+    forward = evaluate_candidates([candidate], profile, {"City": [weather, wikivoyage]})[0]
+    reverse = evaluate_candidates([candidate], profile, {"City": [wikivoyage, weather]})[0]
+
+    assert forward.criterion_component_scores["climate"] == {"humidity": 0.2, "temperature": 0.9}
+    assert forward.criterion_scores["climate"] == pytest.approx(0.55)
+    assert forward == reverse
+
+
+def test_climate_source_contradiction_reduces_confidence_and_is_exposed():
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        relevant_criteria=["climate"],
+        climate_preferences=["warm"],
+        budget=Budget(),
+    )
+    candidate = _candidate("City")
+    evidence = {
+        "City": [
+            _tool_result("WeatherTool", "City", {"avg_high_c": 22.0}),
+            _tool_result(
+                "WikivoyageClimateTool",
+                "City",
+                {"component_scores": {"temperature": 0.0}},
+            ),
+        ]
+    }
+
+    evaluation = evaluate_candidates([candidate], profile, evidence)[0]
+
+    assert evaluation.criterion_component_scores["climate"] == {"temperature": 0.8}
+    assert evaluation.confidence_score == 0.75
+    assert any("disagree on: temperature" in drawback for drawback in evaluation.drawbacks)
+
+
+def test_wikivoyage_only_climate_score_is_low_confidence_secondary_evidence():
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        relevant_criteria=["climate"],
+        climate_preferences=["sunny"],
+        budget=Budget(),
+    )
+    candidate = _candidate("City")
+    evidence = {
+        "City": [
+            _tool_result(
+                "WikivoyageClimateTool",
+                "City",
+                {"component_scores": {"sunshine": 0.8}},
+            )
+        ]
+    }
+
+    evaluation = evaluate_candidates([candidate], profile, evidence)[0]
+
+    assert evaluation.criterion_scores["climate"] == 0.8
+    assert evaluation.confidence_score == 0.5
+    assert evaluation.eliminated is False
+    assert any("Only secondary Wikivoyage" in drawback for drawback in evaluation.drawbacks)
+
+
+def test_stale_wikivoyage_climate_is_not_used_for_scoring():
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        relevant_criteria=["climate"],
+        climate_preferences=["warm"],
+        budget=Budget(),
+    )
+    candidate = _candidate("City")
+    evidence = {
+        "City": [
+            _tool_result("WeatherTool", "City", {"avg_high_c": 22.0}),
+            _tool_result(
+                "WikivoyageClimateTool",
+                "City",
+                {"component_scores": {"temperature": 0.0}},
+                stale=True,
+            ),
+        ]
+    }
+
+    evaluation = evaluate_candidates([candidate], profile, evidence)[0]
+
+    assert evaluation.criterion_component_scores["climate"] == {"temperature": 1.0}
+    assert evaluation.confidence_score == 1.0
+    assert not any("disagree" in drawback for drawback in evaluation.drawbacks)
+
+
 def test_place_context_excerpt_is_not_treated_as_an_advantage():
     profile = PlaceRequestProfile(purpose="remote_work", budget=Budget())
     candidate = _candidate("City")

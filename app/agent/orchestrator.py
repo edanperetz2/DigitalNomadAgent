@@ -25,16 +25,16 @@ from app.llm.base import BaseLLMClient
 from app.llm.budget import BudgetManager
 from app.tools.registry import ToolRegistry
 
-_CRITERION_TO_TOOL: dict[str, str] = {
-    "climate": "WeatherTool",
-    "work_infrastructure": "AmenitiesTool",
-    "cost": "BudgetFitTool",
-    "timezone": "TimezoneFitTool",
-    "transportation": "AmenitiesTool",
-    "activities": "ActivitiesTool",
-    "student_life": "AmenitiesTool",
-    "education": "EducationOptionsTool",
-    "accessibility": "AccessibilityTool",
+_CRITERION_TO_TOOLS: dict[str, set[str]] = {
+    "climate": {"WeatherTool", "WikivoyageClimateTool"},
+    "work_infrastructure": {"AmenitiesTool"},
+    "cost": {"BudgetFitTool"},
+    "timezone": {"TimezoneFitTool"},
+    "transportation": {"AmenitiesTool"},
+    "activities": {"ActivitiesTool"},
+    "student_life": {"AmenitiesTool"},
+    "education": {"EducationOptionsTool"},
+    "accessibility": {"AccessibilityTool"},
 }
 
 _PRIMARY_VALUE_FIELDS = (
@@ -118,6 +118,9 @@ class Orchestrator:
                             "source_name": item.source.source_name,
                             "source_url": item.source.source_url,
                             "retrieved_at": item.source.retrieved_at.date().isoformat(),
+                            "data_date": item.source.data_date,
+                            "confidence": item.source.confidence,
+                            "stale": item.source.stale,
                         }
         return list(sources.values())
 
@@ -220,11 +223,13 @@ class Orchestrator:
                 elif state == AgentState.RESEARCHING_GAP:
                     gap_iteration_used = True
                     gap_places = {m.place for m in validation.missing_research}
-                    gap_tool_names = {
-                        _CRITERION_TO_TOOL[m.criterion]
-                        for m in validation.missing_research
-                        if m.criterion in _CRITERION_TO_TOOL
-                    }
+                    gap_tool_names = set().union(
+                        *(
+                            _CRITERION_TO_TOOLS[item.criterion]
+                            for item in validation.missing_research
+                            if item.criterion in _CRITERION_TO_TOOLS
+                        )
+                    )
                     gap_candidates = [c for c in candidates if c.place_name in gap_places]
                     if gap_tool_names and gap_candidates:
                         gap_results = await self._tools.run_tools(gap_tool_names, gap_candidates, profile)

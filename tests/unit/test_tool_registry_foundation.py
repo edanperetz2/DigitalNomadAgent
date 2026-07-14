@@ -51,10 +51,12 @@ def test_production_registry_reuses_shared_clients():
     accessibility = registry.get("AccessibilityTool")
     activities = registry.get("ActivitiesTool")
     place_context = registry.get("PlaceContextTool")
+    wikivoyage_climate = registry.get("WikivoyageClimateTool")
 
     assert geocoding._http is weather._http
     assert amenities._overpass is accessibility._overpass is activities._overpass
     assert place_context._mediawiki._http is geocoding._http
+    assert wikivoyage_climate._mediawiki is place_context._mediawiki
 
 
 @pytest.mark.asyncio

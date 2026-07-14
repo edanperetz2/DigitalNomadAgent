@@ -1,5 +1,6 @@
 from app.agent.agentic_research import select_tools
 from app.agent.models import Budget, PlaceRequestProfile
+from app.agent.orchestrator import _CRITERION_TO_TOOLS
 
 
 def _profile(**overrides) -> PlaceRequestProfile:
@@ -39,6 +40,20 @@ def test_vacation_selects_weather_and_activities_not_education():
     assert "WeatherTool" in tools
     assert "ActivitiesTool" in tools
     assert "EducationOptionsTool" not in tools
+    assert "WikivoyageClimateTool" not in tools
+
+
+def test_explicit_climate_preferences_select_both_climate_tools():
+    profile = _profile(purpose="remote_work", climate_preferences=["sunny", "dry"])
+
+    tools = select_tools(profile)
+
+    assert "WeatherTool" in tools
+    assert "WikivoyageClimateTool" in tools
+
+
+def test_climate_gap_research_retries_both_climate_sources():
+    assert _CRITERION_TO_TOOLS["climate"] == {"WeatherTool", "WikivoyageClimateTool"}
 
 
 def test_vacation_selects_accessibility_when_origin_present():

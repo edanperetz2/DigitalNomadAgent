@@ -9,6 +9,7 @@ candidate outright rather than merely lowering its score.
 from __future__ import annotations
 
 from app.agent.models import CandidateEvaluation, CandidatePlace, PlaceRequestProfile
+from app.climate_scoring import clamp, requested_climate_dimensions, weather_component_scores
 from app.evidence.models import ToolResult
 
 DEFAULT_WEIGHTS: dict[str, float] = {
@@ -25,161 +26,125 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "nightlife": 0.3,
 }
 
-_CLIMATE_TARGETS: dict[str, tuple[float, float]] = {
-    "warm": (22, 8),
-    "hot": (32, 8),
-    "cold": (5, 8),
-    "mild": (18, 6),
-    "cool": (12, 8),
-}
-
 REQUIRED_TIMEZONE_OVERLAP_HOURS = 4.0
+WIKIVOYAGE_CLIMATE_WEIGHT = 0.20
+CLIMATE_CONTRADICTION_GAP = 0.50
 
 
-def _clamp(value: float) -> float:
-    return max(0.0, min(1.0, value))
+def _climate_evaluation(
+    results: list[ToolResult], profile: PlaceRequestProfile
+) -> tuple[dict[str, float], list[str], list[str], float]:
+    requested = requested_climate_dimensions(profile.climate_preferences)
+    if not requested:
+        return {}, [], [], 0.0
 
-
-def _scale(value: float, low: float, high: float) -> float:
-    return _clamp((value - low) / (high - low))
-
-
-def _requested_climate_dimensions(climate_preferences: list[str]) -> set[str]:
-    preferences = " | ".join(preference.casefold() for preference in climate_preferences)
-    if not preferences:
-        return set()
-
-    requested: set[str] = set()
-    avoids_extreme_heat = any(
-        phrase in preferences for phrase in ("not extremely hot", "avoid extreme heat", "not too hot")
+    weather_result = next(
+        (result for result in results if result.tool_name == "WeatherTool" and not result.error), None
     )
-    avoids_freezing = any(phrase in preferences for phrase in ("avoid freezing", "no freezing", "not cold"))
-    if any(
-        label in preferences
-        for label in _CLIMATE_TARGETS
-        if not (label == "hot" and avoids_extreme_heat) and not (label == "cold" and avoids_freezing)
-    ):
-        requested.add("temperature")
-    if avoids_extreme_heat:
-        requested.add("extreme_heat")
-    if avoids_freezing:
-        requested.add("freezing")
-    if any(phrase in preferences for phrase in ("low humidity", "not humid", "avoid humidity", "humid")):
-        requested.add("humidity")
-    if any(phrase in preferences for phrase in ("dry", "little rain", "avoid rain", "not rainy", "rainy")):
-        requested.add("rain")
-    if any(phrase in preferences for phrase in ("sunny", "sunshine", "cloudy")):
-        requested.add("sunshine")
-    if any(phrase in preferences for phrase in ("no snow", "avoid snow", "not snowy", "snowy", "snow")):
-        requested.add("snow")
-    if any(phrase in preferences for phrase in ("calm", "not windy", "avoid strong wind", "windy")):
-        requested.add("wind")
-    return requested
-
-
-def _climate_component_scores(normalized_data: dict, climate_preferences: list[str]) -> dict[str, float]:
-    """Score only climate dimensions explicitly requested by the user."""
-    preferences = " | ".join(preference.casefold() for preference in climate_preferences)
-    if not preferences:
-        return {}
-
-    scores: dict[str, float] = {}
-    avg_high = normalized_data.get("avg_high_c")
-    blocked_temperature_labels = set()
-    if any(phrase in preferences for phrase in ("not extremely hot", "avoid extreme heat", "not too hot")):
-        blocked_temperature_labels.add("hot")
-    if any(phrase in preferences for phrase in ("avoid freezing", "no freezing", "not cold")):
-        blocked_temperature_labels.add("cold")
-    for label, (target, tolerance) in _CLIMATE_TARGETS.items():
-        if label not in blocked_temperature_labels and label in preferences and isinstance(avg_high, (int, float)):
-            scores["temperature"] = _clamp(1.0 - abs(float(avg_high) - target) / tolerance)
-            break
-
-    extreme_heat = normalized_data.get("extreme_heat_frequency")
-    avoids_extreme_heat = any(
-        phrase in preferences for phrase in ("not extremely hot", "avoid extreme heat", "not too hot")
+    wikivoyage_result = next(
+        (
+            result
+            for result in results
+            if result.tool_name == "WikivoyageClimateTool" and not result.error and not result.stale
+        ),
+        None,
     )
-    if avoids_extreme_heat and isinstance(extreme_heat, (int, float)):
-        scores["extreme_heat"] = 1.0 - _clamp(float(extreme_heat) / 0.20)
+    weather_scores = (
+        weather_component_scores(weather_result.normalized_data, profile.climate_preferences)
+        if weather_result
+        else {}
+    )
+    raw_wikivoyage_scores = (
+        wikivoyage_result.normalized_data.get("component_scores", {}) if wikivoyage_result else {}
+    )
+    if not isinstance(raw_wikivoyage_scores, dict):
+        raw_wikivoyage_scores = {}
+    wikivoyage_scores = {
+        name: clamp(float(value))
+        for name, value in raw_wikivoyage_scores.items()
+        if name in requested and isinstance(value, (int, float))
+    }
 
-    freezing = normalized_data.get("freezing_night_frequency")
-    avoids_freezing = any(phrase in preferences for phrase in ("avoid freezing", "no freezing", "not cold"))
-    if avoids_freezing and isinstance(freezing, (int, float)):
-        scores["freezing"] = 1.0 - _clamp(float(freezing) / 0.20)
+    combined: dict[str, float] = {}
+    source_support: dict[str, float] = {}
+    contradictions: list[str] = []
+    wikivoyage_only: list[str] = []
+    for component in sorted(requested):
+        weather_score = weather_scores.get(component)
+        wikivoyage_score = wikivoyage_scores.get(component)
+        if weather_score is not None and wikivoyage_score is not None:
+            combined[component] = round(
+                (1.0 - WIKIVOYAGE_CLIMATE_WEIGHT) * weather_score
+                + WIKIVOYAGE_CLIMATE_WEIGHT * wikivoyage_score,
+                4,
+            )
+            source_support[component] = 1.0
+            if abs(weather_score - wikivoyage_score) >= CLIMATE_CONTRADICTION_GAP:
+                contradictions.append(component)
+        elif weather_score is not None:
+            combined[component] = weather_score
+            source_support[component] = 1.0
+        elif wikivoyage_score is not None:
+            combined[component] = round(wikivoyage_score, 4)
+            source_support[component] = 0.5
+            wikivoyage_only.append(component)
 
-    humidity = normalized_data.get("mean_relative_humidity_pct")
-    if isinstance(humidity, (int, float)):
-        if any(phrase in preferences for phrase in ("low humidity", "not humid", "avoid humidity")):
-            scores["humidity"] = 1.0 - _scale(float(humidity), 50.0, 80.0)
-        elif "humid" in preferences:
-            scores["humidity"] = _scale(float(humidity), 50.0, 80.0)
+    advantages: list[str] = []
+    drawbacks: list[str] = []
+    missing = sorted(requested - combined.keys())
+    if missing:
+        drawbacks.append("Requested-season climate evidence is unavailable for: " + ", ".join(missing) + ".")
+    if wikivoyage_only:
+        drawbacks.append(
+            "Only secondary Wikivoyage climate evidence was available for: "
+            + ", ".join(wikivoyage_only)
+            + "."
+        )
+    if contradictions:
+        drawbacks.append("Open-Meteo and Wikivoyage climate evidence disagree on: " + ", ".join(contradictions) + ".")
+    if combined:
+        score = sum(combined.values()) / len(combined)
+        component_names = ", ".join(combined)
+        data_date = weather_result.data_date if weather_result else wikivoyage_result.data_date
+        (advantages if score >= 0.7 else drawbacks).append(
+            "Requested-season climate "
+            f"{'matches preferences well' if score >= 0.7 else 'may not closely match preferences'} "
+            f"across {component_names} ({data_date or 'climate evidence'})."
+        )
 
-    rainy_days = normalized_data.get("rainy_day_frequency")
-    if isinstance(rainy_days, (int, float)):
-        if any(phrase in preferences for phrase in ("dry", "little rain", "avoid rain", "not rainy")):
-            scores["rain"] = 1.0 - _clamp(float(rainy_days) / 0.50)
-        elif "rainy" in preferences:
-            scores["rain"] = _clamp(float(rainy_days) / 0.50)
-
-    sunshine = normalized_data.get("sunshine_fraction_of_daylight")
-    if isinstance(sunshine, (int, float)):
-        if any(phrase in preferences for phrase in ("sunny", "sunshine")):
-            scores["sunshine"] = _scale(float(sunshine), 0.30, 0.80)
-        elif "cloudy" in preferences:
-            scores["sunshine"] = 1.0 - _scale(float(sunshine), 0.30, 0.80)
-
-    snow_days = normalized_data.get("snow_day_frequency")
-    if isinstance(snow_days, (int, float)):
-        if any(phrase in preferences for phrase in ("no snow", "avoid snow", "not snowy")):
-            scores["snow"] = 1.0 - _clamp(float(snow_days) / 0.20)
-        elif any(phrase in preferences for phrase in ("snowy", "snow")):
-            scores["snow"] = _clamp(float(snow_days) / 0.30)
-
-    gust_p95 = normalized_data.get("p95_daily_max_wind_gust_kmh")
-    if isinstance(gust_p95, (int, float)):
-        if any(phrase in preferences for phrase in ("calm", "not windy", "avoid strong wind")):
-            scores["wind"] = 1.0 - _scale(float(gust_p95), 30.0, 70.0)
-        elif "windy" in preferences:
-            scores["wind"] = _scale(float(gust_p95), 30.0, 70.0)
-
-    return {name: round(score, 4) for name, score in scores.items()}
+    support_factor = sum(source_support.values()) / len(requested)
+    if contradictions:
+        support_factor *= 0.75
+    return combined, advantages, drawbacks, support_factor
 
 
 def _extract_criterion_scores(
     results: list[ToolResult], profile: PlaceRequestProfile
-) -> tuple[dict[str, float], dict[str, dict[str, float]], list[str], list[str]]:
+) -> tuple[dict[str, float], dict[str, dict[str, float]], list[str], list[str], dict[str, float]]:
     scores: dict[str, float] = {}
     component_scores: dict[str, dict[str, float]] = {}
     advantages: list[str] = []
     drawbacks: list[str] = []
+    confidence_factors: dict[str, float] = {}
+
+    climate_components, climate_advantages, climate_drawbacks, climate_support = _climate_evaluation(
+        results, profile
+    )
+    if climate_components:
+        scores["climate"] = sum(climate_components.values()) / len(climate_components)
+        component_scores["climate"] = climate_components
+        confidence_factors["climate"] = climate_support
+    advantages.extend(climate_advantages)
+    drawbacks.extend(climate_drawbacks)
 
     for r in results:
         if r.error:
             continue
         nd = r.normalized_data
 
-        if r.tool_name == "WeatherTool":
-            requested_components = _requested_climate_dimensions(profile.climate_preferences)
-            climate_components = _climate_component_scores(nd, profile.climate_preferences)
-            missing_components = sorted(requested_components - climate_components.keys())
-            if missing_components:
-                drawbacks.append(
-                    "Requested-season climate evidence is unavailable for: "
-                    + ", ".join(missing_components)
-                    + "."
-                )
-            if climate_components:
-                score = sum(climate_components.values()) / len(climate_components)
-                scores["climate"] = score
-                component_scores["climate"] = climate_components
-                component_names = ", ".join(climate_components)
-                (advantages if score >= 0.7 else drawbacks).append(
-                    "Requested-season climate "
-                    f"{'matches preferences well' if score >= 0.7 else 'may not closely match preferences'} "
-                    f"across {component_names} ({r.data_date or 'historical climatology'})."
-                )
-
-        elif r.tool_name == "AmenitiesTool":
+        if r.tool_name in {"WeatherTool", "WikivoyageClimateTool"}:
+            continue
+        if r.tool_name == "AmenitiesTool":
             cats = nd.get("categories", [])
             count = nd.get("count", 0)
             if "coworking" in cats or "cafe" in cats:
@@ -251,7 +216,7 @@ def _extract_criterion_scores(
                 else:
                     drawbacks.append("The specific academic field could not be confirmed for this city.")
 
-    return scores, component_scores, advantages, drawbacks
+    return scores, component_scores, advantages, drawbacks, confidence_factors
 
 
 def _check_hard_constraints(
@@ -296,9 +261,13 @@ def evaluate_candidates(
 
     for candidate in candidates:
         results = evidence_by_place.get(candidate.place_name, [])
-        criterion_scores, criterion_component_scores, advantages, drawbacks = _extract_criterion_scores(
-            results, profile
-        )
+        (
+            criterion_scores,
+            criterion_component_scores,
+            advantages,
+            drawbacks,
+            confidence_factors,
+        ) = _extract_criterion_scores(results, profile)
         eliminated, elimination_reason, hard_constraint_results = _check_hard_constraints(
             profile, criterion_scores, results
         )
@@ -325,12 +294,8 @@ def evaluate_candidates(
         total_score = max(0.0, total_score - uncertainty_penalty)
 
         supported_weight = sum(weights.get(c, 0) for c in criterion_scores)
-        requested_climate_components = _requested_climate_dimensions(profile.climate_preferences)
-        if "climate" in criterion_scores and requested_climate_components:
-            climate_component_coverage = len(criterion_component_scores.get("climate", {})) / len(
-                requested_climate_components
-            )
-            supported_weight -= weights.get("climate", 0) * (1.0 - climate_component_coverage)
+        for criterion, factor in confidence_factors.items():
+            supported_weight -= weights.get(criterion, 0) * (1.0 - factor)
         confidence_score = supported_weight / sum(weights.values()) if weights else 0.0
 
         if not drawbacks and not eliminated:

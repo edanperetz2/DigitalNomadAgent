@@ -1,6 +1,6 @@
 import pytest
 
-from app.evidence.cache import ToolCache
+from app.evidence.cache import TOOL_TTL_HOURS, ToolCache
 from app.evidence.database import Database
 
 
@@ -27,6 +27,10 @@ async def test_cache_hit_within_ttl(db):
     value, stale = await cache.get("GeocodingTool", "Lisbon", {})
     assert value == {"lat": 38.7}
     assert stale is False
+
+
+def test_wikivoyage_climate_cache_ttl_is_two_weeks():
+    assert TOOL_TTL_HOURS["WikivoyageClimateTool"] == 24 * 14
 
 
 @pytest.mark.asyncio

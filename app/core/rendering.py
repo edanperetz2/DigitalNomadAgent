@@ -84,7 +84,16 @@ def render_recommendation_markdown(payload: dict[str, Any]) -> str:
         for i, s in enumerate(sources, start=1):
             url = s.get("source_url") or "n/a"
             retrieved = s.get("retrieved_at") or "n/a"
-            lines.append(f"{i}. {s.get('source_name', 'Unknown source')} — {url} — retrieved {retrieved}")
+            details = [f"retrieved {retrieved}"]
+            if s.get("data_date"):
+                details.append(f"data {s['data_date']}")
+            if s.get("confidence"):
+                details.append(f"{s['confidence']} confidence")
+            if s.get("stale"):
+                details.append("stale fallback")
+            lines.append(
+                f"{i}. {s.get('source_name', 'Unknown source')} — {url} — " + " — ".join(details)
+            )
     else:
         lines.append("1. No external sources were available for this request.")
 

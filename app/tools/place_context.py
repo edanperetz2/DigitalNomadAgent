@@ -14,9 +14,8 @@ from app.agent.models import CandidatePlace, PlaceRequestProfile
 from app.evidence.cache import ToolCache
 from app.evidence.models import ToolResult
 from app.tools.http_client import JsonHttpClient
-from app.tools.mediawiki_client import MediaWikiClient
+from app.tools.mediawiki_client import WIKIVOYAGE_API, MediaWikiClient
 
-WIKIVOYAGE_API = "https://en.wikivoyage.org/w/api.php"
 MAX_EXCERPT_CHARS = 600
 
 

@@ -72,14 +72,15 @@ Planned commit: `feat(tools): add requested-season climate evidence`
 - Treat missing dimensions as missing rather than zero, never use a climate result for hard elimination in this unit, and retain every raw metric and threshold used by scoring.
 - Test seasons spanning calendar years, leap years, current-month fallback, missing dates/values, misaligned arrays, insufficient coverage, stale cache, and preference-specific scoring.
 
-### 4. WikivoyageClimateTool — PLANNED
+### 4. WikivoyageClimateTool — COMPLETE
 
 Planned commit: `feat(tools): add Wikivoyage climate corroboration`
 
 - Extract only the resolved Wikivoyage Climate section and climate chart, with revision identity, exact source URL, bounded excerpts, and independently persisted evidence.
 - Deterministically score only chart values and observable, preference-relevant climate statements; ignore generic claims such as pleasant or perfect weather.
 - Combine each available preference component at 80% WeatherTool and 20% WikivoyageClimateTool, renormalizing to WeatherTool alone when Wikivoyage has no relevant evidence.
-- Cap Wikivoyage confidence at medium, expose contradictions and reduce combined confidence, and never let Wikivoyage evidence alone satisfy or violate a hard constraint.
+- Select the tool only for explicit climate preferences. Treat Wikivoyage-only components as low-confidence secondary soft evidence, ignore stale Wikivoyage evidence for scoring, and never let it alone satisfy or violate a hard constraint.
+- Cap Wikivoyage confidence at medium, expose contradictions and reduce combined confidence, and carry revision dates, confidence, and staleness into stored evidence and final source rendering.
 - Test missing sections, redirects, chart parsing, negation, irrelevant prose, source weighting, contradictions, and missing-source renormalization.
 
 ### 5. TimezoneFitTool — PLANNED

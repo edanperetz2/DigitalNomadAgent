@@ -87,3 +87,5 @@ def test_source_collection_includes_every_explicit_source():
     sources = Orchestrator._collect_sources({"Lisbon": [result]})
 
     assert {source["source_name"] for source in sources} == {"Source A", "Source B"}
+    assert all(source["confidence"] == "medium" for source in sources)
+    assert all(source["stale"] is False for source in sources)

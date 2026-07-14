@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from app.agent.models import CandidatePlace, PlaceRequestProfile
+from app.climate_scoring import requested_climate_dimensions
 from app.evidence.models import ToolResult
 
 _KNOWN_COORDS: dict[str, tuple[float, float, str]] = {
@@ -115,6 +116,38 @@ class FakeWeatherTool:
             retrieved_at=datetime.now(UTC),
             data_date="2021-2025 fake climatology",
             confidence="medium",
+        )
+
+
+class FakeWikivoyageClimateTool:
+    name = "WikivoyageClimateTool"
+
+    async def run(self, candidate: CandidatePlace, profile: PlaceRequestProfile) -> ToolResult:
+        components = {
+            component: round(0.6 + (index % 3) * 0.1, 2)
+            for index, component in enumerate(sorted(requested_climate_dimensions(profile.climate_preferences)))
+        }
+        return ToolResult(
+            tool_name=self.name,
+            place=candidate.place_name,
+            normalized_data={
+                "resolved_title": candidate.canonical_name or candidate.place_name,
+                "section_title": "Climate",
+                "revision_id": 123456,
+                "revision_timestamp": "2026-01-01T00:00:00Z",
+                "target_months": profile.target_months or [7],
+                "excerpt": "Deterministic fake climate-section evidence.",
+                "climate_chart": [],
+                "phrase_signals": {},
+                "component_scores": components,
+                "component_details": {},
+                "lexicon_version": 1,
+            },
+            source_name="Wikivoyage climate section (fake)",
+            source_url="https://en.wikivoyage.org/w/index.php?oldid=123456#Climate",
+            retrieved_at=datetime.now(UTC),
+            data_date="Wikivoyage fake revision 123456",
+            confidence="medium" if components else "low",
         )
 
 
@@ -272,6 +305,7 @@ def build_fake_tool_registry_dict() -> dict[str, object]:
     return {
         "GeocodingTool": FakeGeocodingTool(),
         "WeatherTool": FakeWeatherTool(),
+        "WikivoyageClimateTool": FakeWikivoyageClimateTool(),
         "AmenitiesTool": FakeAmenitiesTool(),
         "PlaceContextTool": FakePlaceContextTool(),
         "TimezoneFitTool": FakeTimezoneFitTool(),

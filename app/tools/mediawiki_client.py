@@ -6,6 +6,8 @@ from typing import Any
 
 from app.tools.http_client import JsonHttpClient
 
+WIKIVOYAGE_API = "https://en.wikivoyage.org/w/api.php"
+
 
 class MediaWikiClient:
     def __init__(self, api_url: str, http: JsonHttpClient | None = None):
