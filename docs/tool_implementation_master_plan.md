@@ -14,8 +14,8 @@ Every foundation/tool unit follows this workflow:
 6. Run focused tests, the full offline suite, and Ruff. Run a free live API smoke test where applicable; never invoke an LLM.
 7. Before committing, show changed files and diff summary, behavior changes, verification results, and remaining limitations.
 8. Address review comments and repeat verification.
-9. Wait for explicit approval to commit.
-10. Create exactly one clear commit for that unit, confirm its hash and a clean worktree, then present the next kickoff explanation.
+9. Wait for explicit approval to commit unless the user has already granted advance approval for the finished unit.
+10. Create exactly one detailed commit for that unit, push it to the configured remote, confirm its hash and a clean synchronized worktree, then present the next kickoff explanation.
 
 Unrelated user changes are never staged. If they overlap the active unit, stop and resolve scope with the user.
 
@@ -42,7 +42,7 @@ Planned commit: `chore(tools): add shared tool infrastructure and master plan`
 - Configure the shared Overpass client for at most two application-side concurrent requests and endpoint failover. This is a conservative PlaceMatch default, not a provider-mandated limit.
 - Mark the two production-data tests skipped only when their files are absent, yielding exactly two explicit skips until those datasets arrive.
 
-### 1. GeocodingTool — PLANNED
+### 1. GeocodingTool — COMPLETE
 
 Planned commit: `feat(tools): harden destination geocoding`
 

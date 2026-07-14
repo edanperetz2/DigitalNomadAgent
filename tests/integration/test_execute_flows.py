@@ -1,3 +1,5 @@
+import sqlite3
+
 from app.core.module_names import AGENTIC_RESEARCH, RECOMMENDATION_GENERATOR, REQUEST_INTERPRETER
 
 
@@ -77,3 +79,24 @@ def test_repeated_requests_are_independent(client):
     r2 = client.post("/api/execute", json={"prompt": "Surprise me."})
     assert r1.json()["status"] == "ok"
     assert r2.json()["status"] == "ok"
+
+
+def test_successful_geocoding_evidence_is_persisted(client):
+    response = client.post(
+        "/api/execute",
+        json={
+            "prompt": (
+                "I want to spend three months somewhere in Europe where I can work remotely, "
+                "with reliable internet and cafes nearby."
+            )
+        },
+    )
+    assert response.json()["status"] == "ok"
+
+    with sqlite3.connect(client.app.state.db.path) as connection:
+        rows = connection.execute(
+            "SELECT place, source_name FROM evidence WHERE criterion = ?", ("GeocodingTool",)
+        ).fetchall()
+
+    assert rows
+    assert all(source_name == "OpenStreetMap Nominatim (fake)" for _, source_name in rows)

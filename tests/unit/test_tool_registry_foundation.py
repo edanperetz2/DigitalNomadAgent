@@ -55,3 +55,30 @@ def test_production_registry_reuses_shared_clients():
     assert geocoding._http is weather._http
     assert amenities._overpass is accessibility._overpass is activities._overpass
     assert place_context._mediawiki._http is geocoding._http
+
+
+@pytest.mark.asyncio
+async def test_geocoding_failure_for_one_candidate_does_not_abort_the_rest():
+    class PartlyFailingGeocodingTool:
+        async def run(self, candidate, profile):
+            if candidate.place_name == "Broken City":
+                raise RuntimeError("malformed provider response")
+            return ToolResult(
+                tool_name="GeocodingTool",
+                place=candidate.place_name,
+                normalized_data={"lat": 1.0, "lon": 2.0},
+                source_name="test",
+                retrieved_at=datetime.now(UTC),
+            )
+
+    registry = ToolRegistry({"GeocodingTool": PartlyFailingGeocodingTool()})
+    candidates = [
+        CandidatePlace(place_name="Broken City", country="X", reason_for_inclusion="test"),
+        CandidatePlace(place_name="Valid City", country="Y", reason_for_inclusion="test"),
+    ]
+
+    verified, results = await registry.verify_candidates(candidates, PlaceRequestProfile(purpose="vacation"))
+
+    assert [candidate.place_name for candidate in verified] == ["Valid City"]
+    assert "malformed provider response" in results[0].error
+    assert results[1].error is None

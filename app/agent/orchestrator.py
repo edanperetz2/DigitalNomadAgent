@@ -183,7 +183,7 @@ class Orchestrator:
                     state = AgentState.EXECUTING_TOOLS
 
                 elif state == AgentState.EXECUTING_TOOLS:
-                    verified, _geocoding_results = await self._tools.verify_candidates(candidates, profile)
+                    verified, geocoding_results = await self._tools.verify_candidates(candidates, profile)
                     if not verified:
                         raise PlaceMatchError(
                             "None of the candidate destinations could be reliably verified."
@@ -191,8 +191,14 @@ class Orchestrator:
                     candidates = verified
                     tool_names = select_tools(profile)
                     grouped = await self._tools.run_tools(tool_names, candidates, profile)
-                    evidence_by_place = grouped
+                    verified_place_names = {candidate.place_name for candidate in verified}
+                    evidence_by_place = {}
+                    for result in geocoding_results:
+                        if result.error is None and result.place in verified_place_names:
+                            evidence_by_place.setdefault(result.place, []).append(result)
                     for place, results in grouped.items():
+                        evidence_by_place.setdefault(place, []).extend(results)
+                    for place, results in evidence_by_place.items():
                         await self._persist_evidence(place, results)
                     state = AgentState.EVALUATING
 

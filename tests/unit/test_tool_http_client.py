@@ -44,6 +44,28 @@ async def test_json_http_client_does_not_retry_non_retryable_status():
 
 
 @pytest.mark.asyncio
+async def test_json_http_client_runs_hook_before_every_retry_attempt():
+    responses = [_response(503, {"error": "busy"}), _response(200, {"ok": True})]
+    hook_calls = 0
+
+    async def fake_get(*args, **kwargs):
+        return responses.pop(0)
+
+    async def before_request():
+        nonlocal hook_calls
+        hook_calls += 1
+
+    async def no_sleep(delay):
+        return None
+
+    client = JsonHttpClient(get=fake_get, sleep=no_sleep)
+
+    await client.get_json("https://example.com", before_request=before_request)
+
+    assert hook_calls == 2
+
+
+@pytest.mark.asyncio
 async def test_rate_limiter_serializes_and_spaces_call_starts():
     now = 0.0
     sleeps = []

@@ -14,6 +14,7 @@ from app.core.security import safe_get
 JsonGet = Callable[..., Awaitable[httpx.Response]]
 Sleep = Callable[[float], Awaitable[None]]
 Clock = Callable[[], float]
+BeforeRequest = Callable[[], Awaitable[None]]
 
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
@@ -69,10 +70,13 @@ class JsonHttpClient:
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         extra_allowed_domains: set[str] | None = None,
+        before_request: BeforeRequest | None = None,
     ) -> Any:
         last_error: Exception | None = None
         for attempt in range(self._attempts):
             try:
+                if before_request is not None:
+                    await before_request()
                 response = await self._get(
                     url,
                     params=params,

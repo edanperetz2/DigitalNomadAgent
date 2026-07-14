@@ -35,7 +35,20 @@ class ToolRegistry:
 
         results = []
         for candidate in candidates:
-            results.append(await geocoding.run(candidate, profile))
+            try:
+                results.append(await geocoding.run(candidate, profile))
+            except Exception as exc:  # noqa: BLE001 - one bad candidate must not abort all verification
+                results.append(
+                    ToolResult(
+                        tool_name="GeocodingTool",
+                        place=candidate.place_name,
+                        source_name="OpenStreetMap Nominatim",
+                        source_url="https://nominatim.openstreetmap.org/",
+                        retrieved_at=datetime.now(UTC),
+                        confidence="low",
+                        error=f"Geocoding tool execution failed: {exc}",
+                    )
+                )
 
         verified: list[CandidatePlace] = []
         for candidate, result in zip(candidates, results, strict=True):
