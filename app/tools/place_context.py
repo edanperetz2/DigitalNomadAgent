@@ -9,12 +9,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.agent.models import CandidatePlace, PlaceRequestProfile
-from app.core.security import safe_get
 from app.evidence.cache import ToolCache
 from app.evidence.models import ToolResult
+from app.tools.http_client import JsonHttpClient
+from app.tools.mediawiki_client import MediaWikiClient
 
 WIKIVOYAGE_API = "https://en.wikivoyage.org/w/api.php"
 MAX_EXCERPT_CHARS = 600
@@ -23,27 +23,25 @@ MAX_EXCERPT_CHARS = 600
 class PlaceContextTool:
     name = "PlaceContextTool"
 
-    def __init__(self, cache: ToolCache, timeout: float = 10.0):
+    def __init__(
+        self,
+        cache: ToolCache,
+        timeout: float = 10.0,
+        mediawiki: MediaWikiClient | None = None,
+    ):
         self._cache = cache
-        self._timeout = timeout
+        self._mediawiki = mediawiki or MediaWikiClient(WIKIVOYAGE_API, JsonHttpClient(timeout=timeout))
 
-    @retry(reraise=True, stop=stop_after_attempt(2), wait=wait_exponential(multiplier=0.5, max=3))
     async def _fetch(self, title: str) -> dict:
-        response = await safe_get(
-            WIKIVOYAGE_API,
-            params={
-                "action": "query",
-                "prop": "extracts",
-                "exintro": 1,
-                "explaintext": 1,
-                "format": "json",
-                "titles": title,
-                "redirects": 1,
-            },
-            timeout=self._timeout,
+        return await self._mediawiki.request(
+            action="query",
+            prop="extracts",
+            exintro=1,
+            explaintext=1,
+            titles=title,
+            redirects=1,
+            formatversion=1,
         )
-        response.raise_for_status()
-        return response.json()
 
     async def run(self, candidate: CandidatePlace, profile: PlaceRequestProfile) -> ToolResult:
         title = candidate.canonical_name or candidate.place_name

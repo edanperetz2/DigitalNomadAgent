@@ -12,12 +12,11 @@ import calendar
 from datetime import UTC, datetime
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.agent.models import CandidatePlace, PlaceRequestProfile
-from app.core.security import safe_get
 from app.evidence.cache import ToolCache
 from app.evidence.models import ToolResult
+from app.tools.http_client import JsonHttpClient
 
 ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 
@@ -25,13 +24,12 @@ ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 class WeatherTool:
     name = "WeatherTool"
 
-    def __init__(self, cache: ToolCache, timeout: float = 10.0):
+    def __init__(self, cache: ToolCache, timeout: float = 10.0, http: JsonHttpClient | None = None):
         self._cache = cache
-        self._timeout = timeout
+        self._http = http or JsonHttpClient(timeout=timeout)
 
-    @retry(reraise=True, stop=stop_after_attempt(2), wait=wait_exponential(multiplier=0.5, max=3))
     async def _fetch(self, lat: float, lon: float, start: str, end: str) -> dict:
-        response = await safe_get(
+        payload = await self._http.get_json(
             ARCHIVE_URL,
             params={
                 "latitude": lat,
@@ -41,10 +39,10 @@ class WeatherTool:
                 "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum",
                 "timezone": "UTC",
             },
-            timeout=self._timeout,
         )
-        response.raise_for_status()
-        return response.json()
+        if not isinstance(payload, dict):
+            raise ValueError("Open-Meteo returned a non-object JSON response")
+        return payload
 
     async def run(self, candidate: CandidatePlace, profile: PlaceRequestProfile) -> ToolResult:
         if candidate.lat is None or candidate.lon is None:

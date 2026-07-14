@@ -54,3 +54,13 @@ async def test_different_params_are_different_cache_entries(db):
     v2, _ = await cache.get("AmenitiesTool", "Lisbon", {"categories": ["museum"]})
     assert v1 == {"count": 5}
     assert v2 == {"count": 9}
+
+
+def test_cache_key_includes_contract_version(monkeypatch):
+    from app.evidence import cache as cache_module
+
+    first = cache_module._cache_key("WeatherTool", "Lisbon", {})
+    monkeypatch.setattr(cache_module, "CACHE_CONTRACT_VERSION", cache_module.CACHE_CONTRACT_VERSION + 1)
+    second = cache_module._cache_key("WeatherTool", "Lisbon", {})
+
+    assert first != second

@@ -1,8 +1,10 @@
 import pytest
 
 from app.agent.models import CandidatePlace, PlaceRequestProfile
+from app.tools.budget_fit import DATA_PATH as BUDGET_DATA_PATH
 from app.tools.budget_fit import BudgetFitTool
 from app.tools.education_options import EducationOptionsTool
+from app.tools.official_sources import DATA_PATH as OFFICIAL_SOURCES_DATA_PATH
 from app.tools.official_sources import OfficialSourceTool
 from app.tools.timezone_fit import TimezoneFitTool
 
@@ -12,6 +14,7 @@ def _candidate(name, country="Portugal", lat=38.7, lon=-9.1):
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(not BUDGET_DATA_PATH.exists(), reason="production cost dataset has not been supplied")
 async def test_budget_fit_tool_known_city():
     tool = BudgetFitTool()
     profile = PlaceRequestProfile(purpose="remote_work")
@@ -49,6 +52,9 @@ async def test_education_options_tool_never_claims_admission():
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    not OFFICIAL_SOURCES_DATA_PATH.exists(), reason="production official-source dataset has not been supplied"
+)
 async def test_official_source_tool_known_country():
     tool = OfficialSourceTool()
     profile = PlaceRequestProfile(purpose="study")

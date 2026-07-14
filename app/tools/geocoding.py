@@ -5,12 +5,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.agent.models import CandidatePlace, PlaceRequestProfile
-from app.core.security import safe_get
 from app.evidence.cache import ToolCache
 from app.evidence.models import ToolResult
+from app.tools.http_client import AsyncRateLimiter, JsonHttpClient
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 MIN_IMPORTANCE_FOR_HIGH_CONFIDENCE = 0.5
@@ -20,19 +19,26 @@ MIN_IMPORTANCE_TO_ACCEPT = 0.15
 class GeocodingTool:
     name = "GeocodingTool"
 
-    def __init__(self, cache: ToolCache, timeout: float = 10.0):
+    def __init__(
+        self,
+        cache: ToolCache,
+        timeout: float = 10.0,
+        rate_limiter: AsyncRateLimiter | None = None,
+        http: JsonHttpClient | None = None,
+    ):
         self._cache = cache
-        self._timeout = timeout
+        self._rate_limiter = rate_limiter or AsyncRateLimiter(1.0)
+        self._http = http or JsonHttpClient(timeout=timeout)
 
-    @retry(reraise=True, stop=stop_after_attempt(2), wait=wait_exponential(multiplier=0.5, max=3))
     async def _fetch(self, query: str) -> list[dict]:
-        response = await safe_get(
+        await self._rate_limiter.wait()
+        payload = await self._http.get_json(
             NOMINATIM_URL,
             params={"q": query, "format": "json", "limit": 1, "addressdetails": 1},
-            timeout=self._timeout,
         )
-        response.raise_for_status()
-        return response.json()
+        if not isinstance(payload, list):
+            raise ValueError("Nominatim returned a non-list JSON response")
+        return payload
 
     async def run(self, candidate: CandidatePlace, profile: PlaceRequestProfile) -> ToolResult:
         query = f"{candidate.place_name}, {candidate.country}"

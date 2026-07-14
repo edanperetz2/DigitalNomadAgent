@@ -19,6 +19,7 @@ from app.core.exceptions import PlaceMatchError
 ALLOWED_EXACT_DOMAINS: set[str] = {
     "nominatim.openstreetmap.org",
     "overpass-api.de",
+    "overpass.kumi.systems",
     "api.open-meteo.com",
     "archive-api.open-meteo.com",
 }

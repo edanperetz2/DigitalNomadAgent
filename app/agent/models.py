@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 Confidence = Literal["high", "medium", "low"]
+Month = Annotated[int, Field(ge=1, le=12)]
 
 
 class Budget(BaseModel):
@@ -28,6 +29,7 @@ class PlaceRequestProfile(BaseModel):
     secondary_purposes: list[str] = Field(default_factory=list)
     duration: str | None = None
     dates_or_season: str | None = None
+    target_months: list[Month] = Field(default_factory=list)
     origin: str | None = None
     nationality: str | None = None
     preferred_regions: list[str] = Field(default_factory=list)
@@ -35,6 +37,7 @@ class PlaceRequestProfile(BaseModel):
     preferred_languages: list[str] = Field(default_factory=list)
     mobility_requirements: list[str] = Field(default_factory=list)
     climate_preferences: list[str] = Field(default_factory=list)
+    activity_preferences: list[str] = Field(default_factory=list)
     budget: Budget = Field(default_factory=Budget)
     hard_constraints: list[str] = Field(default_factory=list)
     soft_preferences: list[str] = Field(default_factory=list)

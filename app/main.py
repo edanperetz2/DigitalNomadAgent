@@ -36,8 +36,11 @@ from app.tools.amenities import AmenitiesTool
 from app.tools.budget_fit import BudgetFitTool
 from app.tools.education_options import EducationOptionsTool
 from app.tools.geocoding import GeocodingTool
+from app.tools.http_client import JsonHttpClient
+from app.tools.mediawiki_client import MediaWikiClient
 from app.tools.official_sources import OfficialSourceTool
-from app.tools.place_context import PlaceContextTool
+from app.tools.overpass_client import OverpassClient
+from app.tools.place_context import WIKIVOYAGE_API, PlaceContextTool
 from app.tools.registry import ToolRegistry
 from app.tools.timezone_fit import TimezoneFitTool
 from app.tools.weather import WeatherTool
@@ -74,16 +77,19 @@ def _build_llm_client(settings) -> BaseLLMClient:
 
 
 def _build_tool_registry(cache: ToolCache, timeout: float, max_concurrent: int) -> ToolRegistry:
+    http = JsonHttpClient(timeout=timeout)
+    overpass = OverpassClient(http=http)
+    mediawiki = MediaWikiClient(WIKIVOYAGE_API, http=http)
     tools = {
-        "GeocodingTool": GeocodingTool(cache, timeout),
-        "WeatherTool": WeatherTool(cache, timeout),
-        "AmenitiesTool": AmenitiesTool(cache, timeout),
-        "PlaceContextTool": PlaceContextTool(cache, timeout),
+        "GeocodingTool": GeocodingTool(cache, timeout, http=http),
+        "WeatherTool": WeatherTool(cache, timeout, http=http),
+        "AmenitiesTool": AmenitiesTool(cache, timeout, overpass=overpass),
+        "PlaceContextTool": PlaceContextTool(cache, timeout, mediawiki=mediawiki),
         "TimezoneFitTool": TimezoneFitTool(),
         "BudgetFitTool": BudgetFitTool(),
         "EducationOptionsTool": EducationOptionsTool(),
-        "AccessibilityTool": AccessibilityTool(cache, timeout),
-        "ActivitiesTool": ActivitiesTool(cache, timeout),
+        "AccessibilityTool": AccessibilityTool(cache, timeout, overpass=overpass),
+        "ActivitiesTool": ActivitiesTool(cache, timeout, overpass=overpass),
         "OfficialSourceTool": OfficialSourceTool(),
     }
     return ToolRegistry(tools, max_concurrent_requests=max_concurrent)

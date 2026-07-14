@@ -12,6 +12,8 @@ from datetime import UTC, datetime, timedelta
 
 from app.evidence.database import Database
 
+CACHE_CONTRACT_VERSION = 2
+
 # Per-tool TTL in hours. Distinguishes short-lived forecasts from long-lived
 # climate normals / geocoding results per spec caching guidance (section 17).
 TOOL_TTL_HOURS: dict[str, int] = {
@@ -30,7 +32,9 @@ TOOL_TTL_HOURS: dict[str, int] = {
 
 
 def _cache_key(tool_name: str, place: str, params: dict) -> str:
-    payload = json.dumps({"tool": tool_name, "place": place, "params": params}, sort_keys=True)
+    payload = json.dumps(
+        {"version": CACHE_CONTRACT_VERSION, "tool": tool_name, "place": place, "params": params}, sort_keys=True
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 

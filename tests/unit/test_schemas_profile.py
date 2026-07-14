@@ -21,6 +21,7 @@ def test_place_request_profile_required_fields_present():
         "secondary_purposes",
         "duration",
         "dates_or_season",
+        "target_months",
         "origin",
         "nationality",
         "preferred_regions",
@@ -28,6 +29,7 @@ def test_place_request_profile_required_fields_present():
         "preferred_languages",
         "mobility_requirements",
         "climate_preferences",
+        "activity_preferences",
         "budget",
         "hard_constraints",
         "soft_preferences",
@@ -40,6 +42,17 @@ def test_place_request_profile_required_fields_present():
         "clarification_question",
     ):
         assert hasattr(profile, field)
+
+
+def test_place_request_profile_validates_target_months():
+    import pytest
+    from pydantic import ValidationError
+
+    profile = PlaceRequestProfile(purpose="vacation", target_months=[1, 7, 12])
+    assert profile.target_months == [1, 7, 12]
+
+    with pytest.raises(ValidationError):
+        PlaceRequestProfile(purpose="vacation", target_months=[0, 13])
 
 
 def test_place_request_profile_rejects_extra_fields():

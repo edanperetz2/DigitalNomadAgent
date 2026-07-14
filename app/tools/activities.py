@@ -9,12 +9,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.agent.models import CandidatePlace, PlaceRequestProfile
-from app.core.security import safe_get
 from app.evidence.cache import ToolCache
 from app.evidence.models import ToolResult
+from app.tools.http_client import JsonHttpClient
+from app.tools.overpass_client import OverpassClient
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 RADIUS_M = 5000
@@ -47,15 +47,12 @@ def select_activity_categories(profile: PlaceRequestProfile) -> list[str]:
 class ActivitiesTool:
     name = "ActivitiesTool"
 
-    def __init__(self, cache: ToolCache, timeout: float = 15.0):
+    def __init__(self, cache: ToolCache, timeout: float = 15.0, overpass: OverpassClient | None = None):
         self._cache = cache
-        self._timeout = timeout
+        self._overpass = overpass or OverpassClient(JsonHttpClient(timeout=timeout))
 
-    @retry(reraise=True, stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, max=5))
     async def _fetch(self, query: str) -> dict:
-        response = await safe_get(OVERPASS_URL, params={"data": query}, timeout=self._timeout)
-        response.raise_for_status()
-        return response.json()
+        return await self._overpass.query(query)
 
     async def run(self, candidate: CandidatePlace, profile: PlaceRequestProfile) -> ToolResult:
         if candidate.lat is None or candidate.lon is None:

@@ -33,11 +33,9 @@ class ToolRegistry:
         """Run GeocodingTool for every candidate; keep only verified ones."""
         geocoding = self._tools["GeocodingTool"]
 
-        async def verify_one(candidate: CandidatePlace) -> ToolResult:
-            async with self._semaphore:
-                return await geocoding.run(candidate, profile)
-
-        results = await asyncio.gather(*(verify_one(c) for c in candidates))
+        results = []
+        for candidate in candidates:
+            results.append(await geocoding.run(candidate, profile))
 
         verified: list[CandidatePlace] = []
         for candidate, result in zip(candidates, results, strict=True):

@@ -80,27 +80,29 @@ class Orchestrator:
         for r in results:
             if r.error:
                 continue
-            value = None
-            for field_name in _PRIMARY_VALUE_FIELDS:
-                if field_name in r.normalized_data:
-                    raw = r.normalized_data[field_name]
-                    value = float(raw) if isinstance(raw, (int, float)) else None
-                    break
-            await self._evidence.store(
-                EvidenceRecord(
-                    place=place,
-                    criterion=r.tool_name,
-                    value=value,
-                    raw_value=r.normalized_data,
-                    source_name=r.source_name,
-                    source_url=r.source_url,
-                    retrieved_at=r.retrieved_at,
-                    data_date=r.data_date,
-                    confidence=r.confidence,
-                    warnings=r.warnings,
-                    stale=r.stale,
+            for item in r.resolved_evidence_items():
+                value = item.value
+                if value is None:
+                    for field_name in _PRIMARY_VALUE_FIELDS:
+                        if field_name in item.normalized_data:
+                            raw = item.normalized_data[field_name]
+                            value = float(raw) if isinstance(raw, (int, float)) else None
+                            break
+                await self._evidence.store(
+                    EvidenceRecord(
+                        place=place,
+                        criterion=item.criterion,
+                        value=value,
+                        raw_value={**item.normalized_data, "component": item.component},
+                        source_name=item.source.source_name,
+                        source_url=item.source.source_url,
+                        retrieved_at=item.source.retrieved_at,
+                        data_date=item.source.data_date,
+                        confidence=item.source.confidence,
+                        warnings=item.warnings,
+                        stale=item.source.stale,
+                    )
                 )
-            )
 
     @staticmethod
     def _collect_sources(evidence_by_place: dict[str, list[ToolResult]]) -> list[dict]:
@@ -109,13 +111,14 @@ class Orchestrator:
             for r in results:
                 if r.error:
                     continue
-                key = (r.source_name, r.source_url)
-                if key not in sources:
-                    sources[key] = {
-                        "source_name": r.source_name,
-                        "source_url": r.source_url,
-                        "retrieved_at": r.retrieved_at.date().isoformat(),
-                    }
+                for item in r.resolved_evidence_items():
+                    key = (item.source.source_name, item.source.source_url)
+                    if key not in sources:
+                        sources[key] = {
+                            "source_name": item.source.source_name,
+                            "source_url": item.source.source_url,
+                            "retrieved_at": item.source.retrieved_at.date().isoformat(),
+                        }
         return list(sources.values())
 
     async def run(self, prompt: str) -> AgentResult:
