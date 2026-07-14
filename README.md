@@ -123,6 +123,16 @@ Error response (same four fields, never FastAPI's default `{"detail": [...]}`):
 {"status": "error", "error": "The prompt cannot be empty.", "response": null, "steps": []}
 ```
 
+Every `/api/execute` request has a hard 285-second backend execution deadline. Under the default
+configuration, research stops at 225 seconds and retains every completed tool result, leaving 60
+seconds to score the partial evidence and generate the response. Pending calls are cancelled and
+reported as missing evidence. If the recommendation-writing LLM is slow, a deterministic renderer
+sends the recommendation instead. The 285-second emergency cutoff also returns a disclosed,
+best-effort recommendation whenever the request is sufficiently clear, leaving 15 seconds for API,
+transport, and UI overhead before the 300-second user-visible limit. If interpretation or candidate
+generation fails early because the LLM provider times out, deterministic parsing and curated
+candidate seeds keep the pipeline moving and are disclosed in the response.
+
 ---
 
 ## UI
@@ -131,7 +141,8 @@ Error response (same four fields, never FastAPI's default `{"detail": [...]}`):
 service) with a prompt field, example buttons for remote work/study/vacation, loading and error
 states, rendered recommendations, and an expandable "Execution steps" section showing every LLM
 call's module/prompt/response. It calls `POST /api/execute` only — no agent logic is duplicated in
-the frontend.
+the frontend. The browser also aborts after 295 seconds as a final client-side guard; the backend's
+285-second deadline should normally return a structured error first.
 
 ---
 
@@ -195,6 +206,11 @@ All variables are documented with safe defaults or empty placeholders in `.env.e
 | `MAX_PROJECT_BUDGET_USD` | Local hard cap, default `13` (the course budget) |
 | `MAX_LLM_CALLS_PER_REQUEST` | Default `4` |
 | `LLM_INPUT_COST_PER_1M`, `LLM_OUTPUT_COST_PER_1M` | Used only for conservative local cost *estimation* |
+| `AGENT_EXECUTION_TIMEOUT_SECONDS` | Complete backend agent deadline; default and maximum `285` seconds |
+| `RECOMMENDATION_RESERVE_SECONDS` | Time reserved after research for scoring/rendering; default `60` seconds |
+| `TOOL_EXECUTION_TIMEOUT_SECONDS` | Complete budget for one tool/candidate invocation; default `50` seconds |
+| `MAX_CONCURRENT_TOOL_REQUESTS` | Independent tool/candidate jobs allowed at once; default `10` |
+| `UPSTREAM_REQUEST_TIMEOUT_SECONDS` | Optional declaration of the real proxy/platform timeout; must exceed `285` |
 | `SQLITE_PATH`, `APP_PORT`, `HTTP_TIMEOUT_SECONDS`, `CACHE_TTL_HOURS` | Infra configuration |
 
 **Never commit the real `.env` file** — it is already listed in `.gitignore`.
@@ -314,6 +330,26 @@ docker run --rm -p 8000:8000 --env-file .env -v ${PWD}/data:/app/data placematch
 No public deployment has been performed as part of this build. The Dockerfile above is sufficient
 for any standard Docker-compatible host (a VM, a container platform, etc.). If/when deployed,
 replace the placeholder deployment URL in the Course Submission Checklist above.
+
+To preserve the under-300-second contract, configure every reverse proxy, load balancer, ingress,
+and hosting platform in front of Uvicorn with a request/read/idle timeout of **at least 290 seconds**.
+The backend returns by 285 seconds and the bundled UI stops waiting at 295 seconds. A common
+platform default of 60 or 100 seconds will otherwise disconnect the user before the graceful
+recommendation fallback arrives. `UPSTREAM_REQUEST_TIMEOUT_SECONDS=290` can declare the actual
+infrastructure value for startup validation, but it does not configure the external platform by
+itself. Direct API clients should wait at least 290 seconds as well.
+
+Before deployment, run the offline suite normally. An explicitly opt-in live SLA check exercises
+three representative prompts and targets an observed p95 below 240 seconds:
+
+```powershell
+$env:RUN_LIVE_TESTS="1"
+$env:MOCK_LLM="false"
+pytest -q -m live
+```
+
+This check uses real providers and consumes LLMod.ai project credit; it is always skipped during
+ordinary `pytest` runs.
 
 ---
 

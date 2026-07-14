@@ -77,7 +77,12 @@ def _build_llm_client(settings) -> BaseLLMClient:
     )
 
 
-def _build_tool_registry(cache: ToolCache, timeout: float, max_concurrent: int) -> ToolRegistry:
+def _build_tool_registry(
+    cache: ToolCache,
+    timeout: float,
+    max_concurrent: int,
+    tool_execution_timeout: float = 50.0,
+) -> ToolRegistry:
     http = JsonHttpClient(timeout=timeout)
     overpass = OverpassClient(http=http)
     mediawiki = MediaWikiClient(WIKIVOYAGE_API, http=http)
@@ -94,7 +99,11 @@ def _build_tool_registry(cache: ToolCache, timeout: float, max_concurrent: int) 
         "ActivitiesTool": ActivitiesTool(cache, timeout, overpass=overpass),
         "OfficialSourceTool": OfficialSourceTool(),
     }
-    return ToolRegistry(tools, max_concurrent_requests=max_concurrent)
+    return ToolRegistry(
+        tools,
+        max_concurrent_requests=max_concurrent,
+        tool_execution_timeout_seconds=tool_execution_timeout,
+    )
 
 
 @asynccontextmanager
@@ -118,7 +127,10 @@ async def lifespan(app: FastAPI):
     )
     llm_client = getattr(app.state, "llm_client_override", None) or _build_llm_client(settings)
     tool_registry = getattr(app.state, "tool_registry_override", None) or _build_tool_registry(
-        cache, settings.http_timeout_seconds, settings.max_concurrent_tool_requests
+        cache,
+        settings.http_timeout_seconds,
+        settings.max_concurrent_tool_requests,
+        settings.tool_execution_timeout_seconds,
     )
 
     app.state.orchestrator = Orchestrator(
@@ -130,6 +142,8 @@ async def lifespan(app: FastAPI):
         max_candidates=settings.max_candidates,
         max_final_recommendations=settings.max_final_recommendations,
         max_prompt_length=settings.max_prompt_length,
+        execution_timeout_seconds=settings.agent_execution_timeout_seconds,
+        recommendation_reserve_seconds=settings.recommendation_reserve_seconds,
     )
 
     logger.info("PlaceMatch started (mock_llm=%s)", settings.mock_llm)

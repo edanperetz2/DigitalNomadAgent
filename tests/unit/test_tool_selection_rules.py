@@ -1,12 +1,25 @@
 from app.agent.agentic_research import select_tools
 from app.agent.models import Budget, PlaceRequestProfile
-from app.agent.orchestrator import _CRITERION_TO_TOOLS
+from app.agent.orchestrator import _CRITERION_TO_TOOLS, Orchestrator
 
 
 def _profile(**overrides) -> PlaceRequestProfile:
     defaults = dict(purpose="remote_work", budget=Budget())
     defaults.update(overrides)
     return PlaceRequestProfile(**defaults)
+
+
+def test_tool_priorities_follow_user_weights_and_hard_constraints():
+    profile = _profile(
+        relevant_criteria=["cost", "activities"],
+        inferred_weights={"cost": 0.9, "activities": 0.2},
+        hard_constraints=["The monthly budget is non-negotiable."],
+    )
+
+    priorities = Orchestrator._tool_priorities(profile, {"BudgetFitTool", "ActivitiesTool"})
+
+    assert priorities["BudgetFitTool"] == 2.0
+    assert priorities["ActivitiesTool"] == 0.2
 
 
 def test_remote_work_selects_work_infrastructure_tools_not_education():

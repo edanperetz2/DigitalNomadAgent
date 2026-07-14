@@ -61,6 +61,22 @@ transitions with structured conditions rather than a fixed sequence:
 A hard cap (`MAX_STATE_TRANSITIONS = 30`) prevents runaway loops regardless of any bug in the
 transition logic above.
 
+The complete state-machine task is also wrapped by a hard wall-clock deadline. The backend default
+and allowed maximum are 285 seconds (`AGENT_EXECUTION_TIMEOUT_SECONDS`), reserving 15 seconds for
+API and client overhead so the end-to-end interaction remains under 300 seconds. The normal
+research cutoff is 225 seconds, leaving `RECOMMENDATION_RESERVE_SECONDS=60` for deterministic
+evaluation and response generation. At that cutoff, pending calls are cancelled but completed
+results are retained and scored. If the recommendation LLM exceeds its remaining allowance, the
+deterministic renderer returns the same evidence-backed structure. The hard cutoff is an emergency
+no-I/O fallback that builds a provisional recommendation from the latest checkpoint rather than
+discarding completed work.
+
+The two early LLM-dependent stages also degrade without losing the run: Request Interpreter falls
+back to the deterministic parser, and Agentic Research falls back to the purpose-keyed curated
+candidate seed set. Both substitutions are added to the response assumptions. This means provider
+timeouts in interpretation, candidate generation, individual tools, or recommendation writing all
+have bounded, disclosed paths to a usable response.
+
 ## 3. Why tool selection is deterministic, not LLM-driven
 
 `Agentic Research` still needs to decide *which* of the 10 tools matter for a given request. The
@@ -128,6 +144,25 @@ claims to know the real provider-side balance (see README "Budget control").
 
 ## 7. Failure handling and graceful degradation
 
+- The 285-second agent deadline bounds the entire state machine, including all LLM calls, provider
+  retries, rate-limit waits, tool calls, persistence, gap research, and response generation. It is
+  not reset between states or retries, and configuration validation prevents raising it above 285.
+- Independent non-geocoding `(tool, candidate)` jobs are created together and run concurrently up
+  to `MAX_CONCURRENT_TOOL_REQUESTS=10`. Provider-specific controls override that general cap:
+  Nominatim candidate verification remains serial to honor its one-request-per-second policy, and
+  the shared Overpass client permits at most two simultaneous requests.
+- Each tool/candidate invocation also has a 50-second default wall-clock budget, including its
+  internal retries and provider failover. This frees its concurrency slot before the shared
+  research cutoff when one provider or tool is abnormally slow.
+- Tool scheduling is deterministic: tools supporting hard constraints run first, followed by
+  higher `inferred_weights`, with each priority applied across all candidates before lower-priority
+  work begins. The cutoff therefore preserves the most decision-relevant evidence first.
+- When the 225-second research cutoff is reached, the registry returns completed results plus
+  explicit timeout results for cancelled jobs. Dynamic Evaluation treats those as missing evidence,
+  reduces confidence, and continues to the recommendation instead of failing the entire request.
+- Timing logs record queue/run duration and outcome for every tool, duration for every agent state,
+  total request duration, timeout counts, and hard-fallback use without changing the strict API
+  response schema.
 - Individual tool failures (timeout, HTTP 429/5xx, malformed JSON, empty response) are caught
   inside each tool and converted to a `ToolResult(error=...)` — never raised — so one flaky source
   never aborts the whole request. `ToolRegistry.run_tools()` adds a second layer of the same

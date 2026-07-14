@@ -9,6 +9,7 @@ always returns a contract-valid, non-fabricated response.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from pydantic import BaseModel, ConfigDict
@@ -64,6 +65,19 @@ def _build_payload(
     }
 
 
+def render_recommendation_fallback(
+    profile: PlaceRequestProfile,
+    evaluations: list[CandidateEvaluation],
+    validation: ValidationResult,
+    sources: list[dict],
+    *,
+    max_final_recommendations: int = 3,
+) -> str:
+    """Render a recommendation without another network or LLM call."""
+    payload = _build_payload(profile, evaluations, validation, sources, max_final_recommendations)
+    return render_recommendation_markdown(payload)
+
+
 async def generate_recommendation(
     profile: PlaceRequestProfile,
     evaluations: list[CandidateEvaluation],
@@ -76,6 +90,7 @@ async def generate_recommendation(
     execution_trace: list[dict],
     max_output_tokens: int,
     max_final_recommendations: int = 3,
+    llm_timeout_seconds: float | None = None,
 ) -> str:
     payload = _build_payload(profile, evaluations, validation, sources, max_final_recommendations)
 
@@ -84,7 +99,7 @@ async def generate_recommendation(
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": json.dumps(payload)},
         ]
-        response = await traced_llm_call(
+        call = traced_llm_call(
             module_name=RECOMMENDATION_GENERATOR,
             messages=messages,
             execution_trace=execution_trace,
@@ -94,11 +109,18 @@ async def generate_recommendation(
             max_output_tokens=max_output_tokens,
             response_model=_RecommendationOutput,
         )
+        response = await asyncio.wait_for(call, timeout=llm_timeout_seconds) if llm_timeout_seconds else await call
         return response["markdown"]
-    except (BudgetExceededError, LLMOutputError):
-        fallback = render_recommendation_markdown(payload)
+    except (BudgetExceededError, LLMOutputError, TimeoutError):
+        fallback = render_recommendation_fallback(
+            profile,
+            evaluations,
+            validation,
+            sources,
+            max_final_recommendations=max_final_recommendations,
+        )
         return (
             fallback
             + "\n\n*(Note: this is a limited automated summary generated without the "
-            "recommendation-writing model, due to a budget or availability limitation.)*"
+            "recommendation-writing model, due to a budget, availability, or time limitation.)*"
         )

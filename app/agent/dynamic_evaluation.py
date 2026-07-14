@@ -298,7 +298,9 @@ def evaluate_candidates(
             supported_weight -= weights.get(criterion, 0) * (1.0 - factor)
         confidence_score = supported_weight / sum(weights.values()) if weights else 0.0
 
-        if not drawbacks and not eliminated:
+        if not criterion_scores and not eliminated:
+            drawbacks.append("No scored evidence was available; this candidate is provisional.")
+        elif not drawbacks and not eliminated:
             drawbacks.append("No significant drawbacks were identified from the available evidence.")
 
         evaluations.append(

@@ -34,7 +34,7 @@ def render_recommendation_markdown(payload: dict[str, Any]) -> str:
     lines.append("| Rank | Place | Why it fits | Main drawback | Confidence |")
     lines.append("|---:|---|---|---|---|")
     for i, c in enumerate(candidates, start=1):
-        why = (c.get("advantages") or ["Good overall match"])[0]
+        why = (c.get("advantages") or ["Provisional match based on limited evidence"])[0]
         drawback = (c.get("drawbacks") or ["No major drawback identified"])[0]
         label = _confidence_label(c.get("confidence_score", 0.0))
         lines.append(f"| {i} | {c.get('place', 'Unknown')} | {why} | {drawback} | {label} |")

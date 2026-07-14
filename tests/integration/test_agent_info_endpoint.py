@@ -7,6 +7,7 @@ def test_agent_info_status_and_top_level_shape(client):
     data = response.json()
     assert set(data.keys()) == {"description", "purpose", "prompt_template", "prompt_examples"}
     assert set(data["prompt_template"].keys()) == {"template"}
+    assert "under 300 seconds" in data["description"]
 
 
 def test_agent_info_has_at_least_three_examples_for_each_purpose(client):

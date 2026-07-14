@@ -28,6 +28,8 @@ def test_index_links_to_architecture_and_agent_info(client):
 def test_app_js_references_execute_endpoint(client):
     js = client.get("/static/app.js").text
     assert "/api/execute" in js
+    assert "EXECUTE_TIMEOUT_MS = 295000" in js
+    assert "controller.abort()" in js
 
 
 def test_app_js_escapes_html_before_rendering():

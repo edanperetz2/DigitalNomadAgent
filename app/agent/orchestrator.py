@@ -8,21 +8,25 @@ entries were already recorded, per the spec's error-handling requirements.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass, field
 
 from app.agent.agentic_research import generate_candidates, select_tools
 from app.agent.dynamic_evaluation import evaluate_candidates
 from app.agent.models import CandidatePlace, PlaceRequestProfile, ValidationResult
-from app.agent.recommendation_generator import generate_recommendation
+from app.agent.recommendation_generator import generate_recommendation, render_recommendation_fallback
 from app.agent.recommendation_validator import validate_recommendations
 from app.agent.request_interpreter import interpret_request
 from app.agent.state import MAX_STATE_TRANSITIONS, TERMINAL_STATES, AgentState
-from app.core.exceptions import PlaceMatchError
+from app.core.exceptions import BudgetExceededError, LLMOutputError, PlaceMatchError
+from app.core.logging import logger
 from app.evidence.memory import EvidenceMemory
 from app.evidence.models import EvidenceRecord, ToolResult
 from app.llm.base import BaseLLMClient
 from app.llm.budget import BudgetManager
+from app.llm.mock import generate_candidates as generate_fallback_candidates
+from app.llm.mock import interpret_prompt as interpret_prompt_fallback
 from app.tools.registry import ToolRegistry
 
 _CRITERION_TO_TOOLS: dict[str, set[str]] = {
@@ -54,6 +58,15 @@ class AgentResult:
     steps: list[dict] = field(default_factory=list)
 
 
+@dataclass
+class _RunCheckpoint:
+    profile: PlaceRequestProfile | None = None
+    candidates: list[CandidatePlace] = field(default_factory=list)
+    evidence_by_place: dict[str, list[ToolResult]] = field(default_factory=dict)
+    evaluations: list = field(default_factory=list)
+    validation: ValidationResult | None = None
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -66,6 +79,8 @@ class Orchestrator:
         max_candidates: int,
         max_final_recommendations: int,
         max_prompt_length: int,
+        execution_timeout_seconds: float,
+        recommendation_reserve_seconds: float = 60.0,
     ):
         self._tools = tool_registry
         self._evidence = evidence_memory
@@ -75,6 +90,8 @@ class Orchestrator:
         self._max_candidates = max_candidates
         self._max_final_recommendations = max_final_recommendations
         self._max_prompt_length = max_prompt_length
+        self._execution_timeout_seconds = execution_timeout_seconds
+        self._recommendation_reserve_seconds = recommendation_reserve_seconds
 
     async def _persist_evidence(self, place: str, results: list[ToolResult]) -> None:
         for r in results:
@@ -124,9 +141,153 @@ class Orchestrator:
                         }
         return list(sources.values())
 
+    @staticmethod
+    def _tool_priorities(profile: PlaceRequestProfile, tool_names: set[str]) -> dict[str, float]:
+        """Prioritize user-weighted evidence; ties remain deterministic by tool name."""
+        priorities = {tool_name: 0.1 for tool_name in tool_names}
+        for criterion, criterion_tools in _CRITERION_TO_TOOLS.items():
+            weight = profile.inferred_weights.get(
+                criterion,
+                0.5 if criterion in profile.relevant_criteria else 0.0,
+            )
+            for tool_name in criterion_tools & tool_names:
+                priorities[tool_name] = max(priorities[tool_name], weight)
+
+        hard_text = " ".join(profile.hard_constraints + profile.deal_breakers).lower()
+        hard_tool_keywords = {
+            "BudgetFitTool": ("budget", "cost", "afford"),
+            "TimezoneFitTool": ("timezone", "time zone", "working hours", "overlap"),
+            "AmenitiesTool": ("transport", "car-free", "walkab", "student life", "cowork"),
+            "AccessibilityTool": ("airport", "distance", "accessible", "arrival"),
+            "EducationOptionsTool": ("study", "university", "education", "program"),
+            "WeatherTool": ("weather", "climate", "temperature", "rain", "snow"),
+            "ActivitiesTool": ("activit", "hiking", "beach", "culture", "nightlife"),
+        }
+        for tool_name, keywords in hard_tool_keywords.items():
+            if tool_name in priorities and any(keyword in hard_text for keyword in keywords):
+                priorities[tool_name] = max(priorities[tool_name], 2.0)
+        return priorities
+
     async def run(self, prompt: str) -> AgentResult:
         request_id = uuid.uuid4().hex
         execution_trace: list[dict] = []
+        checkpoint = _RunCheckpoint()
+        loop = asyncio.get_running_loop()
+        started_at = loop.time()
+        hard_deadline = started_at + self._execution_timeout_seconds
+        effective_reserve = min(
+            self._recommendation_reserve_seconds,
+            self._execution_timeout_seconds / 2,
+        )
+        research_deadline = hard_deadline - effective_reserve
+
+        hard_fallback_used = False
+        try:
+            result = await asyncio.wait_for(
+                self._run_state_machine(
+                    prompt,
+                    request_id,
+                    execution_trace,
+                    checkpoint,
+                    research_deadline,
+                    hard_deadline,
+                ),
+                timeout=self._execution_timeout_seconds,
+            )
+        except TimeoutError:
+            hard_fallback_used = True
+            result = self._best_effort_result(
+                prompt,
+                checkpoint,
+                execution_trace,
+                "The hard execution deadline was reached; unfinished work was stopped and the "
+                "ranking uses only evidence available at that point.",
+            )
+        elapsed = loop.time() - started_at
+        timed_out_tools = sum(
+            1
+            for results in checkpoint.evidence_by_place.values()
+            for tool_result in results
+            if tool_result.error and "budget" in tool_result.error
+        )
+        logger.info(
+            "agent_timing request_id=%s total_seconds=%.3f status=%s hard_fallback=%s "
+            "timed_out_tools=%d",
+            request_id,
+            elapsed,
+            result.status,
+            hard_fallback_used,
+            timed_out_tools,
+        )
+        return result
+
+    def _best_effort_result(
+        self,
+        prompt: str,
+        checkpoint: _RunCheckpoint,
+        execution_trace: list[dict],
+        limitation: str,
+    ) -> AgentResult:
+        """Build a usable response synchronously after cancellation; never start more I/O."""
+        try:
+            profile = checkpoint.profile or PlaceRequestProfile.model_validate(
+                interpret_prompt_fallback(prompt)
+            )
+            if profile.clarification_required:
+                response = profile.clarification_question or "Could you clarify your request?"
+                return AgentResult(status="ok", response=response, error=None, steps=execution_trace)
+
+            candidates = checkpoint.candidates
+            if not candidates:
+                candidates = [
+                    CandidatePlace.model_validate(candidate)
+                    for candidate in generate_fallback_candidates(profile.model_dump(mode="json"))[
+                        : self._max_candidates
+                    ]
+                ]
+
+            evaluations = checkpoint.evaluations or evaluate_candidates(
+                candidates,
+                profile,
+                checkpoint.evidence_by_place,
+            )
+            validation = checkpoint.validation or validate_recommendations(
+                evaluations,
+                profile,
+                gap_iteration_used=True,
+            )
+            validation = validation.model_copy(deep=True)
+            validation.approved = True
+            validation.should_research_again = False
+            if limitation not in validation.issues:
+                validation.issues.append(limitation)
+
+            response = render_recommendation_fallback(
+                profile,
+                evaluations,
+                validation,
+                self._collect_sources(checkpoint.evidence_by_place),
+                max_final_recommendations=self._max_final_recommendations,
+            )
+            response += "\n\n*(Timing note: incomplete research was cancelled so this response could arrive on time.)*"
+            return AgentResult(status="ok", response=response, error=None, steps=execution_trace)
+        except Exception as exc:  # noqa: BLE001 - final no-I/O fallback must preserve the API contract
+            return AgentResult(
+                status="error",
+                response=None,
+                error=f"The agent could not build a safe partial recommendation: {exc}",
+                steps=execution_trace,
+            )
+
+    async def _run_state_machine(
+        self,
+        prompt: str,
+        request_id: str,
+        execution_trace: list[dict],
+        checkpoint: _RunCheckpoint,
+        research_deadline: float,
+        hard_deadline: float,
+    ) -> AgentResult:
 
         state = AgentState.RECEIVED
         transitions = 0
@@ -140,6 +301,8 @@ class Orchestrator:
 
         try:
             while state not in TERMINAL_STATES:
+                current_state = state
+                phase_started_at = asyncio.get_running_loop().time()
                 transitions += 1
                 if transitions > MAX_STATE_TRANSITIONS:
                     raise PlaceMatchError(
@@ -150,14 +313,21 @@ class Orchestrator:
                     state = AgentState.INTERPRETING
 
                 elif state == AgentState.INTERPRETING:
-                    profile = await interpret_request(
-                        prompt,
-                        client=self._llm,
-                        budget=self._budget,
-                        request_id=request_id,
-                        execution_trace=execution_trace,
-                        max_output_tokens=self._max_output_tokens,
-                    )
+                    try:
+                        profile = await interpret_request(
+                            prompt,
+                            client=self._llm,
+                            budget=self._budget,
+                            request_id=request_id,
+                            execution_trace=execution_trace,
+                            max_output_tokens=self._max_output_tokens,
+                        )
+                    except (BudgetExceededError, LLMOutputError):
+                        profile = PlaceRequestProfile.model_validate(interpret_prompt_fallback(prompt))
+                        profile.assumptions.append(
+                            "The request-interpreter model was unavailable; a deterministic parser was used."
+                        )
+                    checkpoint.profile = profile
                     state = (
                         AgentState.CLARIFICATION_REQUIRED
                         if profile.clarification_required
@@ -169,44 +339,86 @@ class Orchestrator:
                         "Could you clarify your request? I need a bit more information to "
                         "make a reliable recommendation."
                     )
+                    logger.info(
+                        "agent_phase request_id=%s phase=%s duration_seconds=%.3f next_state=returned",
+                        request_id,
+                        current_state,
+                        asyncio.get_running_loop().time() - phase_started_at,
+                    )
                     return AgentResult(status="ok", response=response_text, error=None, steps=execution_trace)
 
                 elif state == AgentState.PLANNING_RESEARCH:
-                    candidates = await generate_candidates(
-                        profile,
-                        client=self._llm,
-                        budget=self._budget,
-                        request_id=request_id,
-                        execution_trace=execution_trace,
-                        max_output_tokens=self._max_output_tokens,
-                        max_candidates=self._max_candidates,
-                    )
+                    try:
+                        candidates = await generate_candidates(
+                            profile,
+                            client=self._llm,
+                            budget=self._budget,
+                            request_id=request_id,
+                            execution_trace=execution_trace,
+                            max_output_tokens=self._max_output_tokens,
+                            max_candidates=self._max_candidates,
+                        )
+                    except (BudgetExceededError, LLMOutputError):
+                        candidates = [
+                            CandidatePlace.model_validate(candidate)
+                            for candidate in generate_fallback_candidates(profile.model_dump(mode="json"))[
+                                : self._max_candidates
+                            ]
+                        ]
+                        profile.assumptions.append(
+                            "The candidate-generation model was unavailable; a curated seed set was used."
+                        )
                     if not candidates:
                         raise PlaceMatchError("No candidate destinations could be generated for this request.")
+                    checkpoint.candidates = list(candidates)
                     state = AgentState.EXECUTING_TOOLS
 
                 elif state == AgentState.EXECUTING_TOOLS:
-                    verified, geocoding_results = await self._tools.verify_candidates(candidates, profile)
+                    remaining_research = max(0.0, research_deadline - asyncio.get_running_loop().time())
+                    verified, geocoding_results = await self._tools.verify_candidates(
+                        candidates,
+                        profile,
+                        timeout_seconds=remaining_research,
+                        request_id=request_id,
+                    )
+                    research_timed_out = any(
+                        result.error and "research time budget expired" in result.error
+                        for result in geocoding_results
+                    )
                     if not verified:
-                        raise PlaceMatchError(
-                            "None of the candidate destinations could be reliably verified."
-                        )
-                    candidates = verified
+                        if not research_timed_out:
+                            raise PlaceMatchError(
+                                "None of the candidate destinations could be reliably verified."
+                            )
+                    else:
+                        candidates = verified
+                        checkpoint.candidates = list(candidates)
                     tool_names = select_tools(profile)
-                    grouped = await self._tools.run_tools(tool_names, candidates, profile)
-                    verified_place_names = {candidate.place_name for candidate in verified}
+                    tool_priorities = self._tool_priorities(profile, tool_names)
                     evidence_by_place = {}
                     for result in geocoding_results:
-                        if result.error is None and result.place in verified_place_names:
-                            evidence_by_place.setdefault(result.place, []).append(result)
+                        evidence_by_place.setdefault(result.place, []).append(result)
+                    checkpoint.evidence_by_place = evidence_by_place
+
+                    remaining_research = max(0.0, research_deadline - asyncio.get_running_loop().time())
+                    grouped = await self._tools.run_tools(
+                        tool_names,
+                        candidates,
+                        profile,
+                        timeout_seconds=remaining_research,
+                        tool_priorities=tool_priorities,
+                        request_id=request_id,
+                    )
                     for place, results in grouped.items():
                         evidence_by_place.setdefault(place, []).extend(results)
+                    checkpoint.evidence_by_place = evidence_by_place
                     for place, results in evidence_by_place.items():
                         await self._persist_evidence(place, results)
                     state = AgentState.EVALUATING
 
                 elif state == AgentState.EVALUATING:
                     evaluations = evaluate_candidates(candidates, profile, evidence_by_place)
+                    checkpoint.evaluations = list(evaluations)
                     if all(e.eliminated for e in evaluations):
                         raise PlaceMatchError(
                             "All candidate destinations were eliminated by hard constraints."
@@ -215,9 +427,17 @@ class Orchestrator:
 
                 elif state == AgentState.VALIDATING:
                     validation = validate_recommendations(evaluations, profile, gap_iteration_used)
-                    if validation.should_research_again and not gap_iteration_used:
+                    research_time_exhausted = asyncio.get_running_loop().time() >= research_deadline
+                    if validation.should_research_again and not gap_iteration_used and not research_time_exhausted:
                         state = AgentState.RESEARCHING_GAP
                     else:
+                        if validation.should_research_again:
+                            gap_iteration_used = True
+                            validation = validate_recommendations(evaluations, profile, gap_iteration_used)
+                            validation.issues.append(
+                                "The optional gap-research round was skipped because the research time budget expired."
+                            )
+                        checkpoint.validation = validation
                         state = AgentState.GENERATING_RESPONSE
 
                 elif state == AgentState.RESEARCHING_GAP:
@@ -232,27 +452,71 @@ class Orchestrator:
                     )
                     gap_candidates = [c for c in candidates if c.place_name in gap_places]
                     if gap_tool_names and gap_candidates:
-                        gap_results = await self._tools.run_tools(gap_tool_names, gap_candidates, profile)
+                        remaining_research = max(0.0, research_deadline - asyncio.get_running_loop().time())
+                        gap_results = await self._tools.run_tools(
+                            gap_tool_names,
+                            gap_candidates,
+                            profile,
+                            timeout_seconds=remaining_research,
+                            tool_priorities=self._tool_priorities(profile, gap_tool_names),
+                            request_id=request_id,
+                        )
                         for place, results in gap_results.items():
                             evidence_by_place.setdefault(place, []).extend(results)
                             await self._persist_evidence(place, results)
+                        checkpoint.evidence_by_place = evidence_by_place
                     state = AgentState.EVALUATING
 
                 elif state == AgentState.GENERATING_RESPONSE:
-                    sources = self._collect_sources(evidence_by_place)
-                    response_text = await generate_recommendation(
-                        profile,
-                        evaluations,
-                        validation,
-                        sources,
-                        client=self._llm,
-                        budget=self._budget,
-                        request_id=request_id,
-                        execution_trace=execution_trace,
-                        max_output_tokens=self._max_output_tokens,
-                        max_final_recommendations=self._max_final_recommendations,
+                    timed_out_evidence = any(
+                        result.error
+                        and (
+                            "research time budget expired" in result.error
+                            or "per-invocation execution budget" in result.error
+                        )
+                        for results in evidence_by_place.values()
+                        for result in results
                     )
+                    if timed_out_evidence:
+                        validation = validation.model_copy(deep=True)
+                        validation.issues.append(
+                            "Unfinished research calls were stopped by their time budgets; "
+                            "the ranking uses partial evidence."
+                        )
+                        checkpoint.validation = validation
+                    sources = self._collect_sources(evidence_by_place)
+                    remaining_hard_time = hard_deadline - asyncio.get_running_loop().time()
+                    if remaining_hard_time <= 1.0:
+                        response_text = render_recommendation_fallback(
+                            profile,
+                            evaluations,
+                            validation,
+                            sources,
+                            max_final_recommendations=self._max_final_recommendations,
+                        )
+                    else:
+                        response_text = await generate_recommendation(
+                            profile,
+                            evaluations,
+                            validation,
+                            sources,
+                            client=self._llm,
+                            budget=self._budget,
+                            request_id=request_id,
+                            execution_trace=execution_trace,
+                            max_output_tokens=self._max_output_tokens,
+                            max_final_recommendations=self._max_final_recommendations,
+                            llm_timeout_seconds=remaining_hard_time - 1.0,
+                        )
                     state = AgentState.COMPLETED
+
+                logger.info(
+                    "agent_phase request_id=%s phase=%s duration_seconds=%.3f next_state=%s",
+                    request_id,
+                    current_state,
+                    asyncio.get_running_loop().time() - phase_started_at,
+                    state,
+                )
 
             return AgentResult(status="ok", response=response_text, error=None, steps=execution_trace)
 

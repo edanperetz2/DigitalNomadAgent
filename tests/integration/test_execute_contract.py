@@ -65,3 +65,47 @@ def test_successful_response_has_exact_four_fields(client):
         assert isinstance(data["response"], str)
     for step in data["steps"]:
         assert set(step.keys()) == {"module", "prompt", "response"}
+
+
+def test_execution_deadline_returns_best_effort_recommendation(client, monkeypatch):
+    async def slow_complete(*args, **kwargs):
+        import asyncio
+
+        await asyncio.sleep(10)
+
+    orchestrator = client.app.state.orchestrator
+    orchestrator._execution_timeout_seconds = 0.02
+    monkeypatch.setattr(orchestrator._llm, "complete", slow_complete)
+
+    response = client.post(
+        "/api/execute",
+        json={"prompt": "Find a quiet beach destination for two weeks in October."},
+    )
+    data = response.json()
+
+    assert set(data) == REQUIRED_KEYS
+    assert data["status"] == "ok"
+    assert data["error"] is None
+    assert "## Best matches" in data["response"]
+    assert "incomplete research was cancelled" in data["response"]
+    assert data["steps"] == []
+
+
+def test_llm_timeout_or_failure_uses_deterministic_pipeline_fallbacks(client, monkeypatch):
+    async def unavailable_complete(*args, **kwargs):
+        raise RuntimeError("provider unavailable")
+
+    orchestrator = client.app.state.orchestrator
+    monkeypatch.setattr(orchestrator._llm, "complete", unavailable_complete)
+
+    response = client.post(
+        "/api/execute",
+        json={"prompt": "Find a quiet beach destination for two weeks in October."},
+    )
+    data = response.json()
+
+    assert data["status"] == "ok"
+    assert data["error"] is None
+    assert "## Best matches" in data["response"]
+    assert "deterministic parser" in data["response"]
+    assert "curated seed set" in data["response"]

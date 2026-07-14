@@ -26,7 +26,8 @@ DESCRIPTION = (
     "mixed purposes), dynamically decides which research tools are relevant, gathers evidence "
     "from open data sources, deterministically scores and validates candidate destinations, and "
     "returns ranked, explainable recommendations with sources, trade-offs, and disclosed "
-    "assumptions and limitations."
+    "assumptions and limitations. Every end-to-end run is bounded to finish in under 300 seconds; "
+    "slow research is cancelled and disclosed rather than blocking the available recommendations."
 )
 
 PURPOSE = (

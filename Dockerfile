@@ -25,7 +25,11 @@ USER appuser
 # Safe default: never spend real money unless explicitly overridden at deploy time.
 ENV MOCK_LLM=true \
     SQLITE_PATH=/app/data/placematch.db \
-    APP_PORT=8000
+    APP_PORT=8000 \
+    AGENT_EXECUTION_TIMEOUT_SECONDS=285 \
+    RECOMMENDATION_RESERVE_SECONDS=60 \
+    TOOL_EXECUTION_TIMEOUT_SECONDS=50 \
+    MAX_CONCURRENT_TOOL_REQUESTS=10
 
 EXPOSE 8000
 

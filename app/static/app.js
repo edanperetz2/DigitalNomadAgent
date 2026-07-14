@@ -37,6 +37,7 @@
     "Writing your recommendation…",
   ];
   const LOADING_STAGE_INTERVAL_MS = 1300;
+  const EXECUTE_TIMEOUT_MS = 295000;
   let loadingStageTimer = null;
 
   document.querySelectorAll(".example-btn").forEach((btn) => {
@@ -203,11 +204,14 @@
     }
 
     setLoading(true);
+    const controller = new AbortController();
+    const requestTimeout = setTimeout(() => controller.abort(), EXECUTE_TIMEOUT_MS);
     try {
       const response = await fetch("/api/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt }),
+        signal: controller.signal,
       });
       const data = await response.json();
 
@@ -219,8 +223,13 @@
         showError(data.error || "The agent could not complete this request.");
       }
     } catch (err) {
-      showError("A network error occurred while contacting the agent.");
+      if (err && err.name === "AbortError") {
+        showError("The agent did not finish within the 300-second end-to-end limit.");
+      } else {
+        showError("A network error occurred while contacting the agent.");
+      }
     } finally {
+      clearTimeout(requestTimeout);
       setLoading(false);
     }
   });

@@ -1,9 +1,9 @@
 """Shared pytest fixtures.
 
-Every test runs fully offline: MockLLMClient (zero cost) + FakeToolRegistry
-(no network) + a temporary SQLite database per test. An autouse fixture also
-blocks any real outbound HTTP call so a bug can never silently make a real
-network request during the test suite.
+Normal tests run fully offline: MockLLMClient (zero cost) + FakeToolRegistry
+(no network) + a temporary SQLite database per test. An autouse fixture blocks
+real outbound HTTP unless a test is explicitly marked `live` and the operator
+sets RUN_LIVE_TESTS=1.
 """
 
 from __future__ import annotations
@@ -18,7 +18,10 @@ from app.tools.registry import ToolRegistry
 
 
 @pytest.fixture(autouse=True)
-def _block_real_network(monkeypatch):
+def _block_real_network(request, monkeypatch):
+    if request.node.get_closest_marker("live") and get_settings().run_live_tests:
+        return
+
     import httpx
 
     async def _blocked_send(*args, **kwargs):

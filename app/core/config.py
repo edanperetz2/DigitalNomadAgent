@@ -5,9 +5,12 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+MAX_AGENT_EXECUTION_TIMEOUT_SECONDS = 285.0
+DEFAULT_RECOMMENDATION_RESERVE_SECONDS = 60.0
 
 
 class Settings(BaseSettings):
@@ -35,8 +38,22 @@ class Settings(BaseSettings):
 
     # --- Networking ---------------------------------------------------------------
     http_timeout_seconds: float = 10.0
-    max_concurrent_tool_requests: int = 5
+    agent_execution_timeout_seconds: float = Field(
+        default=MAX_AGENT_EXECUTION_TIMEOUT_SECONDS,
+        gt=0,
+        le=MAX_AGENT_EXECUTION_TIMEOUT_SECONDS,
+        allow_inf_nan=False,
+    )
+    recommendation_reserve_seconds: float = Field(
+        default=DEFAULT_RECOMMENDATION_RESERVE_SECONDS,
+        gt=0,
+        le=120,
+        allow_inf_nan=False,
+    )
+    tool_execution_timeout_seconds: float = Field(default=50.0, gt=0, le=120, allow_inf_nan=False)
+    max_concurrent_tool_requests: int = 10
     cache_ttl_hours: int = 168
+    upstream_request_timeout_seconds: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
     # --- Storage / server -----------------------------------------------------------
     sqlite_path: str = "./data/placematch.db"
@@ -51,6 +68,18 @@ class Settings(BaseSettings):
 
     # --- Testing ------------------------------------------------------------------------
     run_live_tests: bool = False
+
+    @model_validator(mode="after")
+    def validate_timeout_alignment(self) -> Settings:
+        if (
+            self.upstream_request_timeout_seconds is not None
+            and self.upstream_request_timeout_seconds <= self.agent_execution_timeout_seconds
+        ):
+            raise ValueError(
+                "UPSTREAM_REQUEST_TIMEOUT_SECONDS must exceed AGENT_EXECUTION_TIMEOUT_SECONDS "
+                "so a proxy cannot drop the best-effort response."
+            )
+        return self
 
     @property
     def sqlite_path_resolved(self) -> Path:
