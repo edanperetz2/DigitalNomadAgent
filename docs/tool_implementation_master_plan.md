@@ -137,6 +137,18 @@ Planned commit: `Local mobility tool: add car-free mobility evidence`
 - Combine all required OSM mobility categories into one bounded Overpass request per candidate and use at most three cache-first MediaWiki requests to resolve and retrieve the revision-pinned `Get around` section. Reuse the shared provider limits, cache, and failover paths, keep all work inside the per-tool/request deadlines, and include measured deadline impact in review.
 - Test dense, sparse, missing, stale, and partial OSM evidence; Wikivoyage redirects, missing `Get around` sections, excerpt bounds, revision attribution, separate evidence persistence, tool selection, unresolved scoring, and the absence of hard elimination.
 
+### 7a. Shared Wikivoyage context coverage — COMPLETE
+
+Planned commit: `Wikivoyage context: preserve section coverage for agent reasoning`
+
+- Keep a short preview excerpt separate from the source material intended for future LLM reasoning.
+- Parse revision-pinned Wikivoyage sections into heading-aware paragraph chunks and preserve all cleaned section text up to a 20,000-character safety limit.
+- When a section exceeds the safety limit, distribute the available context across its subsections instead of retaining only the beginning. Expose the complete and included character counts, included, truncated, and omitted subsection names, and an explicit truncation flag.
+- Store the bounded reasoning chunks and coverage metadata in Evidence Memory with the exact section, revision, and source URL. Do not score or summarize the text inside the evidence tool.
+- Upgrade LocalMobilityTool and WikivoyageClimateTool to expose this context contract without changing their provider request counts or existing climate-scoring behavior. The deferred PlaceContextTool remains a short non-scoring synopsis and is not part of this evidence contract.
+- Require TransportAccessTool, ActivitiesTool, SafetyTool, and any later criterion-specific Wikivoyage consumer to reuse the same contract.
+- Test full-section preservation, heading coverage, fair allocation under truncation, preview separation, chunk bounds, coverage metadata, LocalMobility persistence, climate compatibility, and unchanged provider-call topology.
+
 ### 8. TransportAccessTool — PLANNED
 
 Planned commit: `refactor(tools): separate destination transport access`
@@ -226,6 +238,6 @@ Planned commit: `feat(tools): complete curated official-source evidence`
 - Timeouts are graceful-degradation events after candidate generation: they must preserve completed evidence and return a provisional recommendation, not discard the run solely because one provider is slow.
 - Any deployed proxy/load balancer request or idle timeout must exceed the 285-second backend deadline; declare the real value with `UPSTREAM_REQUEST_TIMEOUT_SECONDS` for startup validation and configure the external platform itself.
 - Disability accessibility is outside these transport tools; they cover reaching a destination and moving locally.
-- For an OSM-backed tool whose criterion has a directly relevant Wikivoyage section, return the independent OSM counts plus a bounded, revision-pinned section excerpt as separately attributable evidence. Evidence tools do not translate community-written prose into scores. The future reasoning agent will compare both sources and explain its aggregate judgment; until that backbone exists, the contextual evidence remains visible but numerically unresolved and cannot cause hard elimination.
+- For a tool whose criterion has a directly relevant Wikivoyage section, return its structured evidence plus a revision-pinned short preview, heading-aware reasoning chunks, and explicit coverage/truncation metadata as separately attributable evidence. Preserve up to 20,000 cleaned characters per section and distribute a truncated budget across subsections instead of keeping only the beginning. Evidence tools do not translate community-written prose into scores. The future reasoning agent will compare the sources and explain its aggregate judgment; until that backbone exists, the contextual evidence remains visible but numerically unresolved and cannot cause hard elimination.
 - Change the order only through an approved master-plan revision.
-- Each tool is implemented in one commit; the shared foundation is the only approved non-tool commit.
+- Each tool is implemented in one commit; the shared foundation and the explicitly approved shared Wikivoyage context-coverage follow-up are the only approved non-tool commits.

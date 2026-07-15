@@ -1,4 +1,4 @@
-"""Reusable revision-pinned Wikivoyage section retrieval."""
+"""Reusable revision-pinned Wikivoyage section retrieval and context coverage."""
 
 from __future__ import annotations
 
@@ -11,9 +11,53 @@ from urllib.parse import quote
 
 from app.tools.mediawiki_client import MediaWikiClient
 
+DEFAULT_PREVIEW_CHARS = 600
+DEFAULT_MAX_CONTEXT_CHARS = 20_000
+DEFAULT_MAX_CHUNK_CHARS = 2_000
+CONTEXT_CONTRACT_VERSION = 1
+
 
 class WikivoyageSectionNotFound(ValueError):
     """The destination article or requested section does not exist."""
+
+
+@dataclass(frozen=True)
+class WikivoyageContextChunk:
+    subsection: str
+    text: str
+    subsection_truncated: bool = False
+
+    def normalized_data(self) -> dict[str, str | bool]:
+        return {
+            "subsection": self.subsection,
+            "text": self.text,
+            "subsection_truncated": self.subsection_truncated,
+        }
+
+
+@dataclass(frozen=True)
+class WikivoyageSectionContext:
+    preview_excerpt: str
+    context_chunks: tuple[WikivoyageContextChunk, ...]
+    full_section_chars: int
+    included_chars: int
+    truncated: bool
+    included_subsections: tuple[str, ...]
+    truncated_subsections: tuple[str, ...]
+    omitted_subsections: tuple[str, ...]
+
+    def normalized_data(self) -> dict[str, Any]:
+        return {
+            "preview_excerpt": self.preview_excerpt,
+            "excerpt": self.preview_excerpt,
+            "context_chunks": [chunk.normalized_data() for chunk in self.context_chunks],
+            "full_section_chars": self.full_section_chars,
+            "included_chars": self.included_chars,
+            "truncated": self.truncated,
+            "included_subsections": list(self.included_subsections),
+            "truncated_subsections": list(self.truncated_subsections),
+            "omitted_subsections": list(self.omitted_subsections),
+        }
 
 
 @dataclass(frozen=True)
@@ -25,10 +69,15 @@ class WikivoyageSection:
     section_title: str
     section_index: str
     section_anchor: str
-    excerpt: str
+    context: WikivoyageSectionContext
     source_url: str
 
-    def normalized_data(self) -> dict[str, str | int]:
+    @property
+    def excerpt(self) -> str:
+        """Compatibility preview; reasoning consumers should use context chunks."""
+        return self.context.preview_excerpt
+
+    def normalized_data(self) -> dict[str, Any]:
         return {
             "resolved_title": self.resolved_title,
             "page_id": self.page_id,
@@ -37,51 +86,216 @@ class WikivoyageSection:
             "section_title": self.section_title,
             "section_index": self.section_index,
             "section_anchor": self.section_anchor,
-            "excerpt": self.excerpt,
+            **self.context.normalized_data(),
         }
 
 
-class _VisibleTextParser(HTMLParser):
-    _SKIP_TAGS = {"style", "script", "figure", "sup"}
+@dataclass(frozen=True)
+class _SectionGroup:
+    subsection: str
+    text: str
 
-    def __init__(self) -> None:
+
+class _SectionBlockParser(HTMLParser):
+    _SKIP_TAGS = {"style", "script", "figure", "sup"}
+    _HEADING_TAGS = {"h2", "h3", "h4", "h5", "h6"}
+    _TEXT_BLOCK_TAGS = {"p", "li", "tr"}
+
+    def __init__(self, section_title: str, *, skip_tables: bool) -> None:
         super().__init__()
+        self._skip_tags = self._SKIP_TAGS | ({"table"} if skip_tables else set())
         self._skip_depth = 0
-        self.parts: list[str] = []
+        self._active_tag: str | None = None
+        self._active_kind: str | None = None
+        self._parts: list[str] = []
+        self._current_subsection = section_title
+        self.blocks: list[tuple[str, str]] = []
+
+    @staticmethod
+    def _clean(value: str) -> str:
+        cleaned = " ".join(html.unescape(value).split())
+        return re.sub(r"\[\s*edit(?:\s*\|\s*edit source)?\s*\]", "", cleaned, flags=re.I).strip()
+
+    def _flush(self) -> None:
+        text = self._clean("".join(self._parts))
+        if text:
+            if self._active_kind == "heading":
+                self._current_subsection = text
+            else:
+                self.blocks.append((self._current_subsection, text))
+        self._active_tag = None
+        self._active_kind = None
+        self._parts = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag in self._SKIP_TAGS:
+        del attrs
+        if tag in self._skip_tags:
             self._skip_depth += 1
+            return
+        if self._skip_depth:
+            return
+        if tag in self._HEADING_TAGS:
+            self._flush()
+            self._active_tag = tag
+            self._active_kind = "heading"
+        elif tag in self._TEXT_BLOCK_TAGS and self._active_tag is None:
+            self._active_tag = tag
+            self._active_kind = "text"
+        elif tag == "br" and self._active_tag is not None:
+            self._parts.append(" ")
+        elif tag == "td" and self._active_tag == "tr":
+            self._parts.append(" | ")
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in self._SKIP_TAGS and self._skip_depth:
-            self._skip_depth -= 1
-        elif tag in {"p", "li", "br", "h2", "h3", "h4"} and not self._skip_depth:
-            self.parts.append("\n")
+        if tag in self._skip_tags:
+            if self._skip_depth:
+                self._skip_depth -= 1
+            return
+        if self._skip_depth:
+            return
+        if tag == self._active_tag:
+            self._flush()
 
     def handle_data(self, data: str) -> None:
-        if not self._skip_depth:
-            self.parts.append(data)
+        if not self._skip_depth and self._active_tag is not None:
+            self._parts.append(data)
+
+    def close(self) -> None:
+        super().close()
+        self._flush()
 
 
-def _payload_value(payload: Any) -> str:
-    if isinstance(payload, str):
-        return payload
-    if isinstance(payload, dict):
-        return str(payload.get("*") or "")
-    return ""
+def _group_blocks(blocks: list[tuple[str, str]]) -> list[_SectionGroup]:
+    groups: list[_SectionGroup] = []
+    for subsection, text in blocks:
+        if groups and groups[-1].subsection == subsection:
+            previous = groups[-1]
+            groups[-1] = _SectionGroup(subsection=subsection, text=f"{previous.text}\n{text}")
+        else:
+            groups.append(_SectionGroup(subsection=subsection, text=text))
+    return groups
 
 
-def _plain_text(rendered_html: str) -> str:
-    parser = _VisibleTextParser()
+def _allocate_context(groups: list[_SectionGroup], max_chars: int) -> list[int]:
+    if max_chars <= 0:
+        raise ValueError("max_context_chars must be positive")
+    if not groups:
+        return []
+    lengths = [len(group.text) for group in groups]
+    if sum(lengths) <= max_chars:
+        return lengths
+
+    equal_share = max_chars // len(groups)
+    allocations = [min(length, equal_share) for length in lengths]
+    remaining = max_chars - sum(allocations)
+    while remaining:
+        expandable = [index for index, length in enumerate(lengths) if allocations[index] < length]
+        if not expandable:
+            break
+        share = max(1, remaining // len(expandable))
+        progressed = 0
+        for index in expandable:
+            addition = min(share, lengths[index] - allocations[index], remaining)
+            allocations[index] += addition
+            remaining -= addition
+            progressed += addition
+            if remaining == 0:
+                break
+        if progressed == 0:
+            break
+    return allocations
+
+
+def _split_chunks(text: str, max_chars: int) -> list[str]:
+    if max_chars <= 0:
+        raise ValueError("max_chunk_chars must be positive")
+    remaining = text.strip()
+    chunks: list[str] = []
+    while remaining:
+        if len(remaining) <= max_chars:
+            chunks.append(remaining)
+            break
+        cut = remaining.rfind("\n", 0, max_chars + 1)
+        if cut < max_chars // 2:
+            cut = remaining.rfind(". ", 0, max_chars + 1)
+            if cut >= max_chars // 2:
+                cut += 1
+        if cut < max_chars // 2:
+            cut = remaining.rfind(" ", 0, max_chars + 1)
+        if cut < max_chars // 2:
+            cut = max_chars
+        chunks.append(remaining[:cut].strip())
+        remaining = remaining[cut:].strip()
+    return [chunk for chunk in chunks if chunk]
+
+
+def _ordered_unique(values: list[str]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(values))
+
+
+def build_section_context(
+    rendered_html: str,
+    section_title: str,
+    *,
+    preview_chars: int = DEFAULT_PREVIEW_CHARS,
+    max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
+    max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS,
+    skip_tables: bool = False,
+) -> WikivoyageSectionContext:
+    """Preserve broad subsection coverage under one bounded reasoning budget."""
+    if preview_chars <= 0:
+        raise ValueError("preview_chars must be positive")
+    parser = _SectionBlockParser(section_title, skip_tables=skip_tables)
     parser.feed(rendered_html)
-    lines = [" ".join(html.unescape(line).split()) for line in "".join(parser.parts).splitlines()]
-    text = "\n".join(line for line in lines if line)
-    return re.sub(r"\[\s*edit(?:\s*\|\s*edit source)?\s*\]", "", text, flags=re.I)
+    parser.close()
+    groups = _group_blocks(parser.blocks)
+    if not groups:
+        raise ValueError("Wikivoyage returned no readable text for the requested section")
+
+    full_text = "\n".join(group.text for group in groups)
+    full_section_chars = sum(len(group.text) for group in groups)
+    allocations = _allocate_context(groups, max_context_chars)
+    chunks: list[WikivoyageContextChunk] = []
+    included_subsections: list[str] = []
+    truncated_subsections: list[str] = []
+    omitted_subsections: list[str] = []
+    included_chars = 0
+    for group, allocation in zip(groups, allocations, strict=True):
+        if allocation <= 0:
+            omitted_subsections.append(group.subsection)
+            continue
+        selected = group.text[:allocation].rstrip()
+        if not selected:
+            omitted_subsections.append(group.subsection)
+            continue
+        group_truncated = len(selected) < len(group.text)
+        included_subsections.append(group.subsection)
+        if group_truncated:
+            truncated_subsections.append(group.subsection)
+        included_chars += len(selected)
+        chunks.extend(
+            WikivoyageContextChunk(
+                subsection=group.subsection,
+                text=chunk,
+                subsection_truncated=group_truncated,
+            )
+            for chunk in _split_chunks(selected, max_chunk_chars)
+        )
+
+    return WikivoyageSectionContext(
+        preview_excerpt=full_text[:preview_chars].strip(),
+        context_chunks=tuple(chunks),
+        full_section_chars=full_section_chars,
+        included_chars=included_chars,
+        truncated=included_chars < full_section_chars,
+        included_subsections=_ordered_unique(included_subsections),
+        truncated_subsections=_ordered_unique(truncated_subsections),
+        omitted_subsections=_ordered_unique(omitted_subsections),
+    )
 
 
 class WikivoyageSectionClient:
-    """Resolve one article revision and return one named section from it."""
+    """Resolve one article revision and return one named, coverage-aware section."""
 
     def __init__(self, mediawiki: MediaWikiClient) -> None:
         self._mediawiki = mediawiki
@@ -91,7 +305,10 @@ class WikivoyageSectionClient:
         title: str,
         section_names: tuple[str, ...],
         *,
-        max_excerpt_chars: int,
+        preview_chars: int = DEFAULT_PREVIEW_CHARS,
+        max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
+        max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS,
+        skip_tables: bool = False,
     ) -> WikivoyageSection:
         payload = await self._mediawiki.request(
             action="query",
@@ -153,11 +370,16 @@ class WikivoyageSectionClient:
         rendered_html = _payload_value(parsed.get("text"))
         if not rendered_html:
             raise ValueError("Wikivoyage returned an empty requested section")
-        excerpt = _plain_text(rendered_html)[:max_excerpt_chars].strip()
-        if not excerpt:
-            raise ValueError("Wikivoyage returned no readable text for the requested section")
 
         section_title = str(section.get("line") or section_names[0])
+        context = build_section_context(
+            rendered_html,
+            section_title,
+            preview_chars=preview_chars,
+            max_context_chars=max_context_chars,
+            max_chunk_chars=max_chunk_chars,
+            skip_tables=skip_tables,
+        )
         section_anchor = str(section.get("anchor") or section_title)
         source_url = (
             f"https://en.wikivoyage.org/w/index.php?oldid={revision_id}#{quote(section_anchor)}"
@@ -170,6 +392,14 @@ class WikivoyageSectionClient:
             section_title=section_title,
             section_index=str(section["index"]),
             section_anchor=section_anchor,
-            excerpt=excerpt,
+            context=context,
             source_url=source_url,
         )
+
+
+def _payload_value(payload: Any) -> str:
+    if isinstance(payload, str):
+        return payload
+    if isinstance(payload, dict):
+        return str(payload.get("*") or "")
+    return ""

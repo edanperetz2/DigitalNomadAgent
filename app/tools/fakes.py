@@ -137,6 +137,20 @@ class FakeWikivoyageClimateTool:
                 "revision_timestamp": "2026-01-01T00:00:00Z",
                 "target_months": profile.target_months or [7],
                 "excerpt": "Deterministic fake climate-section evidence.",
+                "preview_excerpt": "Deterministic fake climate-section evidence.",
+                "context_chunks": [
+                    {
+                        "subsection": "Climate",
+                        "text": "Deterministic fake climate-section evidence.",
+                        "subsection_truncated": False,
+                    }
+                ],
+                "full_section_chars": 44,
+                "included_chars": 44,
+                "truncated": False,
+                "included_subsections": ["Climate"],
+                "truncated_subsections": [],
+                "omitted_subsections": [],
                 "climate_chart": [],
                 "phrase_signals": {},
                 "component_scores": components,
@@ -305,6 +319,20 @@ class FakeLocalMobilityTool:
             "section_index": "4",
             "section_anchor": "Get_around",
             "excerpt": "Deterministic fake local-mobility context for agent reasoning.",
+            "preview_excerpt": "Deterministic fake local-mobility context for agent reasoning.",
+            "context_chunks": [
+                {
+                    "subsection": "Get around",
+                    "text": "Deterministic fake local-mobility context for agent reasoning.",
+                    "subsection_truncated": False,
+                }
+            ],
+            "full_section_chars": 62,
+            "included_chars": 62,
+            "truncated": False,
+            "included_subsections": ["Get around"],
+            "truncated_subsections": [],
+            "omitted_subsections": [],
         }
         return ToolResult(
             tool_name=self.name,

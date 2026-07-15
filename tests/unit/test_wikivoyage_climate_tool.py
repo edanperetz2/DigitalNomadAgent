@@ -169,6 +169,10 @@ async def test_resolves_revision_extracts_section_and_scores_requested_component
     assert result.normalized_data["component_scores"]["rain"] == pytest.approx(0.94)
     assert "perfect" in result.normalized_data["excerpt"]
     assert "scorching table text" not in result.normalized_data["excerpt"]
+    assert result.normalized_data["preview_excerpt"] == result.normalized_data["excerpt"]
+    assert result.normalized_data["context_chunks"]
+    assert result.normalized_data["full_section_chars"] == result.normalized_data["included_chars"]
+    assert result.normalized_data["truncated"] is False
     assert all(
         len(item["excerpt"]) <= 240
         for values in result.normalized_data["phrase_signals"].values()
@@ -190,6 +194,7 @@ async def test_current_month_fallback_is_in_cache_identity_and_result():
 
     assert result.normalized_data["target_months"] == [7]
     assert cache.get_calls[0][2]["months"] == [7]
+    assert cache.get_calls[0][2]["wikivoyage_context_contract_version"] == 1
     assert any("uses the current month" in warning for warning in result.warnings)
 
 

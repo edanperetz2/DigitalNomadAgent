@@ -17,6 +17,7 @@ from app.evidence.cache import ToolCache
 from app.evidence.models import ToolResult
 from app.tools.http_client import JsonHttpClient
 from app.tools.mediawiki_client import WIKIVOYAGE_API, MediaWikiClient
+from app.tools.wikivoyage_sections import CONTEXT_CONTRACT_VERSION, build_section_context
 
 SOURCE_NAME = "Wikivoyage climate section"
 MAX_EXCERPT_CHARS = 800
@@ -387,6 +388,7 @@ class WikivoyageClimateTool:
             "directions": directions,
             "latitude": candidate.lat,
             "lexicon_version": LEXICON_VERSION,
+            "wikivoyage_context_contract_version": CONTEXT_CONTRACT_VERSION,
         }
         cached, stale = await self._cache.get(self.name, candidate.place_name, params)
         if cached is not None and not stale:
@@ -397,9 +399,16 @@ class WikivoyageClimateTool:
             resolved_title, page_id, revision_id, revision_timestamp = await self._resolve(title)
             source_url = f"https://en.wikivoyage.org/w/index.php?oldid={revision_id}"
             section, wikitext, rendered_html = await self._section(revision_id)
-            anchor = str(section.get("anchor") or "Climate")
+            section_title = str(section.get("line") or "Climate")
+            anchor = str(section.get("anchor") or section_title)
             source_url += f"#{quote(anchor)}"
             text = _plain_text(rendered_html)
+            context = build_section_context(
+                rendered_html,
+                section_title,
+                preview_chars=MAX_EXCERPT_CHARS,
+                skip_tables=True,
+            )
             chart = parse_climate_chart(wikitext)
             signals = _phrase_signals(text, months, candidate.lat)
             component_scores, component_details = _component_scores(
@@ -422,17 +431,18 @@ class WikivoyageClimateTool:
             warnings.append("The Climate section contained no evidence relevant to the requested climate dimensions.")
         if fallback_used:
             warnings.append("No structured target months were available; climate context uses the current month.")
-        excerpt = text[:MAX_EXCERPT_CHARS]
+        if context.truncated:
+            warnings.append("The climate reasoning context was bounded with subsection coverage metadata.")
         normalized_data = {
             "resolved_title": resolved_title,
             "page_id": page_id,
-            "section_title": str(section.get("line") or "Climate"),
+            "section_title": section_title,
             "section_index": str(section["index"]),
             "section_anchor": anchor,
             "revision_id": revision_id,
             "revision_timestamp": revision_timestamp,
             "target_months": months,
-            "excerpt": excerpt,
+            **context.normalized_data(),
             "climate_chart": chart,
             "phrase_signals": signals,
             "component_scores": component_scores,

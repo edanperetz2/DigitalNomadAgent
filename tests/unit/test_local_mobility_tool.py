@@ -10,6 +10,7 @@ from app.tools.wikivoyage_sections import (
     WikivoyageSection,
     WikivoyageSectionClient,
     WikivoyageSectionNotFound,
+    build_section_context,
 )
 
 
@@ -47,8 +48,8 @@ class FakeWikivoyage:
         self.error = error
         self.calls = []
 
-    async def fetch(self, title, section_names, *, max_excerpt_chars):
-        self.calls.append((title, section_names, max_excerpt_chars))
+    async def fetch(self, title, section_names, **options):
+        self.calls.append((title, section_names, options))
         if self.error is not None:
             raise self.error
         return self.section
@@ -75,7 +76,7 @@ def _section(excerpt="Frequent buses serve the centre, which is compact enough t
         section_title="Get around",
         section_index="4",
         section_anchor="Get_around",
-        excerpt=excerpt,
+        context=build_section_context(f"<p>{excerpt}</p>", "Get around"),
         source_url="https://en.wikivoyage.org/w/index.php?oldid=12345#Get_around",
     )
 
@@ -150,6 +151,68 @@ def test_parser_returns_independent_counts_and_deduplicates_osm_elements():
     assert valid == 7
 
 
+def test_context_preserves_every_subsection_when_it_fits():
+    rendered_html = (
+        "<p>General orientation.</p>"
+        "<h3>By metro</h3><p>Metro details.</p>"
+        "<h3>By bus</h3><p>Bus details.</p>"
+        "<h3>On foot</h3><p>Walking details.</p>"
+        "<h3>By bicycle</h3><p>Cycling details.</p>"
+    )
+
+    context = build_section_context(
+        rendered_html,
+        "Get around",
+        preview_chars=20,
+        max_context_chars=1_000,
+        max_chunk_chars=30,
+    )
+
+    assert context.truncated is False
+    assert context.full_section_chars == context.included_chars
+    assert context.included_subsections == (
+        "Get around",
+        "By metro",
+        "By bus",
+        "On foot",
+        "By bicycle",
+    )
+    assert context.truncated_subsections == ()
+    assert context.omitted_subsections == ()
+    assert len(context.preview_excerpt) == 20
+    assert all(len(chunk.text) <= 30 for chunk in context.context_chunks)
+
+
+def test_context_distributes_truncated_budget_across_subsections():
+    rendered_html = (
+        f"<h3>By metro</h3><p>{'M' * 100}</p>"
+        f"<h3>By bus</h3><p>{'B' * 100}</p>"
+        f"<h3>On foot</h3><p>{'W' * 100}</p>"
+        f"<h3>By bicycle</h3><p>{'C' * 100}</p>"
+    )
+
+    context = build_section_context(
+        rendered_html,
+        "Get around",
+        preview_chars=25,
+        max_context_chars=120,
+        max_chunk_chars=20,
+    )
+
+    assert context.truncated is True
+    assert context.included_chars == 120
+    assert context.included_subsections == ("By metro", "By bus", "On foot", "By bicycle")
+    assert context.truncated_subsections == ("By metro", "By bus", "On foot", "By bicycle")
+    assert context.omitted_subsections == ()
+    assert {chunk.subsection for chunk in context.context_chunks} == {
+        "By metro",
+        "By bus",
+        "On foot",
+        "By bicycle",
+    }
+    assert all(len(chunk.text) <= 20 for chunk in context.context_chunks)
+
+
 @pytest.mark.asyncio
 async def test_returns_raw_counts_and_revision_pinned_context_as_separate_evidence():
     payload = {
@@ -167,6 +230,8 @@ async def test_returns_raw_counts_and_revision_pinned_context_as_separate_eviden
     assert len(wikivoyage.calls) == 1
     assert result.normalized_data["counts_by_component"]["bus_stops"] == 1
     assert result.normalized_data["wikivoyage_context"]["excerpt"].startswith("Frequent buses")
+    assert result.normalized_data["wikivoyage_context"]["context_chunks"]
+    assert result.normalized_data["wikivoyage_context"]["truncated"] is False
     assert result.normalized_data["scoring_status"] == "unresolved_pending_llm"
     assert "mobility_score" not in result.normalized_data
     assert "car_free_feasibility" not in result.normalized_data
@@ -178,6 +243,9 @@ async def test_returns_raw_counts_and_revision_pinned_context_as_separate_eviden
         "OpenStreetMap local mobility infrastructure",
         "Wikivoyage Get around section",
     }
+    assert result.evidence_items[1].normalized_data["context_chunks"]
+    assert result.evidence_items[1].normalized_data["included_subsections"] == ["Get around"]
+    assert cache.get_calls[0][2]["wikivoyage_context_contract_version"] == 1
     assert cache.set_calls
 
 
@@ -267,8 +335,8 @@ async def test_osm_and_wikivoyage_requests_start_concurrently():
             return {"elements": []}
 
     class CoordinatedWikivoyage:
-        async def fetch(self, title, section_names, *, max_excerpt_chars):
-            del title, section_names, max_excerpt_chars
+        async def fetch(self, title, section_names, **options):
+            del title, section_names, options
             wiki_started.set()
             await asyncio.wait_for(osm_started.wait(), timeout=0.2)
             return _section()
@@ -370,7 +438,7 @@ async def test_fresh_cache_avoids_both_providers():
 
 
 @pytest.mark.asyncio
-async def test_shared_section_client_resolves_redirect_and_bounds_revision_pinned_excerpt():
+async def test_shared_section_client_resolves_revision_and_returns_preview_plus_reasoning_context():
     mediawiki = FakeMediaWiki(
         [
             {
@@ -407,12 +475,15 @@ async def test_shared_section_client_resolves_redirect_and_bounds_revision_pinne
     section = await client.fetch(
         "Lisboa",
         ("Get around", "Getting around"),
-        max_excerpt_chars=80,
+        preview_chars=80,
     )
 
     assert section.resolved_title == "Lisbon"
     assert section.revision_id == 12345
     assert len(section.excerpt) == 80
+    assert section.context.truncated is False
+    assert section.context.full_section_chars == section.context.included_chars
+    assert section.context.context_chunks
     assert section.source_url.endswith("oldid=12345#Get_around")
     assert mediawiki.calls[0]["redirects"] == 1
     assert mediawiki.calls[1] == {"action": "parse", "oldid": 12345, "prop": "sections"}
@@ -440,6 +511,6 @@ async def test_shared_section_client_reports_missing_section_without_fetching_te
     client = WikivoyageSectionClient(mediawiki)
 
     with pytest.raises(WikivoyageSectionNotFound, match="Get around"):
-        await client.fetch("Place", ("Get around",), max_excerpt_chars=100)
+        await client.fetch("Place", ("Get around",))
 
     assert len(mediawiki.calls) == 2

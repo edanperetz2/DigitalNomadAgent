@@ -12,13 +12,13 @@ from app.tools.http_client import JsonHttpClient
 from app.tools.mediawiki_client import WIKIVOYAGE_API, MediaWikiClient
 from app.tools.overpass_client import OverpassClient
 from app.tools.wikivoyage_sections import (
+    CONTEXT_CONTRACT_VERSION,
     WikivoyageSection,
     WikivoyageSectionClient,
     WikivoyageSectionNotFound,
 )
 
 RADIUS_M = 3000
-MAX_CONTEXT_CHARS = 2500
 OVERPASS_SOURCE_NAME = "OpenStreetMap local mobility infrastructure"
 OVERPASS_SOURCE_URL = "https://wiki.openstreetmap.org/wiki/Overpass_API"
 WIKIVOYAGE_SOURCE_NAME = "Wikivoyage Get around section"
@@ -139,7 +139,6 @@ class LocalMobilityTool:
         return await self._wikivoyage.fetch(
             title,
             GET_AROUND_SECTION_NAMES,
-            max_excerpt_chars=MAX_CONTEXT_CHARS,
         )
 
     async def run(self, candidate: CandidatePlace, profile: PlaceRequestProfile) -> ToolResult:
@@ -152,6 +151,7 @@ class LocalMobilityTool:
             "title": title,
             "radius_m": RADIUS_M,
             "wikivoyage_section": "Get around",
+            "wikivoyage_context_contract_version": CONTEXT_CONTRACT_VERSION,
         }
         cached, stale = await self._cache.get(self.name, candidate.place_name, params)
         if cached is not None and not stale:
