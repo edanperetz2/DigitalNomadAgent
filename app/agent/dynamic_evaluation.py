@@ -29,6 +29,21 @@ DEFAULT_WEIGHTS: dict[str, float] = {
 REQUIRED_TIMEZONE_OVERLAP_HOURS = 4.0
 WIKIVOYAGE_CLIMATE_WEIGHT = 0.20
 CLIMATE_CONTRADICTION_GAP = 0.50
+WORK_AMENITY_SATURATION = {"coworking": 5.0, "cafe": 25.0}
+STUDENT_AMENITY_SATURATION = {"university": 3.0, "library": 8.0}
+
+
+def _profile_purposes(profile: PlaceRequestProfile) -> set[str]:
+    if profile.purpose == "mixed":
+        return set(profile.secondary_purposes) or {"remote_work", "vacation"}
+    return {profile.purpose}
+
+
+def _amenity_component(counts: dict, category: str, saturation: float) -> float | None:
+    count = counts.get(category)
+    if not isinstance(count, (int, float)) or count < 0:
+        return None
+    return min(1.0, count / saturation)
 
 
 def _climate_evaluation(
@@ -145,19 +160,54 @@ def _extract_criterion_scores(
         if r.tool_name in {"WeatherTool", "WikivoyageClimateTool"}:
             continue
         if r.tool_name == "AmenitiesTool":
-            cats = nd.get("categories", [])
-            count = nd.get("count", 0)
-            if "coworking" in cats or "cafe" in cats:
-                score = min(1.0, count / 10)
-                scores["work_infrastructure"] = score
-                if score >= 0.6:
-                    advantages.append("Good density of coworking spaces/cafés nearby.")
-            if "university" in cats or "library" in cats:
-                scores["student_life"] = min(1.0, count / 5)
-            if "public_transit" in cats or "train_station" in cats:
-                scores["transportation"] = min(1.0, count / 10)
-            if "park" in cats or "beach" in cats or "museum" in cats:
-                scores.setdefault("activities", min(1.0, count / 8))
+            unsupported = nd.get("unsupported_categories", [])
+            if isinstance(unsupported, list) and unsupported:
+                drawbacks.append(
+                    "Requested nearby categories could not be evaluated: "
+                    + ", ".join(str(category) for category in unsupported)
+                    + "."
+                )
+            counts = nd.get("counts_by_category", {})
+            if not isinstance(counts, dict):
+                continue
+            if nd.get("partial") and nd.get("valid_element_count", 0) == 0:
+                continue
+
+            purposes = _profile_purposes(profile)
+            support_factor = 0.5 if nd.get("partial") or r.confidence == "low" or r.stale else 1.0
+            if "remote_work" in purposes or "work_infrastructure" in profile.relevant_criteria:
+                coworking = _amenity_component(counts, "coworking", WORK_AMENITY_SATURATION["coworking"])
+                cafe = _amenity_component(counts, "cafe", WORK_AMENITY_SATURATION["cafe"])
+                if coworking is not None and cafe is not None:
+                    score = round(0.6 * coworking + 0.4 * cafe, 4)
+                    scores["work_infrastructure"] = score
+                    component_scores["work_infrastructure"] = {
+                        "coworking": round(coworking, 4),
+                        "cafe": round(cafe, 4),
+                    }
+                    confidence_factors["work_infrastructure"] = support_factor
+                    if score >= 0.6:
+                        advantages.append("Good density of coworking spaces and cafes nearby.")
+                    else:
+                        drawbacks.append("Coworking and cafe evidence suggests limited work infrastructure nearby.")
+
+            if "study" in purposes or "student_life" in profile.relevant_criteria:
+                university = _amenity_component(
+                    counts, "university", STUDENT_AMENITY_SATURATION["university"]
+                )
+                library = _amenity_component(counts, "library", STUDENT_AMENITY_SATURATION["library"])
+                if university is not None and library is not None:
+                    score = round((university + library) / 2, 4)
+                    scores["student_life"] = score
+                    component_scores["student_life"] = {
+                        "university": round(university, 4),
+                        "library": round(library, 4),
+                    }
+                    confidence_factors["student_life"] = support_factor
+                    if score >= 0.6:
+                        advantages.append("Good density of universities and libraries nearby.")
+                    else:
+                        drawbacks.append("University and library density appears limited nearby.")
 
         elif r.tool_name == "ActivitiesTool":
             score = min(1.0, nd.get("count", 0) / 8)

@@ -44,6 +44,7 @@ def test_study_selects_education_tool_not_timezone():
     profile = _profile(purpose="study", study_field="data science")
     tools = select_tools(profile)
     assert "EducationOptionsTool" in tools
+    assert "AmenitiesTool" in tools
     assert "TimezoneFitTool" not in tools
 
 
@@ -54,6 +55,12 @@ def test_vacation_selects_weather_and_activities_not_education():
     assert "ActivitiesTool" in tools
     assert "EducationOptionsTool" not in tools
     assert "WikivoyageClimateTool" not in tools
+
+
+def test_explicit_amenity_preferences_select_amenities_for_vacation():
+    profile = _profile(purpose="vacation", amenity_preferences=["cafe", "park"])
+
+    assert "AmenitiesTool" in select_tools(profile)
 
 
 def test_explicit_climate_preferences_select_both_climate_tools():
@@ -67,6 +74,10 @@ def test_explicit_climate_preferences_select_both_climate_tools():
 
 def test_climate_gap_research_retries_both_climate_sources():
     assert _CRITERION_TO_TOOLS["climate"] == {"WeatherTool", "WikivoyageClimateTool"}
+
+
+def test_transportation_is_not_routed_to_amenities():
+    assert "transportation" not in _CRITERION_TO_TOOLS
 
 
 def test_vacation_selects_accessibility_when_origin_present():

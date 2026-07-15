@@ -30,6 +30,7 @@ def test_place_request_profile_required_fields_present():
         "mobility_requirements",
         "climate_preferences",
         "activity_preferences",
+        "amenity_preferences",
         "budget",
         "hard_constraints",
         "soft_preferences",

@@ -38,6 +38,7 @@ class PlaceRequestProfile(BaseModel):
     mobility_requirements: list[str] = Field(default_factory=list)
     climate_preferences: list[str] = Field(default_factory=list)
     activity_preferences: list[str] = Field(default_factory=list)
+    amenity_preferences: list[str] = Field(default_factory=list)
     budget: Budget = Field(default_factory=Budget)
     hard_constraints: list[str] = Field(default_factory=list)
     soft_preferences: list[str] = Field(default_factory=list)

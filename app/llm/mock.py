@@ -42,6 +42,34 @@ _CURRENCY_SYMBOLS = {"€": "EUR", "$": "USD", "£": "GBP"}
 
 _CLIMATE_WORDS = ["warm", "hot", "cold", "mild", "sunny", "not extremely hot", "cool"]
 
+_AMENITY_ALIASES: dict[str, tuple[str, ...]] = {
+    "coworking": ("coworking", "co-working"),
+    "cafe": ("cafes", "cafe", "cafés", "café", "coffee shops", "coffee shop"),
+    "university": ("universities", "university"),
+    "library": ("libraries", "library"),
+    "park": ("green spaces", "green space", "parks", "park"),
+    "pharmacy": ("pharmacies", "pharmacy"),
+    "supermarket": ("supermarkets", "supermarket", "grocery stores", "grocery store"),
+    "fitness_centre": (
+        "fitness centres",
+        "fitness centre",
+        "fitness centers",
+        "fitness center",
+        "gyms",
+        "gym",
+    ),
+}
+
+_KNOWN_UNSUPPORTED_AMENITY_ALIASES: dict[str, tuple[str, ...]] = {
+    "hospital": ("hospitals", "hospital"),
+    "swimming pool": ("swimming pools", "swimming pool"),
+}
+
+_NEGATED_AMENITY_PREFIX = re.compile(
+    r"(?:avoid|without|no|don't need|do not need|not interested in|don't care about|do not care about)"
+    r"[^,.]{0,24}$"
+)
+
 _CRITERIA_KEYWORD_MAP = {
     "public transportation": "transportation",
     "public transport": "transportation",
@@ -150,6 +178,24 @@ def _extract_study_field(text: str) -> str | None:
     return None
 
 
+def _extract_amenity_preferences(text: str) -> list[str]:
+    preferences: list[str] = []
+    category_aliases = {**_AMENITY_ALIASES, **_KNOWN_UNSUPPORTED_AMENITY_ALIASES}
+    for category, aliases in category_aliases.items():
+        requested = False
+        for alias in aliases:
+            for match in re.finditer(rf"\b{re.escape(alias)}\b", text):
+                prefix = text[max(0, match.start() - 64) : match.start()]
+                if not _NEGATED_AMENITY_PREFIX.search(prefix):
+                    requested = True
+                    break
+            if requested:
+                break
+        if requested:
+            preferences.append(category)
+    return preferences
+
+
 def interpret_prompt(prompt: str) -> dict:
     """Deterministic, rule-based interpretation used by MockLLMClient."""
     text = prompt.strip()
@@ -187,6 +233,7 @@ def interpret_prompt(prompt: str) -> dict:
 
     duration = _extract_duration(text)
     climate_preferences = [w for w in _CLIMATE_WORDS if w in lowered]
+    amenity_preferences = _extract_amenity_preferences(lowered)
 
     mobility_requirements = []
     if re.search(r"without a car|car-free|no car|car free", lowered):
@@ -260,6 +307,7 @@ def interpret_prompt(prompt: str) -> dict:
         "preferred_languages": [],
         "mobility_requirements": mobility_requirements,
         "climate_preferences": climate_preferences,
+        "amenity_preferences": amenity_preferences,
         "budget": budget_info,
         "hard_constraints": hard_constraints,
         "soft_preferences": soft_preferences,

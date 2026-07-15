@@ -103,7 +103,7 @@ def select_tools(profile: PlaceRequestProfile) -> set[str]:
         purposes = set(profile.secondary_purposes) or {"remote_work", "vacation"}
 
     if "study" in purposes:
-        tools |= {"EducationOptionsTool", "BudgetFitTool"}
+        tools |= {"EducationOptionsTool", "BudgetFitTool", "AmenitiesTool"}
     if "remote_work" in purposes:
         tools |= {"AmenitiesTool", "BudgetFitTool"}
         if any(w in haystack for w in _TIMEZONE_TRIGGER_WORDS):
@@ -117,6 +117,8 @@ def select_tools(profile: PlaceRequestProfile) -> set[str]:
         tools.add("WeatherTool")
     if profile.climate_preferences:
         tools.add("WikivoyageClimateTool")
+    if profile.amenity_preferences:
+        tools.add("AmenitiesTool")
 
     if any(w in haystack for w in _ACCESSIBILITY_TRIGGER_WORDS):
         tools.add("AccessibilityTool")

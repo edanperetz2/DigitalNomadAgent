@@ -41,12 +41,112 @@ def test_higher_amenity_count_scores_higher():
     good = _candidate("GoodCity")
     bad = _candidate("BadCity")
     evidence = {
-        "GoodCity": [_tool_result("AmenitiesTool", "GoodCity", {"categories": ["coworking"], "count": 20})],
-        "BadCity": [_tool_result("AmenitiesTool", "BadCity", {"categories": ["coworking"], "count": 1})],
+        "GoodCity": [
+            _tool_result(
+                "AmenitiesTool",
+                "GoodCity",
+                {"counts_by_category": {"coworking": 5, "cafe": 25}, "partial": False},
+            )
+        ],
+        "BadCity": [
+            _tool_result(
+                "AmenitiesTool",
+                "BadCity",
+                {"counts_by_category": {"coworking": 0, "cafe": 1}, "partial": False},
+            )
+        ],
     }
     evaluations = evaluate_candidates([good, bad], profile, evidence)
     scores = {e.place: e.total_score for e in evaluations}
     assert scores["GoodCity"] > scores["BadCity"]
+
+
+def test_amenities_score_work_and_student_components_independently():
+    profile = PlaceRequestProfile(
+        purpose="mixed",
+        secondary_purposes=["remote_work", "study"],
+        relevant_criteria=["work_infrastructure", "student_life"],
+        budget=Budget(),
+    )
+    candidate = _candidate("MixedCity")
+    evidence = {
+        "MixedCity": [
+            _tool_result(
+                "AmenitiesTool",
+                "MixedCity",
+                {
+                    "counts_by_category": {
+                        "coworking": 4,
+                        "cafe": 30,
+                        "university": 1,
+                        "library": 3,
+                        "public_transit": 1000,
+                        "park": 100,
+                    },
+                    "partial": False,
+                },
+            )
+        ]
+    }
+
+    evaluation = evaluate_candidates([candidate], profile, evidence)[0]
+
+    assert evaluation.criterion_scores["work_infrastructure"] == 0.88
+    assert evaluation.criterion_component_scores["work_infrastructure"] == {"coworking": 0.8, "cafe": 1.0}
+    assert evaluation.criterion_scores["student_life"] == 0.3542
+    assert "transportation" not in evaluation.criterion_scores
+    assert "activities" not in evaluation.criterion_scores
+
+
+def test_empty_partial_amenity_response_is_missing_not_zero_scored():
+    profile = PlaceRequestProfile(
+        purpose="remote_work", relevant_criteria=["work_infrastructure"], budget=Budget()
+    )
+    candidate = _candidate("PartialCity")
+    evidence = {
+        "PartialCity": [
+            _tool_result(
+                "AmenitiesTool",
+                "PartialCity",
+                {
+                    "counts_by_category": {"coworking": 0, "cafe": 0},
+                    "partial": True,
+                    "valid_element_count": 0,
+                },
+                confidence="low",
+            )
+        ]
+    }
+
+    evaluation = evaluate_candidates([candidate], profile, evidence)[0]
+
+    assert "work_infrastructure" not in evaluation.criterion_scores
+    assert "work_infrastructure" in evaluation.missing_evidence
+
+
+def test_unsupported_amenity_request_is_exposed_as_drawback():
+    profile = PlaceRequestProfile(purpose="vacation", amenity_preferences=["hospital"], budget=Budget())
+    candidate = _candidate("UnsupportedCity")
+    evidence = {
+        "UnsupportedCity": [
+            _tool_result(
+                "AmenitiesTool",
+                "UnsupportedCity",
+                {
+                    "counts_by_category": {},
+                    "unsupported_categories": ["hospital"],
+                    "partial": False,
+                    "valid_element_count": 0,
+                },
+                confidence="low",
+            )
+        ]
+    }
+
+    evaluation = evaluate_candidates([candidate], profile, evidence)[0]
+
+    assert any("hospital" in drawback for drawback in evaluation.drawbacks)
+    assert evaluation.criterion_scores == {}
 
 
 def test_budget_hard_constraint_eliminates_candidate():

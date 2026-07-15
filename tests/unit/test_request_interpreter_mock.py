@@ -1,3 +1,4 @@
+from app.agent.request_interpreter import SYSTEM_PROMPT
 from app.llm.mock import interpret_prompt
 
 
@@ -64,3 +65,24 @@ def test_budget_period_assumption_recorded():
     profile = interpret_prompt("I need a European city to study data science on €1,500 per month.")
     assert profile["budget"]["period"] == "monthly"
     assert profile["budget"]["amount"] == 1500.0
+
+
+def test_amenity_preferences_are_inferred_and_negated_categories_are_excluded():
+    profile = interpret_prompt(
+        "I want to work remotely near coworking spaces, quiet cafés, a park, a gym, and a hospital, "
+        "but I do not need pharmacies."
+    )
+
+    assert profile["amenity_preferences"] == [
+        "coworking",
+        "cafe",
+        "park",
+        "fitness_centre",
+        "hospital",
+    ]
+
+
+def test_real_interpreter_contract_requests_normalized_amenity_preferences():
+    assert "amenity_preferences" in SYSTEM_PROMPT
+    for category in ("coworking", "cafe", "university", "library", "park", "pharmacy", "supermarket"):
+        assert f'"{category}"' in SYSTEM_PROMPT

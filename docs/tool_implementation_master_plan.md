@@ -111,15 +111,19 @@ Planned commit: `feat(tools): make timezone overlap date-aware`
 - Resolve an uncached origin at most once per agent request and reuse it for every candidate; the local fast path and shared cache avoid multiplying network latency.
 - Test local fast-path aliases, provider-resolved cities and countries, top-result visibility, cached reuse, provider failure, requested-season DST, current-date fallback, half-hour zones, date-line correction, direct IANA input, unknown origins, and missing destination coordinates.
 
-### 6. AmenitiesTool — PLANNED
+### 6. AmenitiesTool — COMPLETE
 
-Planned commit: `feat(tools): return category-level amenity evidence`
+Planned commit: `Amenities tool: return category-level evidence`
 
-- Query OSM nodes, ways, and relations and return independent counts for coworking, cafes, universities, libraries, hospitals, parks, and requested categories.
-- Use the shared Overpass client with at most two concurrent requests and public-instance failover.
-- Remove the aggregate count. Score work infrastructure from coworking/cafes and student life from universities/libraries.
+- Treat this tool as prompt-driven nearby everyday infrastructure; hospitals are explicitly outside its scope.
+- Add structured `amenity_preferences` to PlaceRequestProfile and update both the real request-interpreter contract and deterministic mock interpreter to extract normalized supported categories from the user's prompt.
+- Select coworking/cafes by default for remote-work requests and universities/libraries by default for study requests, then merge explicit prompt preferences from a bounded OSM category allow-list. Initial supported explicit categories are coworking, cafes, universities, libraries, parks, pharmacies, supermarkets, and fitness centres; unsupported requests remain visible as unresolved rather than being silently substituted.
+- Query the selected categories in one bounded 3 km Overpass request across OSM nodes, ways, and relations. Use the existing shared client, which permits at most two simultaneous Overpass requests across candidates and fails over between public instances.
+- Return independent `counts_by_category` values and deduplicate each category by OSM element type and ID. Remove the aggregate count.
+- Score work infrastructure as 60% coworking (saturating at five results) and 40% cafes (saturating at 25); score student life equally from universities (saturating at three) and libraries (saturating at eight). Stop using AmenitiesTool as transportation or general-activity evidence; those criteria remain unresolved until their dedicated planned tools are implemented.
+- Preserve valid category counts from partial responses with an explicit warning and reduced confidence; use stale cache or missing evidence after a complete provider failure.
 - Keep the one-request-per-candidate design, shared two-request Overpass concurrency cap, bounded endpoint failover, and cache-first behavior; no category may add a separate request that risks the 285-second backend budget.
-- Test category query generation, independent counts, deduplication, fallback endpoints, rate errors, and partial results.
+- Test prompt-to-category inference in both interpreters, purpose defaults, supported and unsupported explicit categories, one-request query generation, independent counts, node/way/relation handling, deduplication, cache behavior, fallback/rate errors, partial results, and criterion-specific scoring.
 
 ### 7. LocalMobilityTool — PLANNED
 

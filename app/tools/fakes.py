@@ -159,7 +159,19 @@ class FakeAmenitiesTool:
         return ToolResult(
             tool_name=self.name,
             place=candidate.place_name,
-            normalized_data={"categories": ["cafe", "coworking"], "count": seed % 40, "radius_m": 3000},
+            normalized_data={
+                "requested_categories": ["coworking", "cafe", "university", "library"],
+                "counts_by_category": {
+                    "coworking": seed % 7,
+                    "cafe": seed % 35,
+                    "university": seed % 4,
+                    "library": seed % 10,
+                },
+                "unsupported_categories": [],
+                "radius_m": 3000,
+                "partial": False,
+                "valid_element_count": seed % 50,
+            },
             source_name="OpenStreetMap Overpass (fake)",
             source_url="https://overpass-api.de/",
             retrieved_at=datetime.now(UTC),

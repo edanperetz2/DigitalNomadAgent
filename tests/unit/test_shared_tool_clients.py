@@ -1,5 +1,6 @@
 import asyncio
 
+import httpx
 import pytest
 
 from app.tools.mediawiki_client import MediaWikiClient
@@ -46,6 +47,27 @@ async def test_overpass_client_fails_over_to_next_endpoint():
     result = await client.query("[out:json];node(0,0,1,1);out;")
 
     assert result == {"elements": []}
+    assert http.urls == ["https://first.example", "https://second.example"]
+
+
+@pytest.mark.asyncio
+async def test_overpass_client_fails_over_after_rate_error():
+    class RateLimitedThenSuccessfulHttp:
+        def __init__(self):
+            self.urls = []
+
+        async def get_json(self, url, **kwargs):
+            self.urls.append(url)
+            if len(self.urls) == 1:
+                request = httpx.Request("GET", url)
+                response = httpx.Response(429, request=request)
+                raise httpx.HTTPStatusError("rate limited", request=request, response=response)
+            return {"elements": []}
+
+    http = RateLimitedThenSuccessfulHttp()
+    client = OverpassClient(http=http, endpoints=("https://first.example", "https://second.example"))
+
+    assert await client.query("[out:json];node(0,0,1,1);out;") == {"elements": []}
     assert http.urls == ["https://first.example", "https://second.example"]
 
 
