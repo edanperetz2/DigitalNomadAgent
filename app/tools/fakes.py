@@ -259,26 +259,6 @@ class FakeBudgetFitTool:
         )
 
 
-class FakeEducationOptionsTool:
-    name = "EducationOptionsTool"
-
-    async def run(self, candidate: CandidatePlace, profile: PlaceRequestProfile) -> ToolResult:
-        field_matched = bool(profile.study_field)
-        return ToolResult(
-            tool_name=self.name,
-            place=candidate.place_name,
-            normalized_data={
-                "universities": [{"name": f"University of {candidate.place_name} (fake)", "url": "https://example.edu"}],
-                "field_matched": field_matched,
-                "match_score": 0.8 if field_matched else 0.4,
-            },
-            source_name="Official university websites (fake)",
-            source_url="https://example.edu",
-            retrieved_at=datetime.now(UTC),
-            confidence="medium" if field_matched else "low",
-        )
-
-
 class FakeTransportAccessTool:
     name = "TransportAccessTool"
 
@@ -552,7 +532,6 @@ def build_fake_tool_registry_dict() -> dict[str, object]:
         "PlaceContextTool": FakePlaceContextTool(),
         "TimezoneFitTool": FakeTimezoneFitTool(),
         "BudgetFitTool": FakeBudgetFitTool(),
-        "EducationOptionsTool": FakeEducationOptionsTool(),
         "TransportAccessTool": FakeTransportAccessTool(),
         "LocalMobilityTool": FakeLocalMobilityTool(),
         "ActivitiesTool": FakeActivitiesTool(),

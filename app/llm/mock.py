@@ -32,12 +32,6 @@ _VACATION_KEYWORDS = [
     "two weeks", "getaway",
 ]
 
-_FIELD_KEYWORDS = [
-    "computer science", "computer-science", "data science", "business",
-    "economics", "medicine", "law", "engineering", "biology", "physics",
-    "psychology", "architecture", "design",
-]
-
 _CURRENCY_SYMBOLS = {"€": "EUR", "$": "USD", "£": "GBP"}
 
 _CLIMATE_WORDS = ["warm", "hot", "cold", "mild", "sunny", "not extremely hot", "cool"]
@@ -196,14 +190,6 @@ def _extract_duration(text: str) -> str | None:
     return None
 
 
-def _extract_study_field(text: str) -> str | None:
-    lowered = text.lower().replace("-", " ")
-    for field in _FIELD_KEYWORDS:
-        if field.replace("-", " ") in lowered:
-            return field.replace("-", " ")
-    return None
-
-
 def _extract_amenity_preferences(text: str) -> list[str]:
     preferences: list[str] = []
     category_aliases = {**_AMENITY_ALIASES, **_KNOWN_UNSUPPORTED_AMENITY_ALIASES}
@@ -328,15 +314,6 @@ def interpret_prompt(prompt: str) -> dict:
     missing_information: list[str] = []
     clarification_required = False
     clarification_question = None
-    study_field = None
-
-    if purpose in ("study", "mixed") and "study" in purposes_found:
-        study_field = _extract_study_field(text)
-        if not study_field:
-            missing_information.append("academic field of study")
-            clarification_required = True
-            clarification_question = "Which academic field or program are you interested in studying?"
-
     if "visa" in lowered and origin is None:
         missing_information.append("nationality (for visa considerations)")
 
@@ -364,7 +341,6 @@ def interpret_prompt(prompt: str) -> dict:
         "assumptions": assumptions,
         "clarification_required": clarification_required,
         "clarification_question": clarification_question,
-        "study_field": study_field,
     }
 
 
@@ -413,7 +389,7 @@ _SEED_CANDIDATES: dict[str, list[dict]] = {
     "study": [
         {
             "place_name": "Berlin", "country": "Germany",
-            "reason_for_inclusion": "Strong conventional match for academic exchange with English-taught programs.",
+            "reason_for_inclusion": "Strong conventional match for academic exchange with a large student population.",
             "expected_strengths": ["large student population", "public transport"],
             "likely_weakness": "Competitive housing market for students.",
             "criteria_to_verify": ["student_life", "transportation", "cost"],
@@ -427,8 +403,8 @@ _SEED_CANDIDATES: dict[str, list[dict]] = {
         },
         {
             "place_name": "Dublin", "country": "Ireland",
-            "reason_for_inclusion": "Strongest match for English-language programs and safety.",
-            "expected_strengths": ["safety", "English-taught programs"],
+            "reason_for_inclusion": "English-speaking study environment with a large student community.",
+            "expected_strengths": ["student community", "English-speaking environment"],
             "likely_weakness": "High accommodation costs.",
             "criteria_to_verify": ["safety", "cost"],
         },
@@ -436,7 +412,7 @@ _SEED_CANDIDATES: dict[str, list[dict]] = {
             "place_name": "Porto", "country": "Portugal",
             "reason_for_inclusion": "Less obvious discovery: lower costs than the capital, growing student community.",
             "expected_strengths": ["affordability", "compact walkable city"],
-            "likely_weakness": "Fewer program options than larger capitals.",
+            "likely_weakness": "Smaller university ecosystem than larger capitals.",
             "criteria_to_verify": ["cost", "student_life"],
         },
         {

@@ -22,7 +22,7 @@ def test_tool_priorities_follow_user_weights_and_hard_constraints():
     assert priorities["ActivitiesTool"] == 0.2
 
 
-def test_remote_work_selects_work_infrastructure_tools_not_education():
+def test_remote_work_selects_work_infrastructure_tools():
     profile = _profile(purpose="remote_work")
     tools = select_tools(profile)
     assert "AmenitiesTool" in tools
@@ -40,20 +40,19 @@ def test_remote_work_selects_timezone_only_when_relevant():
     assert "TimezoneFitTool" in tools_with_overlap
 
 
-def test_study_selects_education_tool_not_timezone():
-    profile = _profile(purpose="study", study_field="data science")
+def test_study_selects_amenities_not_a_dedicated_education_tool():
+    profile = _profile(purpose="study")
     tools = select_tools(profile)
-    assert "EducationOptionsTool" in tools
     assert "AmenitiesTool" in tools
+    assert "EducationOptionsTool" not in tools
     assert "TimezoneFitTool" not in tools
 
 
-def test_vacation_selects_weather_and_activities_not_education():
+def test_vacation_selects_weather_and_activities():
     profile = _profile(purpose="vacation")
     tools = select_tools(profile)
     assert "WeatherTool" in tools
     assert "ActivitiesTool" in tools
-    assert "EducationOptionsTool" not in tools
     assert "WikivoyageClimateTool" not in tools
 
 
@@ -84,6 +83,11 @@ def test_climate_gap_research_retries_both_climate_sources():
 
 def test_transportation_is_routed_only_to_local_mobility():
     assert _CRITERION_TO_TOOLS["transportation"] == {"LocalMobilityTool"}
+
+
+def test_education_and_student_life_are_routed_to_amenities():
+    assert _CRITERION_TO_TOOLS["education"] == {"AmenitiesTool"}
+    assert _CRITERION_TO_TOOLS["student_life"] == {"AmenitiesTool"}
 
 
 def test_car_free_and_public_transport_select_local_mobility_not_arrival_access():
@@ -118,7 +122,7 @@ def test_official_source_included_when_nationality_present():
 
 def test_tool_sets_differ_across_purposes():
     remote_tools = select_tools(_profile(purpose="remote_work"))
-    study_tools = select_tools(_profile(purpose="study", study_field="business"))
+    study_tools = select_tools(_profile(purpose="study"))
     vacation_tools = select_tools(_profile(purpose="vacation"))
     assert remote_tools != study_tools
     assert study_tools != vacation_tools
@@ -127,16 +131,13 @@ def test_tool_sets_differ_across_purposes():
 
 def test_geocoding_always_included():
     for purpose in ("remote_work", "study", "vacation"):
-        kwargs = {"purpose": purpose}
-        if purpose == "study":
-            kwargs["study_field"] = "law"
-        assert "GeocodingTool" in select_tools(_profile(**kwargs))
+        assert "GeocodingTool" in select_tools(_profile(purpose=purpose))
 
 
 def test_place_context_is_deferred_for_all_purposes():
     profiles = [
         _profile(purpose="remote_work"),
-        _profile(purpose="study", study_field="law"),
+        _profile(purpose="study"),
         _profile(purpose="vacation"),
         _profile(purpose="mixed", secondary_purposes=["remote_work", "study"]),
     ]

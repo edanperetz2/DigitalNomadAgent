@@ -33,7 +33,6 @@ from app.llm.mock import MockLLMClient
 from app.tools.activities import ActivitiesTool
 from app.tools.amenities import AmenitiesTool
 from app.tools.budget_fit import BudgetFitTool
-from app.tools.education_options import EducationOptionsTool
 from app.tools.geocoding import GeocodingTool
 from app.tools.http_client import JsonHttpClient
 from app.tools.local_mobility import LocalMobilityTool
@@ -110,7 +109,6 @@ def _build_tool_registry(
             origin_resolver=origin_resolver,
         ),
         "BudgetFitTool": BudgetFitTool(),
-        "EducationOptionsTool": EducationOptionsTool(),
         "TransportAccessTool": TransportAccessTool(
             cache,
             timeout,

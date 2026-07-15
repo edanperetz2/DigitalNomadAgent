@@ -3,7 +3,6 @@ import pytest
 from app.agent.models import CandidatePlace, PlaceRequestProfile
 from app.tools.budget_fit import DATA_PATH as BUDGET_DATA_PATH
 from app.tools.budget_fit import BudgetFitTool
-from app.tools.education_options import EducationOptionsTool
 from app.tools.official_sources import DATA_PATH as OFFICIAL_SOURCES_DATA_PATH
 from app.tools.official_sources import OfficialSourceTool
 
@@ -30,24 +29,6 @@ async def test_budget_fit_tool_unknown_city_returns_unknown_not_positive():
     result = await tool.run(_candidate("Nonexistentville"), profile)
     assert result.error is not None
     assert result.normalized_data == {}
-
-
-@pytest.mark.asyncio
-async def test_education_options_tool_field_match():
-    tool = EducationOptionsTool()
-    profile = PlaceRequestProfile(purpose="study", study_field="computer science")
-    result = await tool.run(_candidate("Berlin", country="Germany"), profile)
-    assert result.normalized_data["field_matched"] is True
-    assert result.normalized_data["match_score"] > 0.5
-
-
-@pytest.mark.asyncio
-async def test_education_options_tool_never_claims_admission():
-    tool = EducationOptionsTool()
-    profile = PlaceRequestProfile(purpose="study", study_field="astrology")
-    result = await tool.run(_candidate("Berlin", country="Germany"), profile)
-    assert result.normalized_data["field_matched"] is False
-    assert any("could not be confirmed" in w for w in result.warnings)
 
 
 @pytest.mark.asyncio

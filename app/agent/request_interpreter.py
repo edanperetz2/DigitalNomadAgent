@@ -29,13 +29,13 @@ budget (object: amount, currency, period one of \
 "medium"/"low"), hard_constraints (list), soft_preferences (list), deal_breakers (list), \
 relevant_criteria (list), inferred_weights (object of criterion->weight 0-1), \
 missing_information (list), assumptions (list), clarification_required (bool), \
-clarification_question (string or null), study_field (string or null).
+clarification_question (string or null).
 
 Interpret "must"/"required"/"non-negotiable" as hard constraints, "most important" as a very \
 high weight, "prefer" as a moderate weight, "would be nice" as a low weight, "do not care about \
 X" as removing/minimizing that criterion, and "avoid"/"never" as a deal breaker. Only set \
 clarification_required=true when missing information could materially change the \
-recommendation (e.g. purpose is entirely unclear, or a study request has no discernible field). \
+recommendation (e.g. the purpose is entirely unclear). \
 Otherwise proceed using an explicit, stated assumption. For amenity_preferences, include only \
 positively requested nearby-place categories and normalize them to these supported values when \
 applicable: "coworking", "cafe", "university", "library", "park", "pharmacy", \

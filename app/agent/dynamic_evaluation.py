@@ -267,15 +267,6 @@ def _extract_criterion_scores(
             if limitation not in drawbacks:
                 drawbacks.append(limitation)
 
-        elif r.tool_name == "EducationOptionsTool":
-            score = nd.get("match_score")
-            if score is not None:
-                scores["education"] = score
-                if nd.get("field_matched"):
-                    advantages.append("A relevant university/program was identified.")
-                else:
-                    drawbacks.append("The specific academic field could not be confirmed for this city.")
-
     return scores, component_scores, advantages, drawbacks, confidence_factors
 
 

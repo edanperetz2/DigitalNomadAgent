@@ -1,5 +1,5 @@
 from app.agent.request_interpreter import SYSTEM_PROMPT
-from app.llm.mock import interpret_prompt
+from app.llm.mock import generate_candidates, interpret_prompt
 
 
 def test_remote_work_prompt_detected():
@@ -15,23 +15,24 @@ def test_remote_work_prompt_detected():
     assert profile["clarification_required"] is False
 
 
-def test_study_prompt_with_field_detected():
+def test_study_prompt_does_not_extract_an_academic_field():
     profile = interpret_prompt(
         "Recommend a city for a one-semester computer-science exchange. I care about "
         "student life, public transportation, safety, and affordable housing."
     )
     assert profile["purpose"] == "study"
-    assert profile["study_field"] == "computer science"
+    assert "study_field" not in profile
     assert profile["clarification_required"] is False
     assert "transportation" in profile["relevant_criteria"]
     assert "safety" in profile["relevant_criteria"]
 
 
-def test_study_prompt_without_field_requires_clarification():
+def test_study_prompt_without_field_does_not_require_clarification():
     profile = interpret_prompt("I want to study abroad for a semester somewhere affordable.")
     assert profile["purpose"] == "study"
-    assert profile["clarification_required"] is True
-    assert profile["clarification_question"]
+    assert "study_field" not in profile
+    assert profile["clarification_required"] is False
+    assert profile["clarification_question"] is None
 
 
 def test_vacation_prompt_detected():
@@ -101,3 +102,16 @@ def test_real_interpreter_contract_requests_normalized_activity_preferences():
     assert "activity_preferences" in SYSTEM_PROMPT
     for category in ("culture", "nightlife", "parks", "beaches", "hiking"):
         assert f'"{category}"' in SYSTEM_PROMPT
+
+
+def test_real_interpreter_contract_does_not_request_study_field():
+    assert "study_field" not in SYSTEM_PROMPT
+    assert "discernible field" not in SYSTEM_PROMPT
+
+
+def test_study_candidate_hypotheses_do_not_claim_program_availability():
+    candidates = generate_candidates({"purpose": "study"})
+    candidate_text = str(candidates).lower()
+
+    assert "program" not in candidate_text
+    assert "admission" not in candidate_text

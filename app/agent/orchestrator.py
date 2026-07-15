@@ -37,14 +37,13 @@ _CRITERION_TO_TOOLS: dict[str, set[str]] = {
     "transportation": {"LocalMobilityTool"},
     "activities": {"ActivitiesTool"},
     "student_life": {"AmenitiesTool"},
-    "education": {"EducationOptionsTool"},
+    "education": {"AmenitiesTool"},
     "accessibility": {"TransportAccessTool"},
 }
 
 _PRIMARY_VALUE_FIELDS = (
     "avg_high_c",
     "count",
-    "match_score",
     "estimated_workday_overlap_hours",
     "lower_monthly_estimate",
 )
@@ -168,9 +167,10 @@ class Orchestrator:
                 "pharmacy",
                 "supermarket",
                 "university",
+                "study",
+                "education",
             ),
             "TransportAccessTool": ("airport", "distance", "remote", "arrival", "get there"),
-            "EducationOptionsTool": ("study", "university", "education", "program"),
             "WeatherTool": ("weather", "climate", "temperature", "rain", "snow"),
             "ActivitiesTool": ("activit", "hiking", "beach", "culture", "nightlife"),
         }

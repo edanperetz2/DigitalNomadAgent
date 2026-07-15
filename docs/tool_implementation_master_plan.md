@@ -34,6 +34,7 @@ Unrelated user changes are never staged. If they overlap the active unit, stop a
 - `IN PROGRESS`: approved and currently being implemented or reviewed.
 - `PLANNED`: scoped but implementation has not been approved for that unit yet.
 - `DEFERRED`: deliberately removed from the active sequence and retained only for possible later reconsideration.
+- `DROPPED`: intentionally removed from the product and active tool registry because its responsibility is already covered elsewhere.
 - `BLOCKED`: intentionally waiting for required external data.
 - `COMPLETE`: implemented, reviewed, explicitly approved, and committed.
 
@@ -177,16 +178,18 @@ Planned commit: `Activities tool: add category-specific activity evidence`
 - Run OSM and Wikivoyage retrieval concurrently with bounded sub-lookups, retain completed partial evidence, use cache-first behavior and stale fallback, and make no claims about live events, opening status, trail conditions, or activity quality.
 - Test prompt inference, aliases and negation, explicit non-vacation selection, generic vacation fallback, unsupported activities, multi-radius query generation, nodes/ways/relations, hiking routes, deduplication, complete zero counts, partial/malformed responses, Wikivoyage multi-section revision reuse and attribution, caching, timeouts, unresolved evaluation, fakes, and registry wiring.
 
-### 10. EducationOptionsTool — PLANNED
+### 10. EducationOptionsTool — DROPPED
 
-Planned commit: `feat(tools): expand education evidence coverage`
+Planned commit: `Education options tool: remove redundant study matching`
 
-- Keep the curated five-city data as an offline fallback.
-- Query Wikidata for institutions located in the verified city, official sites, and structured disciplines.
-- Score `0.8` only for a structured field match and `0.55` for a verified institution with an unconfirmed field.
-- Never infer current programs, admissions, or eligibility.
-- Bound Wikidata pagination/result size and use one cacheable query per candidate; timeout/failure falls back immediately to curated data rather than starting unbounded follow-up lookups.
-- Test institution deduplication, field aliases, missing disciplines, Wikidata failure, and curated fallback.
+- Remove EducationOptionsTool from the production registry, deterministic fake registry, study-purpose selection, criterion routing, evaluation, tests, and source tree. Do not retain a dormant or deferred implementation.
+- Treat nearby study infrastructure as AmenitiesTool's responsibility: study requests already select independent university and library counts and score student life from those supported categories.
+- Route both `education` and `student_life` research concerns to AmenitiesTool. Do not introduce Wikidata, university-site, or Wikivoyage `Learn` calls for a second overlapping education tool.
+- Remove `study_field` from PlaceRequestProfile, the real interpreter contract, the deterministic mock, agent-info examples, and tests. Do not extract, store, or use an academic field for candidate generation or tool selection.
+- Study-purpose requests must not ask a blocking clarification about an academic field. PlaceMatch will recommend destinations from general study infrastructure and the user's ordinary constraints and preferences, not specialize recommendations by discipline.
+- Make no claims about current programs, admissions, academic eligibility, or field availability from university/library proximity counts.
+- Remove the obsolete five-city curated university directory and its deterministic `0.8`/`0.4` match heuristic.
+- Test study selection without EducationOptionsTool, AmenitiesTool routing for education and student-life concerns, study requests without field clarification, profile-schema removal, registry/fake removal, unchanged public endpoint shapes, and the absence of education-program claims.
 
 ### 11. SafetyTool — PLANNED
 

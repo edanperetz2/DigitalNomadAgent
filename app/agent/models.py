@@ -49,7 +49,6 @@ class PlaceRequestProfile(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
     clarification_required: bool = False
     clarification_question: str | None = None
-    study_field: str | None = None
 
 
 class CandidatePlace(BaseModel):

@@ -6,6 +6,7 @@ import pytest
 from app.agent.models import CandidatePlace, PlaceRequestProfile
 from app.evidence.models import ToolResult
 from app.main import _build_tool_registry
+from app.tools.fakes import build_fake_tool_registry_dict
 from app.tools.registry import ToolRegistry
 
 
@@ -63,6 +64,13 @@ def test_production_registry_reuses_shared_clients():
     assert transport_access._wikivoyage is local_mobility._wikivoyage
     assert activities._wikivoyage is local_mobility._wikivoyage
     assert transport_access._origin_resolver is timezone_fit._origin_resolver
+
+
+def test_education_options_tool_is_absent_from_production_and_fake_registries():
+    registry = _build_tool_registry(cache=object(), timeout=1.0, max_concurrent=5)
+
+    assert "EducationOptionsTool" not in registry.tool_names
+    assert "EducationOptionsTool" not in build_fake_tool_registry_dict()
 
 
 @pytest.mark.asyncio

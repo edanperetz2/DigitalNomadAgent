@@ -63,6 +63,9 @@ def test_place_request_profile_rejects_extra_fields():
     with pytest.raises(ValidationError):
         PlaceRequestProfile(purpose="remote_work", unexpected_field="oops")
 
+    with pytest.raises(ValidationError):
+        PlaceRequestProfile(purpose="study", study_field="computer science")
+
 
 def test_candidate_place_defaults_unverified():
     c = CandidatePlace(place_name="Lisbon", country="Portugal", reason_for_inclusion="test")

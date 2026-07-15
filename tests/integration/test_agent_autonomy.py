@@ -10,7 +10,7 @@ async def _stored_tool_names(app_instance) -> set[str]:
 
 
 @pytest.mark.asyncio
-async def test_remote_work_does_not_use_education_tools(client, app_instance):
+async def test_remote_work_stores_no_dedicated_education_evidence(client, app_instance):
     client.post(
         "/api/execute",
         json={
@@ -25,7 +25,7 @@ async def test_remote_work_does_not_use_education_tools(client, app_instance):
 
 
 @pytest.mark.asyncio
-async def test_study_prompt_uses_education_tool(client, app_instance):
+async def test_study_prompt_uses_amenities_for_student_infrastructure(client, app_instance):
     client.post(
         "/api/execute",
         json={
@@ -36,11 +36,12 @@ async def test_study_prompt_uses_education_tool(client, app_instance):
         },
     )
     tool_names = await _stored_tool_names(app_instance)
-    assert "EducationOptionsTool" in tool_names
+    assert "AmenitiesTool" in tool_names
+    assert "EducationOptionsTool" not in tool_names
 
 
 @pytest.mark.asyncio
-async def test_vacation_prompt_stores_weather_and_activity_evidence_not_education(client, app_instance):
+async def test_vacation_prompt_stores_weather_and_activity_evidence(client, app_instance):
     client.post(
         "/api/execute",
         json={
@@ -53,7 +54,6 @@ async def test_vacation_prompt_stores_weather_and_activity_evidence_not_educatio
     tool_names = await _stored_tool_names(app_instance)
     assert "WeatherTool" in tool_names
     assert "activities" in tool_names
-    assert "EducationOptionsTool" not in tool_names
 
 
 @pytest.mark.asyncio

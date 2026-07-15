@@ -54,7 +54,7 @@ def _tool(*, payload=None, error=None, cache=None):
 
 def test_category_selection_uses_purpose_defaults_and_explicit_preferences():
     remote = PlaceRequestProfile(purpose="remote_work")
-    study = PlaceRequestProfile(purpose="study", study_field="design")
+    study = PlaceRequestProfile(purpose="study")
     mixed = PlaceRequestProfile(
         purpose="mixed",
         secondary_purposes=["remote_work", "study"],

@@ -261,8 +261,7 @@ python scripts/check_llmod_connection.py
   MediaWiki API (short place-context excerpts).
 - **Local/curated (no network)**: `app/data/cost_estimates.csv` (sample/test-only cost ranges,
   clearly dated and labeled — never presented as live pricing), `app/data/official_sources.json`
-  (curated official tourism/immigration links), a small curated university directory
-  (`app/tools/education_options.py`), and a small curated origin→timezone map
+  (curated official tourism/immigration links), and a small curated origin→timezone map
   (`app/tools/timezone_fit.py`).
 
 All outbound requests are restricted to an explicit domain allow-list with SSRF protections

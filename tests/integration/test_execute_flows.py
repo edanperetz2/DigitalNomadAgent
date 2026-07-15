@@ -65,13 +65,14 @@ def test_ambiguous_prompt_returns_clarification(client):
     assert data["steps"][0]["module"] == REQUEST_INTERPRETER
 
 
-def test_study_prompt_without_field_returns_clarification(client):
+def test_study_prompt_without_field_continues_to_recommendations(client):
     response = client.post(
         "/api/execute", json={"prompt": "I want to study abroad for a semester somewhere affordable."}
     )
     data = response.json()
     assert data["status"] == "ok"
-    assert "field" in data["response"].lower()
+    assert "Best matches" in data["response"]
+    assert len(data["steps"]) > 1
 
 
 def test_repeated_requests_are_independent(client):
