@@ -41,6 +41,7 @@ def test_vacation_prompt_detected():
     )
     assert profile["purpose"] == "vacation"
     assert "not extremely hot" in profile["climate_preferences"]
+    assert profile["activity_preferences"] == ["beaches", "hiking"]
 
 
 def test_mixed_purpose_detected():
@@ -85,4 +86,18 @@ def test_amenity_preferences_are_inferred_and_negated_categories_are_excluded():
 def test_real_interpreter_contract_requests_normalized_amenity_preferences():
     assert "amenity_preferences" in SYSTEM_PROMPT
     for category in ("coworking", "cafe", "university", "library", "park", "pharmacy", "supermarket"):
+        assert f'"{category}"' in SYSTEM_PROMPT
+
+
+def test_activity_preferences_are_inferred_and_negated_categories_are_excluded():
+    profile = interpret_prompt(
+        "I want a vacation with museums, nightlife, parks, hiking and surfing, but avoid beaches."
+    )
+
+    assert profile["activity_preferences"] == ["culture", "nightlife", "parks", "hiking", "surfing"]
+
+
+def test_real_interpreter_contract_requests_normalized_activity_preferences():
+    assert "activity_preferences" in SYSTEM_PROMPT
+    for category in ("culture", "nightlife", "parks", "beaches", "hiking"):
         assert f'"{category}"' in SYSTEM_PROMPT

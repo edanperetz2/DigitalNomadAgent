@@ -138,6 +138,8 @@ def select_tools(profile: PlaceRequestProfile) -> set[str]:
         tools.add("WikivoyageClimateTool")
     if profile.amenity_preferences:
         tools.add("AmenitiesTool")
+    if profile.activity_preferences:
+        tools.add("ActivitiesTool")
 
     if any(w in haystack for w in _LOCAL_MOBILITY_TRIGGER_WORDS):
         tools.add("LocalMobilityTool")

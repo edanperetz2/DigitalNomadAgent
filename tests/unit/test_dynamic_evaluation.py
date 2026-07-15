@@ -236,31 +236,36 @@ def test_transport_access_evidence_remains_unscored_before_llm_reasoning():
     assert any("accessibility scoring awaits" in drawback for drawback in evaluation.drawbacks)
 
 
-def test_do_not_care_removes_criterion_weight():
-    profile_caring = PlaceRequestProfile(
+def test_activity_evidence_remains_unscored_before_llm_reasoning():
+    profile = PlaceRequestProfile(
         purpose="vacation",
+        activity_preferences=["culture", "hiking"],
         relevant_criteria=["activities"],
         inferred_weights={"activities": 0.9},
-        budget=Budget(),
-    )
-    profile_not_caring = PlaceRequestProfile(
-        purpose="vacation",
-        relevant_criteria=["climate"],
-        climate_preferences=["warm"],
-        inferred_weights={"climate": 0.9},
         budget=Budget(),
     )
     candidate = _candidate("City")
     evidence = {
         "City": [
-            _tool_result("ActivitiesTool", "City", {"categories": ["beach"], "count": 10}),
-            _tool_result("WeatherTool", "City", {"avg_high_c": 22.0}),
+            _tool_result(
+                "ActivitiesTool",
+                "City",
+                {
+                    "counts_by_category": {"culture": 10, "hiking": 2},
+                    "wikivoyage_see_context": {"preview_excerpt": "Many sights."},
+                    "wikivoyage_do_context": {"preview_excerpt": "Several hikes."},
+                    "scoring_status": "unresolved_pending_llm",
+                },
+            ),
         ]
     }
-    eval_caring = evaluate_candidates([candidate], profile_caring, evidence)[0]
-    eval_not_caring = evaluate_candidates([candidate], profile_not_caring, evidence)[0]
-    # Activities criterion only weighted heavily in the "caring" profile.
-    assert eval_caring.criterion_weights.get("activities", 0) > eval_not_caring.criterion_weights.get("activities", 0)
+
+    evaluation = evaluate_candidates([candidate], profile, evidence)[0]
+
+    assert evaluation.eliminated is False
+    assert "activities" not in evaluation.criterion_scores
+    assert evaluation.unscored_evidence == ["activities"]
+    assert any("activity scoring awaits" in drawback for drawback in evaluation.drawbacks)
 
 
 def test_eliminated_candidates_sorted_last():

@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from app.agent.models import CandidatePlace, PlaceRequestProfile
 from app.climate_scoring import requested_climate_dimensions
 from app.evidence.models import EvidenceItem, EvidenceSource, ToolResult
+from app.tools.activities import CATEGORY_RADII_M, select_activity_categories
 
 _KNOWN_COORDS: dict[str, tuple[float, float, str]] = {
     "lisbon": (38.7223, -9.1393, "PT"),
@@ -446,13 +447,80 @@ class FakeActivitiesTool:
 
     async def run(self, candidate: CandidatePlace, profile: PlaceRequestProfile) -> ToolResult:
         seed = sum(ord(c) for c in candidate.place_name)
+        now = datetime.now(UTC)
+        categories, unsupported, used_fallback = select_activity_categories(profile)
+        counts = {category: 1 + (seed + index) % 12 for index, category in enumerate(categories)}
+        context_by_section = {}
+        for section_index, section_title in (("3", "See"), ("4", "Do")):
+            text = f"Deterministic fake Wikivoyage {section_title} context for activity reasoning."
+            context_by_section[section_title.casefold()] = {
+                "resolved_title": candidate.canonical_name or candidate.place_name,
+                "page_id": 12345,
+                "revision_id": 123456,
+                "revision_timestamp": "2026-01-01T00:00:00Z",
+                "section_title": section_title,
+                "section_index": section_index,
+                "section_anchor": section_title,
+                "preview_excerpt": text,
+                "excerpt": text,
+                "context_chunks": [
+                    {"subsection": section_title, "text": text, "subsection_truncated": False}
+                ],
+                "full_section_chars": len(text),
+                "included_chars": len(text),
+                "truncated": False,
+                "included_subsections": [section_title],
+                "truncated_subsections": [],
+                "omitted_subsections": [],
+            }
         return ToolResult(
             tool_name=self.name,
             place=candidate.place_name,
-            normalized_data={"categories": ["beach", "museum"], "count": seed % 20, "radius_m": 5000},
-            source_name="OpenStreetMap Overpass (fake)",
-            retrieved_at=datetime.now(UTC),
+            normalized_data={
+                "requested_categories": categories,
+                "unsupported_categories": unsupported,
+                "used_generic_vacation_fallback": used_fallback,
+                "counts_by_category": counts,
+                "category_status": {category: "available" for category in categories}
+                | {category: "unsupported" for category in unsupported},
+                "radius_by_category_m": {category: CATEGORY_RADII_M[category] for category in categories},
+                "osm_status": "available",
+                "wikivoyage_see_context": context_by_section["see"],
+                "wikivoyage_do_context": context_by_section["do"],
+                "wikivoyage_section_status": {"see": "available", "do": "available"},
+                "scoring_status": "unresolved_pending_llm",
+                "partial": False,
+            },
+            source_name="OpenStreetMap and Wikivoyage (fake)",
+            retrieved_at=now,
             confidence="medium",
+            evidence_items=[
+                EvidenceItem(
+                    criterion="activities",
+                    component="osm_activity_counts",
+                    normalized_data={"counts_by_category": counts},
+                    source=EvidenceSource(
+                        source_name="OpenStreetMap activity evidence (fake)",
+                        retrieved_at=now,
+                    ),
+                ),
+                *[
+                    EvidenceItem(
+                        criterion="activities",
+                        component=f"wikivoyage_{key}_context",
+                        normalized_data=context,
+                        source=EvidenceSource(
+                            source_name=f"Wikivoyage {context['section_title']} section (fake)",
+                            source_url=(
+                                "https://en.wikivoyage.org/w/index.php?"
+                                f"oldid=123456#{context['section_anchor']}"
+                            ),
+                            retrieved_at=now,
+                        ),
+                    )
+                    for key, context in context_by_section.items()
+                ],
+            ],
         )
 
 

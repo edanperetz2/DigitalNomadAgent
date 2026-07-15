@@ -63,6 +63,12 @@ def test_explicit_amenity_preferences_select_amenities_for_vacation():
     assert "AmenitiesTool" in select_tools(profile)
 
 
+def test_explicit_activity_preferences_select_activities_outside_vacation():
+    profile = _profile(purpose="remote_work", activity_preferences=["hiking"])
+
+    assert "ActivitiesTool" in select_tools(profile)
+
+
 def test_explicit_climate_preferences_select_both_climate_tools():
     profile = _profile(purpose="remote_work", climate_preferences=["sunny", "dry"])
 

@@ -22,7 +22,8 @@ fields: purpose (one of "remote_work", "study", "vacation", "mixed", "unknown"),
 secondary_purposes (list of strings), duration (string or null), dates_or_season (string or \
 null), origin (string or null), nationality (string or null), preferred_regions (list), \
 excluded_regions (list), preferred_languages (list), mobility_requirements (list), \
-climate_preferences (list), amenity_preferences (list), budget (object: amount, currency, period one of \
+climate_preferences (list), activity_preferences (list), amenity_preferences (list), \
+budget (object: amount, currency, period one of \
 "total"/"monthly"/\
 "weekly"/"daily"/"unknown", includes_accommodation true/false/null, confidence one of "high"/\
 "medium"/"low"), hard_constraints (list), soft_preferences (list), deal_breakers (list), \
@@ -39,7 +40,10 @@ Otherwise proceed using an explicit, stated assumption. For amenity_preferences,
 positively requested nearby-place categories and normalize them to these supported values when \
 applicable: "coworking", "cafe", "university", "library", "park", "pharmacy", \
 "supermarket", and "fitness_centre". Preserve an unsupported requested category as a short \
-lowercase string so the tool can report it as unresolved."""
+lowercase string so the tool can report it as unresolved. For activity_preferences, include only \
+positively requested leisure or sightseeing categories and normalize applicable requests to \
+"culture", "nightlife", "parks", "beaches", or "hiking". Preserve unsupported requested \
+activities as short lowercase strings so the tool can report them as unresolved."""
 
 
 async def interpret_request(

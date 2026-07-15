@@ -164,15 +164,18 @@ Planned commit: `Transport access tool: separate destination arrival evidence`
 - Use one bounded Overpass request per candidate, one shared cached origin resolution, and bounded cache-first MediaWiki retrieval. Run the independent lookups concurrently under existing provider and application limits, without detached requests or unbounded routing/schedule fan-out.
 - Test nodes/ways/relations and deduplication, rail exclusions, partial and malformed Overpass responses, origin top-match identity, distance calculation, shared origin reuse and stale fallback, Wikivoyage attribution/coverage, cache fallback, tool selection, unresolved evaluation, registry wiring, and preservation of TimezoneFitTool behavior.
 
-### 9. ActivitiesTool — PLANNED
+### 9. ActivitiesTool — COMPLETE
 
-Planned commit: `feat(tools): add category-specific activity evidence`
+Planned commit: `Activities tool: add category-specific activity evidence`
 
-- Query nodes, ways, and relations with category-specific radii: 5 km for culture/nightlife/parks, 10 km for beaches, and 20 km for hiking.
-- Return every requested category count separately and add bounded, revision-pinned Wikivoyage `See` and `Do` context where available. Keep counts and prose separately attributable and defer the final activity score to the future reasoning agent.
-- Treat absent evidence as missing, not zero.
-- Merge requested categories into one bounded Overpass request per candidate despite their different radii; category count must not multiply network calls, retries, or failovers.
-- Test multi-category requests, hiking relations, duplicated OSM elements, Wikivoyage section retrieval and attribution, generic vacation fallback, and unsupported activities.
+- Populate structured `activity_preferences` in both the real interpreter contract and deterministic mock. Normalize prompt aliases to culture, nightlife, parks, beaches, and hiking, exclude negated requests, and preserve unsupported requested activities as unresolved.
+- Select ActivitiesTool whenever structured activity preferences exist. For vacation requests without explicit activities, use the bounded generic fallback of culture and parks rather than assuming beach access.
+- Query nodes, ways, and relations with category-specific radii: 5 km for culture, nightlife, and parks; 10 km for beaches; and 20 km for hiking. Include hiking-route relations and merge all requested categories into one bounded Overpass request per candidate.
+- Return independent, deduplicated counts and status for every supported requested category. A complete zero-count response remains an observed mapped count; failed, malformed, unsupported, or absent evidence remains missing rather than being converted to zero.
+- Resolve the canonical Wikivoyage article and revision once, then retrieve bounded revision-pinned `See` and `Do` sections through the shared 20,000-character context contract. Keep each section and OSM counts separately attributable.
+- Remove the aggregate activity count and fixed deterministic score. Mark activity scoring unresolved until the future reasoning agent can assess requested-category counts and contextual evidence together; raw signals cannot hard-eliminate a candidate in this unit.
+- Run OSM and Wikivoyage retrieval concurrently with bounded sub-lookups, retain completed partial evidence, use cache-first behavior and stale fallback, and make no claims about live events, opening status, trail conditions, or activity quality.
+- Test prompt inference, aliases and negation, explicit non-vacation selection, generic vacation fallback, unsupported activities, multi-radius query generation, nodes/ways/relations, hiking routes, deduplication, complete zero counts, partial/malformed responses, Wikivoyage multi-section revision reuse and attribution, caching, timeouts, unresolved evaluation, fakes, and registry wiring.
 
 ### 10. EducationOptionsTool — PLANNED
 

@@ -61,6 +61,7 @@ def test_production_registry_reuses_shared_clients():
     assert wikivoyage_climate._mediawiki is place_context._mediawiki
     assert local_mobility._wikivoyage._mediawiki is place_context._mediawiki
     assert transport_access._wikivoyage is local_mobility._wikivoyage
+    assert activities._wikivoyage is local_mobility._wikivoyage
     assert transport_access._origin_resolver is timezone_fit._origin_resolver
 
 

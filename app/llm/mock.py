@@ -65,10 +65,36 @@ _KNOWN_UNSUPPORTED_AMENITY_ALIASES: dict[str, tuple[str, ...]] = {
     "swimming pool": ("swimming pools", "swimming pool"),
 }
 
+_ACTIVITY_ALIASES: dict[str, tuple[str, ...]] = {
+    "culture": (
+        "culture",
+        "cultural sites",
+        "cultural attractions",
+        "museums",
+        "museum",
+        "art galleries",
+        "art gallery",
+        "historical sites",
+        "historic sites",
+        "history",
+    ),
+    "nightlife": ("nightlife", "night clubs", "night club", "nightclubs", "nightclub", "bars", "pubs"),
+    "parks": ("green spaces", "green space", "parks", "park", "gardens", "garden"),
+    "beaches": ("beaches", "beach"),
+    "hiking": ("hiking", "hikes", "hike", "walking trails", "walking trail", "trails", "trail"),
+}
+
+_KNOWN_UNSUPPORTED_ACTIVITY_ALIASES: dict[str, tuple[str, ...]] = {
+    "surfing": ("surfing", "surf"),
+    "skiing": ("skiing", "ski"),
+    "diving": ("scuba diving", "diving", "scuba"),
+}
+
 _NEGATED_AMENITY_PREFIX = re.compile(
     r"(?:avoid|without|no|don't need|do not need|not interested in|don't care about|do not care about)"
     r"[^,.]{0,24}$"
 )
+_NEGATED_ACTIVITY_PREFIX = _NEGATED_AMENITY_PREFIX
 
 _CRITERIA_KEYWORD_MAP = {
     "public transportation": "transportation",
@@ -196,6 +222,24 @@ def _extract_amenity_preferences(text: str) -> list[str]:
     return preferences
 
 
+def _extract_activity_preferences(text: str) -> list[str]:
+    preferences: list[str] = []
+    aliases_by_category = {**_ACTIVITY_ALIASES, **_KNOWN_UNSUPPORTED_ACTIVITY_ALIASES}
+    for category, aliases in aliases_by_category.items():
+        requested = False
+        for alias in aliases:
+            for match in re.finditer(rf"\b{re.escape(alias)}\b", text):
+                prefix = text[max(0, match.start() - 64) : match.start()]
+                if not _NEGATED_ACTIVITY_PREFIX.search(prefix):
+                    requested = True
+                    break
+            if requested:
+                break
+        if requested:
+            preferences.append(category)
+    return preferences
+
+
 def interpret_prompt(prompt: str) -> dict:
     """Deterministic, rule-based interpretation used by MockLLMClient."""
     text = prompt.strip()
@@ -233,6 +277,7 @@ def interpret_prompt(prompt: str) -> dict:
 
     duration = _extract_duration(text)
     climate_preferences = [w for w in _CLIMATE_WORDS if w in lowered]
+    activity_preferences = _extract_activity_preferences(lowered)
     amenity_preferences = _extract_amenity_preferences(lowered)
 
     mobility_requirements = []
@@ -307,6 +352,7 @@ def interpret_prompt(prompt: str) -> dict:
         "preferred_languages": [],
         "mobility_requirements": mobility_requirements,
         "climate_preferences": climate_preferences,
+        "activity_preferences": activity_preferences,
         "amenity_preferences": amenity_preferences,
         "budget": budget_info,
         "hard_constraints": hard_constraints,

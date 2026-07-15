@@ -210,10 +210,12 @@ def _extract_criterion_scores(
                         drawbacks.append("University and library density appears limited nearby.")
 
         elif r.tool_name == "ActivitiesTool":
-            score = min(1.0, nd.get("count", 0) / 8)
-            scores["activities"] = score
-            if score >= 0.5:
-                advantages.append("Good density of requested activities nearby.")
+            limitation = (
+                "Requested-category activity counts and Wikivoyage context were collected, "
+                "but activity scoring awaits the LLM reasoning contract."
+            )
+            if limitation not in drawbacks:
+                drawbacks.append(limitation)
 
         elif r.tool_name == "BudgetFitTool":
             lower = nd.get("lower_monthly_estimate")
@@ -319,6 +321,7 @@ def evaluate_candidates(
 
         missing_evidence = [c for c in profile.relevant_criteria if c not in criterion_scores]
         unresolved_tool_criteria = {
+            "ActivitiesTool": "activities",
             "LocalMobilityTool": "transportation",
             "TransportAccessTool": "accessibility",
         }

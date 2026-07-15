@@ -118,7 +118,12 @@ def _build_tool_registry(
             wikivoyage=wikivoyage_sections,
             origin_resolver=origin_resolver,
         ),
-        "ActivitiesTool": ActivitiesTool(cache, timeout, overpass=overpass),
+        "ActivitiesTool": ActivitiesTool(
+            cache,
+            timeout,
+            overpass=overpass,
+            wikivoyage=wikivoyage_sections,
+        ),
         "OfficialSourceTool": OfficialSourceTool(),
     }
     return ToolRegistry(

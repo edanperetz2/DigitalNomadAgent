@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
 import re
 from dataclasses import dataclass
@@ -300,16 +301,7 @@ class WikivoyageSectionClient:
     def __init__(self, mediawiki: MediaWikiClient) -> None:
         self._mediawiki = mediawiki
 
-    async def fetch(
-        self,
-        title: str,
-        section_names: tuple[str, ...],
-        *,
-        preview_chars: int = DEFAULT_PREVIEW_CHARS,
-        max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
-        max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS,
-        skip_tables: bool = False,
-    ) -> WikivoyageSection:
+    async def _resolve_article(self, title: str) -> tuple[str, int, int, str, list[dict[str, Any]]]:
         payload = await self._mediawiki.request(
             action="query",
             prop="revisions",
@@ -342,6 +334,10 @@ class WikivoyageSectionClient:
         sections = (sections_payload.get("parse") or {}).get("sections") or []
         if not isinstance(sections, list):
             raise ValueError("Wikivoyage returned malformed section metadata")
+        return resolved_title, page_id, revision_id, revision_timestamp, sections
+
+    @staticmethod
+    def _find_section(sections: list[dict[str, Any]], section_names: tuple[str, ...]) -> dict[str, Any]:
         wanted = {" ".join(name.casefold().split()) for name in section_names}
         section = next(
             (
@@ -357,7 +353,22 @@ class WikivoyageSectionClient:
             raise WikivoyageSectionNotFound(f"The Wikivoyage article has no {joined} section")
         if "index" not in section:
             raise ValueError("Wikivoyage did not return a section index")
+        return section
 
+    async def _fetch_resolved_section(
+        self,
+        *,
+        resolved_title: str,
+        page_id: int,
+        revision_id: int,
+        revision_timestamp: str,
+        section: dict[str, Any],
+        fallback_title: str,
+        preview_chars: int,
+        max_context_chars: int,
+        max_chunk_chars: int,
+        skip_tables: bool,
+    ) -> WikivoyageSection:
         section_payload = await self._mediawiki.request(
             action="parse",
             oldid=revision_id,
@@ -371,7 +382,7 @@ class WikivoyageSectionClient:
         if not rendered_html:
             raise ValueError("Wikivoyage returned an empty requested section")
 
-        section_title = str(section.get("line") or section_names[0])
+        section_title = str(section.get("line") or fallback_title)
         context = build_section_context(
             rendered_html,
             section_title,
@@ -381,9 +392,7 @@ class WikivoyageSectionClient:
             skip_tables=skip_tables,
         )
         section_anchor = str(section.get("anchor") or section_title)
-        source_url = (
-            f"https://en.wikivoyage.org/w/index.php?oldid={revision_id}#{quote(section_anchor)}"
-        )
+        source_url = f"https://en.wikivoyage.org/w/index.php?oldid={revision_id}#{quote(section_anchor)}"
         return WikivoyageSection(
             resolved_title=resolved_title,
             page_id=page_id,
@@ -395,6 +404,72 @@ class WikivoyageSectionClient:
             context=context,
             source_url=source_url,
         )
+
+    async def fetch(
+        self,
+        title: str,
+        section_names: tuple[str, ...],
+        *,
+        preview_chars: int = DEFAULT_PREVIEW_CHARS,
+        max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
+        max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS,
+        skip_tables: bool = False,
+    ) -> WikivoyageSection:
+        resolved_title, page_id, revision_id, revision_timestamp, sections = await self._resolve_article(title)
+        section = self._find_section(sections, section_names)
+        return await self._fetch_resolved_section(
+            resolved_title=resolved_title,
+            page_id=page_id,
+            revision_id=revision_id,
+            revision_timestamp=revision_timestamp,
+            section=section,
+            fallback_title=section_names[0],
+            preview_chars=preview_chars,
+            max_context_chars=max_context_chars,
+            max_chunk_chars=max_chunk_chars,
+            skip_tables=skip_tables,
+        )
+
+    async def fetch_many(
+        self,
+        title: str,
+        section_groups: dict[str, tuple[str, ...]],
+        *,
+        preview_chars: int = DEFAULT_PREVIEW_CHARS,
+        max_context_chars: int = DEFAULT_MAX_CONTEXT_CHARS,
+        max_chunk_chars: int = DEFAULT_MAX_CHUNK_CHARS,
+        skip_tables: bool = False,
+    ) -> dict[str, WikivoyageSection | BaseException]:
+        """Resolve one revision, then fetch independent named sections concurrently."""
+        resolved_title, page_id, revision_id, revision_timestamp, sections = await self._resolve_article(title)
+        results: dict[str, WikivoyageSection | BaseException] = {}
+        task_keys: list[str] = []
+        tasks = []
+        for key, section_names in section_groups.items():
+            try:
+                section = self._find_section(sections, section_names)
+            except Exception as exc:  # noqa: BLE001 - missing one section must preserve the others
+                results[key] = exc
+                continue
+            task_keys.append(key)
+            tasks.append(
+                self._fetch_resolved_section(
+                    resolved_title=resolved_title,
+                    page_id=page_id,
+                    revision_id=revision_id,
+                    revision_timestamp=revision_timestamp,
+                    section=section,
+                    fallback_title=section_names[0],
+                    preview_chars=preview_chars,
+                    max_context_chars=max_context_chars,
+                    max_chunk_chars=max_chunk_chars,
+                    skip_tables=skip_tables,
+                )
+            )
+        if tasks:
+            outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+            results.update(dict(zip(task_keys, outcomes, strict=True)))
+        return results
 
 
 def _payload_value(payload: Any) -> str:
