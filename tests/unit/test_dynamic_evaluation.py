@@ -204,6 +204,38 @@ def test_car_free_requirement_is_not_eliminated_before_llm_mobility_reasoning():
     assert any("scoring awaits" in drawback for drawback in evaluations[0].drawbacks)
 
 
+def test_transport_access_evidence_remains_unscored_before_llm_reasoning():
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        origin="Tel Aviv",
+        relevant_criteria=["accessibility"],
+        inferred_weights={"accessibility": 0.9},
+        budget=Budget(),
+    )
+    candidate = _candidate("ArrivalCity")
+    evidence = {
+        "ArrivalCity": [
+            _tool_result(
+                "TransportAccessTool",
+                "ArrivalCity",
+                {
+                    "counts_by_component": {"airports_within_50km": 1},
+                    "straight_line_distance_km": 2500.0,
+                    "wikivoyage_context": {"preview_excerpt": "Several arrival options are described."},
+                    "scoring_status": "unresolved_pending_llm",
+                },
+            )
+        ]
+    }
+
+    evaluation = evaluate_candidates([candidate], profile, evidence)[0]
+
+    assert evaluation.eliminated is False
+    assert "accessibility" not in evaluation.criterion_scores
+    assert evaluation.unscored_evidence == ["accessibility"]
+    assert any("accessibility scoring awaits" in drawback for drawback in evaluation.drawbacks)
+
+
 def test_do_not_care_removes_criterion_weight():
     profile_caring = PlaceRequestProfile(
         purpose="vacation",

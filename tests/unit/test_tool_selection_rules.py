@@ -90,13 +90,18 @@ def test_car_free_and_public_transport_select_local_mobility_not_arrival_access(
     for profile in profiles:
         tools = select_tools(profile)
         assert "LocalMobilityTool" in tools
-        assert "AccessibilityTool" not in tools
+        assert "TransportAccessTool" not in tools
 
 
-def test_vacation_selects_accessibility_when_origin_present():
+def test_vacation_selects_transport_access_when_origin_present():
     profile = _profile(purpose="vacation", origin="Israel")
     tools = select_tools(profile)
-    assert "AccessibilityTool" in tools
+    assert "TransportAccessTool" in tools
+
+
+def test_arrival_and_remoteness_concerns_select_transport_access():
+    for criterion in ("distance", "airport access", "not too remote", "easy to get there"):
+        assert "TransportAccessTool" in select_tools(_profile(relevant_criteria=[criterion]))
 
 
 def test_official_source_included_when_nationality_present():

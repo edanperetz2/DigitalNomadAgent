@@ -38,7 +38,7 @@ _CRITERION_TO_TOOLS: dict[str, set[str]] = {
     "activities": {"ActivitiesTool"},
     "student_life": {"AmenitiesTool"},
     "education": {"EducationOptionsTool"},
-    "accessibility": {"AccessibilityTool"},
+    "accessibility": {"TransportAccessTool"},
 }
 
 _PRIMARY_VALUE_FIELDS = (
@@ -169,7 +169,7 @@ class Orchestrator:
                 "supermarket",
                 "university",
             ),
-            "AccessibilityTool": ("airport", "distance", "accessible", "arrival"),
+            "TransportAccessTool": ("airport", "distance", "remote", "arrival", "get there"),
             "EducationOptionsTool": ("study", "university", "education", "program"),
             "WeatherTool": ("weather", "climate", "temperature", "rain", "snow"),
             "ActivitiesTool": ("activit", "hiking", "beach", "culture", "nightlife"),

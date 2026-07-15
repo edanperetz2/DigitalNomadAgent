@@ -278,22 +278,85 @@ class FakeEducationOptionsTool:
         )
 
 
-class FakeAccessibilityTool:
-    name = "AccessibilityTool"
+class FakeTransportAccessTool:
+    name = "TransportAccessTool"
 
     async def run(self, candidate: CandidatePlace, profile: PlaceRequestProfile) -> ToolResult:
         seed = sum(ord(c) for c in candidate.place_name)
+        now = datetime.now(UTC)
+        counts = {
+            "airports_within_50km": 1 + (seed % 2),
+            "potential_mainline_rail_stations_within_10km": seed % 3,
+            "bus_terminals_within_10km": 1 + seed % 4,
+            "ferry_terminals_within_10km": seed % 2,
+        }
+        context = {
+            "resolved_title": candidate.canonical_name or candidate.place_name,
+            "page_id": 12345,
+            "revision_id": 123456,
+            "revision_timestamp": "2026-01-01T00:00:00Z",
+            "section_title": "Get in",
+            "section_index": "2",
+            "section_anchor": "Get_in",
+            "preview_excerpt": "Deterministic fake arrival context for agent reasoning.",
+            "excerpt": "Deterministic fake arrival context for agent reasoning.",
+            "context_chunks": [
+                {
+                    "subsection": "Get in",
+                    "text": "Deterministic fake arrival context for agent reasoning.",
+                    "subsection_truncated": False,
+                }
+            ],
+            "full_section_chars": 56,
+            "included_chars": 56,
+            "truncated": False,
+            "included_subsections": ["Get in"],
+            "truncated_subsections": [],
+            "omitted_subsections": [],
+        }
+        origin_requested = bool(profile.origin)
         return ToolResult(
             tool_name=self.name,
             place=candidate.place_name,
             normalized_data={
-                "airports_within_50km": 1 + (seed % 2),
-                "train_stations_within_5km": seed % 3,
-                "likely_car_dependent": seed % 3 == 0,
+                "counts_by_component": counts,
+                "airport_radius_m": 50_000,
+                "terminal_radius_m": 10_000,
+                "osm_status": "available",
+                "origin_input": profile.origin,
+                "origin_status": "available" if origin_requested else "not_requested",
+                "resolved_origin_name": "Tel Aviv" if origin_requested else None,
+                "resolved_origin_country": "Israel" if origin_requested else None,
+                "straight_line_distance_km": 3300.0 if origin_requested else None,
+                "wikivoyage_context": context,
+                "wikivoyage_status": "available",
+                "scoring_status": "unresolved_pending_llm",
+                "partial": False,
             },
-            source_name="OpenStreetMap Overpass (fake)",
-            retrieved_at=datetime.now(UTC),
+            source_name="OpenStreetMap, Open-Meteo, and Wikivoyage (fake)",
+            retrieved_at=now,
             confidence="medium",
+            evidence_items=[
+                EvidenceItem(
+                    criterion="accessibility",
+                    component="osm_arrival_infrastructure_counts",
+                    normalized_data={"counts_by_component": counts},
+                    source=EvidenceSource(
+                        source_name="OpenStreetMap destination arrival infrastructure (fake)",
+                        retrieved_at=now,
+                    ),
+                ),
+                EvidenceItem(
+                    criterion="accessibility",
+                    component="wikivoyage_get_in_context",
+                    normalized_data=context,
+                    source=EvidenceSource(
+                        source_name="Wikivoyage Get in section (fake)",
+                        source_url="https://en.wikivoyage.org/w/index.php?oldid=123456#Get_in",
+                        retrieved_at=now,
+                    ),
+                ),
+            ],
         )
 
 
@@ -422,7 +485,7 @@ def build_fake_tool_registry_dict() -> dict[str, object]:
         "TimezoneFitTool": FakeTimezoneFitTool(),
         "BudgetFitTool": FakeBudgetFitTool(),
         "EducationOptionsTool": FakeEducationOptionsTool(),
-        "AccessibilityTool": FakeAccessibilityTool(),
+        "TransportAccessTool": FakeTransportAccessTool(),
         "LocalMobilityTool": FakeLocalMobilityTool(),
         "ActivitiesTool": FakeActivitiesTool(),
         "OfficialSourceTool": FakeOfficialSourceTool(),

@@ -249,13 +249,13 @@ def _extract_criterion_scores(
                 else:
                     drawbacks.append(f"Limited working-hours overlap (~{overlap:.1f}h).")
 
-        elif r.tool_name == "AccessibilityTool":
-            airports = nd.get("airports_within_50km", 0)
-            stations = nd.get("train_stations_within_5km", 0)
-            score = 0.8 if (airports >= 1 or stations >= 1) else 0.3
-            if nd.get("likely_car_dependent"):
-                score = min(score, 0.4)
-            scores["accessibility"] = score
+        elif r.tool_name == "TransportAccessTool":
+            limitation = (
+                "Arrival-infrastructure counts, origin distance, and Wikivoyage context were collected, "
+                "but accessibility scoring awaits the LLM reasoning contract."
+            )
+            if limitation not in drawbacks:
+                drawbacks.append(limitation)
 
         elif r.tool_name == "LocalMobilityTool":
             limitation = (
@@ -318,11 +318,15 @@ def evaluate_candidates(
         )
 
         missing_evidence = [c for c in profile.relevant_criteria if c not in criterion_scores]
+        unresolved_tool_criteria = {
+            "LocalMobilityTool": "transportation",
+            "TransportAccessTool": "accessibility",
+        }
         unscored_evidence = sorted(
             {
-                "transportation"
+                unresolved_tool_criteria[result.tool_name]
                 for result in results
-                if result.tool_name == "LocalMobilityTool"
+                if result.tool_name in unresolved_tool_criteria
                 and not result.error
                 and result.normalized_data.get("scoring_status") == "unresolved_pending_llm"
             }

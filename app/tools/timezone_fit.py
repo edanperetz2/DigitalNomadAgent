@@ -3,119 +3,29 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 from app.agent.models import CandidatePlace, PlaceRequestProfile
 from app.evidence.cache import ToolCache
 from app.evidence.models import EvidenceItem, EvidenceSource, ToolResult
 from app.tools.http_client import JsonHttpClient
+from app.tools.origin_resolution import (
+    GEOCODING_PARAMS,
+    GEOCODING_SOURCE_URL,
+    ORIGIN_CACHE_TOOL,
+    OriginResolver,
+    valid_timezone,
+)
 
-GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
-GEOCODING_SOURCE_URL = "https://open-meteo.com/en/docs/geocoding-api"
-GEOCODING_PARAMS: dict[str, int | str] = {"count": 5, "language": "en", "format": "json"}
-ORIGIN_CACHE_TOOL = "TimezoneFitTool:origin"
+__all__ = ["GEOCODING_PARAMS", "ORIGIN_CACHE_TOOL", "TimezoneFitTool"]
+
 STANDARD_WORKDAY_HOURS = 8
-
-# Fast, deliberately pragmatic defaults for common city and country inputs.
-# Countries spanning several timezones use a visible representative-city guess.
-ORIGIN_TIMEZONE_MAP: dict[str, tuple[str, str | None, str]] = {
-    "argentina": ("Buenos Aires", "Argentina", "America/Argentina/Buenos_Aires"),
-    "australia": ("Sydney", "Australia", "Australia/Sydney"),
-    "barcelona": ("Barcelona", "Spain", "Europe/Madrid"),
-    "berlin": ("Berlin", "Germany", "Europe/Berlin"),
-    "brazil": ("Sao Paulo", "Brazil", "America/Sao_Paulo"),
-    "canada": ("Toronto", "Canada", "America/Toronto"),
-    "china": ("Shanghai", "China", "Asia/Shanghai"),
-    "dubai": ("Dubai", "United Arab Emirates", "Asia/Dubai"),
-    "france": ("Paris", "France", "Europe/Paris"),
-    "germany": ("Berlin", "Germany", "Europe/Berlin"),
-    "greece": ("Athens", "Greece", "Europe/Athens"),
-    "haifa": ("Haifa", "Israel", "Asia/Jerusalem"),
-    "iceland": ("Reykjavik", "Iceland", "Atlantic/Reykjavik"),
-    "india": ("India", "India", "Asia/Kolkata"),
-    "israel": ("Israel", "Israel", "Asia/Jerusalem"),
-    "italy": ("Rome", "Italy", "Europe/Rome"),
-    "japan": ("Japan", "Japan", "Asia/Tokyo"),
-    "jerusalem": ("Jerusalem", "Israel", "Asia/Jerusalem"),
-    "london": ("London", "United Kingdom", "Europe/London"),
-    "madrid": ("Madrid", "Spain", "Europe/Madrid"),
-    "mexico": ("Mexico City", "Mexico", "America/Mexico_City"),
-    "netherlands": ("Amsterdam", "Netherlands", "Europe/Amsterdam"),
-    "new zealand": ("Auckland", "New Zealand", "Pacific/Auckland"),
-    "portugal": ("Lisbon", "Portugal", "Europe/Lisbon"),
-    "reykjavik": ("Reykjavik", "Iceland", "Atlantic/Reykjavik"),
-    "singapore": ("Singapore", "Singapore", "Asia/Singapore"),
-    "south africa": ("Johannesburg", "South Africa", "Africa/Johannesburg"),
-    "south korea": ("Seoul", "South Korea", "Asia/Seoul"),
-    "spain": ("Madrid", "Spain", "Europe/Madrid"),
-    "st. john's": ("St. John's", "Canada", "America/St_Johns"),
-    "tel aviv": ("Tel Aviv", "Israel", "Asia/Jerusalem"),
-    "thailand": ("Bangkok", "Thailand", "Asia/Bangkok"),
-    "turkey": ("Istanbul", "Turkey", "Europe/Istanbul"),
-    "uk": ("United Kingdom", "United Kingdom", "Europe/London"),
-    "united arab emirates": ("Dubai", "United Arab Emirates", "Asia/Dubai"),
-    "united kingdom": ("United Kingdom", "United Kingdom", "Europe/London"),
-    "united states": ("New York", "United States", "America/New_York"),
-    "us": ("New York", "United States", "America/New_York"),
-    "us eastern": ("US Eastern Time", "United States", "America/New_York"),
-    "us pacific": ("US Pacific Time", "United States", "America/Los_Angeles"),
-    "usa": ("New York", "United States", "America/New_York"),
-    "vietnam": ("Ho Chi Minh City", "Vietnam", "Asia/Ho_Chi_Minh"),
-}
-
-
-@dataclass(frozen=True)
-class OriginResolution:
-    name: str
-    country: str | None
-    timezone: str
-    method: str
-    retrieved_at: datetime
-    country_code: str | None = None
-    cached: bool = False
-    stale: bool = False
 
 
 TimezoneAt = Callable[[float, float], str | None]
 Today = Callable[[], date]
-
-
-def _normalize_origin(value: str) -> str:
-    return " ".join(value.strip().casefold().split())
-
-
-def _provider_query(origin: str) -> str:
-    """Open-Meteo searches place names, not comma-qualified display strings."""
-    return origin.split(",", maxsplit=1)[0].strip()
-
-
-def _valid_timezone(value: object) -> str | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    name = value.strip()
-    try:
-        ZoneInfo(name)
-    except (ZoneInfoNotFoundError, ValueError):
-        return None
-    return name
-
-
-def _local_origin(origin: str, retrieved_at: datetime) -> OriginResolution | None:
-    normalized = _normalize_origin(origin)
-    alias = ORIGIN_TIMEZONE_MAP.get(normalized)
-    if alias is None and "," in normalized:
-        alias = ORIGIN_TIMEZONE_MAP.get(normalized.split(",", maxsplit=1)[0].strip())
-    if alias is not None:
-        name, country, timezone_name = alias
-        return OriginResolution(name, country, timezone_name, "local_alias", retrieved_at)
-
-    timezone_name = _valid_timezone(origin)
-    if timezone_name is not None:
-        return OriginResolution(origin.strip(), None, timezone_name, "direct_iana", retrieved_at)
-    return None
 
 
 def _representative_date(target_months: list[int], today: date) -> tuple[date, str | None]:
@@ -152,11 +62,13 @@ class TimezoneFitTool:
         timeout: float = 10.0,
         *,
         http: JsonHttpClient | None = None,
+        origin_resolver: OriginResolver | None = None,
         timezone_at: TimezoneAt | None = None,
         today: Today = date.today,
     ):
         self._cache = cache
         self._http = http or JsonHttpClient(timeout=timeout)
+        self._origin_resolver = origin_resolver or OriginResolver(cache, http=self._http)
         self._timezone_at = timezone_at
         self._today = today
         self._timezone_finder: Any | None = None
@@ -169,97 +81,6 @@ class TimezoneFitTool:
 
             self._timezone_finder = TimezoneFinder()
         return self._timezone_finder.timezone_at(lat=lat, lng=lon)
-
-    @staticmethod
-    def _resolution_from_cache(payload: dict, *, stale: bool) -> OriginResolution:
-        return OriginResolution(
-            name=str(payload["name"]),
-            country=str(payload["country"]) if payload.get("country") else None,
-            timezone=str(payload["timezone"]),
-            method="open_meteo",
-            retrieved_at=datetime.fromisoformat(str(payload["retrieved_at"])),
-            country_code=str(payload["country_code"]) if payload.get("country_code") else None,
-            cached=True,
-            stale=stale,
-        )
-
-    @staticmethod
-    def _provider_resolution(payload: object, retrieved_at: datetime) -> OriginResolution | None:
-        if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
-            raise ValueError("Open-Meteo geocoding returned an invalid response structure.")
-        for result in payload["results"]:
-            if not isinstance(result, dict):
-                continue
-            timezone_name = _valid_timezone(result.get("timezone"))
-            name = result.get("name")
-            if timezone_name is None or not isinstance(name, str) or not name.strip():
-                continue
-            country = result.get("country")
-            country_code = result.get("country_code")
-            return OriginResolution(
-                name=name.strip(),
-                country=country.strip() if isinstance(country, str) and country.strip() else None,
-                timezone=timezone_name,
-                method="open_meteo",
-                retrieved_at=retrieved_at,
-                country_code=(
-                    country_code.strip().upper()
-                    if isinstance(country_code, str) and len(country_code.strip()) == 2
-                    else None
-                ),
-            )
-        return None
-
-    async def _resolve_origin(self, origin: str, now: datetime) -> tuple[OriginResolution | None, list[str]]:
-        local = _local_origin(origin, now)
-        if local is not None:
-            warnings = []
-            if _normalize_origin(origin) in {"australia", "brazil", "canada", "mexico", "united states", "us", "usa"}:
-                warnings.append(f"{origin.strip()} spans multiple timezones; using {local.name} as a visible default.")
-            return local, warnings
-
-        cache_place = _normalize_origin(origin)
-        cached_payload, stale = await self._cache.get(
-            ORIGIN_CACHE_TOOL, cache_place, GEOCODING_PARAMS, ttl_key=ORIGIN_CACHE_TOOL
-        )
-        cached: OriginResolution | None = None
-        if cached_payload is not None:
-            try:
-                cached = self._resolution_from_cache(cached_payload, stale=stale)
-            except (KeyError, TypeError, ValueError):
-                cached = None
-        if cached is not None and not stale:
-            return cached, ["Origin was resolved from a cached Open-Meteo top match."]
-
-        try:
-            payload = await self._http.get_json(
-                GEOCODING_URL,
-                params={"name": _provider_query(origin), **GEOCODING_PARAMS},
-            )
-            resolution = self._provider_resolution(payload, now)
-            if resolution is None:
-                raise ValueError("Open-Meteo geocoding returned no usable timezone match.")
-        except Exception as exc:  # noqa: BLE001 - a stale resolution is safer than losing known evidence
-            if cached is not None:
-                return cached, [f"Using stale cached origin resolution because the live lookup failed: {exc}"]
-            return None, [f"Origin lookup failed: {exc}"]
-
-        await self._cache.set(
-            ORIGIN_CACHE_TOOL,
-            cache_place,
-            GEOCODING_PARAMS,
-            {
-                "name": resolution.name,
-                "country": resolution.country,
-                "country_code": resolution.country_code,
-                "timezone": resolution.timezone,
-                "retrieved_at": resolution.retrieved_at.isoformat(),
-            },
-            ttl_key=ORIGIN_CACHE_TOOL,
-        )
-        return resolution, [
-            "Origin uses Open-Meteo's top usable match; verify the displayed place if the input was ambiguous."
-        ]
 
     @staticmethod
     def _calculation_evidence(
@@ -306,7 +127,7 @@ class TimezoneFitTool:
             )
 
         candidate_timezone = self._destination_timezone(candidate.lat, candidate.lon)
-        if candidate_timezone is None or _valid_timezone(candidate_timezone) is None:
+        if candidate_timezone is None or valid_timezone(candidate_timezone) is None:
             return ToolResult(
                 tool_name=self.name,
                 place=candidate.place_name,
@@ -339,7 +160,7 @@ class TimezoneFitTool:
                 ],
             )
 
-        origin, warnings = await self._resolve_origin(origin_input, now)
+        origin, warnings = await self._origin_resolver.resolve(origin_input, now)
         if date_warning:
             warnings.append(date_warning)
         if origin is None:

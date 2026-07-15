@@ -38,7 +38,8 @@ def test_local_mobility_cache_ttl_is_two_weeks():
 
 
 def test_timezone_origin_cache_ttl_is_thirty_days():
-    assert TOOL_TTL_HOURS["TimezoneFitTool:origin"] == 24 * 30
+    assert TOOL_TTL_HOURS["OriginResolver:open_meteo"] == 24 * 30
+    assert TOOL_TTL_HOURS["TransportAccessTool"] == 24 * 14
 
 
 @pytest.mark.asyncio

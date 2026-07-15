@@ -90,7 +90,16 @@ _LOCAL_MOBILITY_TRIGGER_WORDS = [
     "walkable",
     "walkability",
 ]
-_ACCESSIBILITY_TRIGGER_WORDS = ["accessible", "far", "distance", "airport", "arrival", "get there"]
+_ACCESSIBILITY_TRIGGER_WORDS = [
+    "accessible",
+    "far",
+    "distance",
+    "airport",
+    "arrival",
+    "get there",
+    "remote",
+    "remoteness",
+]
 _VISA_TRIGGER_WORDS = ["visa"]
 
 
@@ -121,7 +130,7 @@ def select_tools(profile: PlaceRequestProfile) -> set[str]:
     if "vacation" in purposes:
         tools |= {"WeatherTool", "ActivitiesTool"}
         if profile.origin or any(w in haystack for w in _ACCESSIBILITY_TRIGGER_WORDS):
-            tools.add("AccessibilityTool")
+            tools.add("TransportAccessTool")
 
     if profile.climate_preferences or "vacation" in purposes or "mixed" in {profile.purpose}:
         tools.add("WeatherTool")
@@ -134,7 +143,7 @@ def select_tools(profile: PlaceRequestProfile) -> set[str]:
         tools.add("LocalMobilityTool")
 
     if any(w in haystack for w in _ACCESSIBILITY_TRIGGER_WORDS):
-        tools.add("AccessibilityTool")
+        tools.add("TransportAccessTool")
 
     if (
         profile.nationality

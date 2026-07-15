@@ -132,7 +132,7 @@ Planned commit: `Local mobility tool: add car-free mobility evidence`
 - Add a tool for bus stops, metro/tram/rail stations, pedestrian ways, and cycleways within 3 km. Query nodes, ways, and relations, deduplicate by OSM element type and ID, and return the independent raw counts without converting them into a tool-level mobility score.
 - Extract the canonical destination's revision-pinned Wikivoyage `Get around` section through the shared MediaWiki client and return a bounded section excerpt, exact section identity, revision identity, and source URL. Do not apply a phrase lexicon or convert the prose into a numeric value.
 - Persist the OSM counts and Wikivoyage section as separately attributable evidence so the future reasoning agent can compare the quantitative infrastructure with the qualitative local context and produce a justified aggregate score.
-- Route car-free, walkability, and public-transport requirements to this tool and stop using arrival infrastructure from AccessibilityTool as evidence of local car-free living. Until the reasoning backbone is connected, transportation evidence is available but its final aggregate score is explicitly unresolved.
+- Route car-free, walkability, and public-transport requirements to this tool and stop using arrival infrastructure from TransportAccessTool as evidence of local car-free living. Until the reasoning backbone is connected, transportation evidence is available but its final aggregate score is explicitly unresolved.
 - Do not hard-eliminate a candidate from raw counts or Wikivoyage prose in this unit. Hard car-free feasibility remains unresolved until the reasoning agent can assess both sources under a separately reviewed scoring contract.
 - Combine all required OSM mobility categories into one bounded Overpass request per candidate and use at most three cache-first MediaWiki requests to resolve and retrieve the revision-pinned `Get around` section. Reuse the shared provider limits, cache, and failover paths, keep all work inside the per-tool/request deadlines, and include measured deadline impact in review.
 - Test dense, sparse, missing, stale, and partial OSM evidence; Wikivoyage redirects, missing `Get around` sections, excerpt bounds, revision attribution, separate evidence persistence, tool selection, unresolved scoring, and the absence of hard elimination.
@@ -149,16 +149,20 @@ Planned commit: `Wikivoyage context: preserve section coverage for agent reasoni
 - Require TransportAccessTool, ActivitiesTool, SafetyTool, and any later criterion-specific Wikivoyage consumer to reuse the same contract.
 - Test full-section preservation, heading coverage, fair allocation under truncation, preview separation, chunk bounds, coverage metadata, LocalMobility persistence, climate compatibility, and unchanged provider-call topology.
 
-### 8. TransportAccessTool — PLANNED
+### 8. TransportAccessTool — COMPLETE
 
-Planned commit: `refactor(tools): separate destination transport access`
+Planned commit: `Transport access tool: separate destination arrival evidence`
 
-- Rename the arrival-related AccessibilityTool to TransportAccessTool.
-- Return airports within 50 km, intercity rail and bus/ferry terminals within 10 km, and straight-line origin distance when resolvable.
-- Return a bounded, revision-pinned Wikivoyage `Get in` section alongside the independent OSM counts and distance evidence. Keep the quantitative and contextual sources separate and let the future reasoning agent assess destination access rather than interpreting the prose inside the tool.
-- Route origin, distance, and arrival-access concerns here; stop using arrival infrastructure as proof of car-free living.
-- Avoid claims about live routes, schedules, prices, or travel times.
-- Use one bounded infrastructure query per candidate, at most one cached origin-resolution call per request, and bounded cache-first MediaWiki section retrieval; do not add live routing/schedule fan-out that could threaten the deadline.
+- Rename the arrival-related AccessibilityTool to TransportAccessTool and define its scope as evidence about reaching the destination. It does not measure local mobility or disability accessibility.
+- Return independent raw OSM counts for airports within 50 km and potential mainline rail stations, bus terminals, and ferry terminals within 10 km. Query nodes, ways, and relations and deduplicate by OSM element type and ID.
+- Extract a shared coordinate-aware Open-Meteo origin resolver from TimezoneFitTool. Preserve its local timezone fast path, top-match visibility, 30-day cache, stale fallback, and existing timezone behavior; require provider coordinates for distance calculations and serialize duplicate uncached lookups so one origin is resolved once and reused across candidates.
+- When both origin and destination coordinates are available, return the resolved origin identity and straight-line Haversine distance. Keep the calculation visible and never describe it as route distance or travel time.
+- Return the canonical destination's bounded, revision-pinned Wikivoyage `Get in` section using the shared 20,000-character, heading-aware context contract. Persist OSM infrastructure, origin/distance, and Wikivoyage context as separately attributable evidence.
+- Route origin, distance, remoteness, and arrival-access concerns here; stop using arrival infrastructure as proof of car-free living. Remove the obsolete `likely_car_dependent` output.
+- Do not produce a fixed accessibility score. Mark the criterion explicitly unresolved until the future reasoning agent can assess the counts, distance, and contextual evidence together; none of these raw signals may hard-eliminate a candidate in this unit.
+- Avoid claims about live routes, services, schedules, frequencies, prices, or travel times.
+- Use one bounded Overpass request per candidate, one shared cached origin resolution, and bounded cache-first MediaWiki retrieval. Run the independent lookups concurrently under existing provider and application limits, without detached requests or unbounded routing/schedule fan-out.
+- Test nodes/ways/relations and deduplication, rail exclusions, partial and malformed Overpass responses, origin top-match identity, distance calculation, shared origin reuse and stale fallback, Wikivoyage attribution/coverage, cache fallback, tool selection, unresolved evaluation, registry wiring, and preservation of TimezoneFitTool behavior.
 
 ### 9. ActivitiesTool — PLANNED
 

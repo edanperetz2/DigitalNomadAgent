@@ -30,7 +30,6 @@ from app.llm.base import BaseLLMClient
 from app.llm.budget import BudgetManager
 from app.llm.llmod import LLModClient
 from app.llm.mock import MockLLMClient
-from app.tools.accessibility import AccessibilityTool
 from app.tools.activities import ActivitiesTool
 from app.tools.amenities import AmenitiesTool
 from app.tools.budget_fit import BudgetFitTool
@@ -40,10 +39,12 @@ from app.tools.http_client import JsonHttpClient
 from app.tools.local_mobility import LocalMobilityTool
 from app.tools.mediawiki_client import WIKIVOYAGE_API, MediaWikiClient
 from app.tools.official_sources import OfficialSourceTool
+from app.tools.origin_resolution import OriginResolver
 from app.tools.overpass_client import OverpassClient
 from app.tools.place_context import PlaceContextTool
 from app.tools.registry import ToolRegistry
 from app.tools.timezone_fit import TimezoneFitTool
+from app.tools.transport_access import TransportAccessTool
 from app.tools.weather import WeatherTool
 from app.tools.wikivoyage_climate import WikivoyageClimateTool
 from app.tools.wikivoyage_sections import WikivoyageSectionClient
@@ -89,6 +90,7 @@ def _build_tool_registry(
     overpass = OverpassClient(http=http)
     mediawiki = MediaWikiClient(WIKIVOYAGE_API, http=http)
     wikivoyage_sections = WikivoyageSectionClient(mediawiki)
+    origin_resolver = OriginResolver(cache, http=http)
     tools = {
         "GeocodingTool": GeocodingTool(cache, timeout, http=http),
         "WeatherTool": WeatherTool(cache, timeout, http=http),
@@ -101,10 +103,21 @@ def _build_tool_registry(
             wikivoyage=wikivoyage_sections,
         ),
         "PlaceContextTool": PlaceContextTool(cache, timeout, mediawiki=mediawiki),
-        "TimezoneFitTool": TimezoneFitTool(cache, timeout, http=http),
+        "TimezoneFitTool": TimezoneFitTool(
+            cache,
+            timeout,
+            http=http,
+            origin_resolver=origin_resolver,
+        ),
         "BudgetFitTool": BudgetFitTool(),
         "EducationOptionsTool": EducationOptionsTool(),
-        "AccessibilityTool": AccessibilityTool(cache, timeout, overpass=overpass),
+        "TransportAccessTool": TransportAccessTool(
+            cache,
+            timeout,
+            overpass=overpass,
+            wikivoyage=wikivoyage_sections,
+            origin_resolver=origin_resolver,
+        ),
         "ActivitiesTool": ActivitiesTool(cache, timeout, overpass=overpass),
         "OfficialSourceTool": OfficialSourceTool(),
     }
