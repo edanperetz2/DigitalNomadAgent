@@ -3,13 +3,19 @@ from app.agent.recommendation_validator import validate_recommendations
 
 
 def _evaluation(
-    place: str, score: float, missing_evidence=None, drawbacks=None, eliminated=False
+    place: str,
+    score: float,
+    missing_evidence=None,
+    drawbacks=None,
+    eliminated=False,
+    unscored_evidence=None,
 ) -> CandidateEvaluation:
     return CandidateEvaluation(
         place=place,
         total_score=score,
         confidence_score=0.8,
         missing_evidence=missing_evidence or [],
+        unscored_evidence=unscored_evidence or [],
         drawbacks=drawbacks if drawbacks is not None else ["some drawback"],
         eliminated=eliminated,
     )
@@ -37,6 +43,45 @@ def test_requests_gap_research_when_high_weight_criterion_missing():
     result = validate_recommendations(evaluations, profile, gap_iteration_used=False)
     assert result.should_research_again is True
     assert any(m.place == "A" and m.criterion == "climate" for m in result.missing_research)
+
+
+def test_does_not_repeat_research_for_criterion_intentionally_awaiting_llm_reasoning():
+    profile = PlaceRequestProfile(purpose="study", inferred_weights={"transportation": 0.9})
+    evaluations = [
+        _evaluation(
+            "A",
+            0.9,
+            missing_evidence=["transportation"],
+            unscored_evidence=["transportation"],
+        ),
+        _evaluation(
+            "B",
+            0.7,
+            missing_evidence=["transportation"],
+            unscored_evidence=["transportation"],
+        ),
+        _evaluation(
+            "C",
+            0.5,
+            missing_evidence=["transportation"],
+            unscored_evidence=["transportation"],
+        ),
+    ]
+
+    result = validate_recommendations(evaluations, profile, gap_iteration_used=False)
+
+    assert result.should_research_again is False
+    assert result.missing_research == []
+
+
+def test_retries_when_llm_reasoning_criterion_has_no_collected_evidence():
+    profile = PlaceRequestProfile(purpose="study", inferred_weights={"transportation": 0.9})
+    evaluations = [_evaluation("A", 0.9, missing_evidence=["transportation"])]
+
+    result = validate_recommendations(evaluations, profile, gap_iteration_used=False)
+
+    assert result.should_research_again is True
+    assert result.missing_research[0].criterion == "transportation"
 
 
 def test_second_iteration_is_refused():

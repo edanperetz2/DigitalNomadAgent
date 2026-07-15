@@ -171,7 +171,7 @@ def test_budget_hard_constraint_eliminates_candidate():
     assert evaluations[0].elimination_reason is not None
 
 
-def test_car_free_hard_constraint_eliminates_car_dependent_candidate():
+def test_car_free_requirement_is_not_eliminated_before_llm_mobility_reasoning():
     profile = PlaceRequestProfile(
         purpose="remote_work",
         mobility_requirements=["car-free"],
@@ -181,14 +181,27 @@ def test_car_free_hard_constraint_eliminates_car_dependent_candidate():
     evidence = {
         "CarCity": [
             _tool_result(
-                "AccessibilityTool",
+                "LocalMobilityTool",
                 "CarCity",
-                {"airports_within_50km": 0, "train_stations_within_5km": 0, "likely_car_dependent": True},
+                {
+                    "counts_by_component": {
+                        "bus_stops": 0,
+                        "rail_metro_tram_stations": 0,
+                        "pedestrian_ways": 0,
+                        "cycleways": 0,
+                    },
+                    "wikivoyage_context": {"excerpt": "A car is commonly used."},
+                    "scoring_status": "unresolved_pending_llm",
+                },
             )
         ]
     }
     evaluations = evaluate_candidates([candidate], profile, evidence)
-    assert evaluations[0].eliminated is True
+    assert evaluations[0].eliminated is False
+    assert evaluations[0].hard_constraint_results == {}
+    assert "transportation" not in evaluations[0].criterion_scores
+    assert evaluations[0].unscored_evidence == ["transportation"]
+    assert any("scoring awaits" in drawback for drawback in evaluations[0].drawbacks)
 
 
 def test_do_not_care_removes_criterion_weight():

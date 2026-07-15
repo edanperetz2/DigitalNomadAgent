@@ -48,6 +48,7 @@ def test_production_registry_reuses_shared_clients():
     geocoding = registry.get("GeocodingTool")
     weather = registry.get("WeatherTool")
     amenities = registry.get("AmenitiesTool")
+    local_mobility = registry.get("LocalMobilityTool")
     accessibility = registry.get("AccessibilityTool")
     activities = registry.get("ActivitiesTool")
     place_context = registry.get("PlaceContextTool")
@@ -55,9 +56,10 @@ def test_production_registry_reuses_shared_clients():
     timezone_fit = registry.get("TimezoneFitTool")
 
     assert geocoding._http is weather._http is timezone_fit._http
-    assert amenities._overpass is accessibility._overpass is activities._overpass
+    assert amenities._overpass is local_mobility._overpass is accessibility._overpass is activities._overpass
     assert place_context._mediawiki._http is geocoding._http
     assert wikivoyage_climate._mediawiki is place_context._mediawiki
+    assert local_mobility._wikivoyage._mediawiki is place_context._mediawiki
 
 
 @pytest.mark.asyncio

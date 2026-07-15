@@ -80,7 +80,17 @@ async def generate_candidates(
 # ---------------------------------------------------------------------------
 
 _TIMEZONE_TRIGGER_WORDS = ["overlap", "timezone", "time zone", "working hours", "work hours"]
-_ACCESSIBILITY_TRIGGER_WORDS = ["accessible", "far", "distance", "car-free", "public transport", "walkable"]
+_LOCAL_MOBILITY_TRIGGER_WORDS = [
+    "car-free",
+    "car free",
+    "without a car",
+    "public transport",
+    "public transportation",
+    "transportation",
+    "walkable",
+    "walkability",
+]
+_ACCESSIBILITY_TRIGGER_WORDS = ["accessible", "far", "distance", "airport", "arrival", "get there"]
 _VISA_TRIGGER_WORDS = ["visa"]
 
 
@@ -119,6 +129,9 @@ def select_tools(profile: PlaceRequestProfile) -> set[str]:
         tools.add("WikivoyageClimateTool")
     if profile.amenity_preferences:
         tools.add("AmenitiesTool")
+
+    if any(w in haystack for w in _LOCAL_MOBILITY_TRIGGER_WORDS):
+        tools.add("LocalMobilityTool")
 
     if any(w in haystack for w in _ACCESSIBILITY_TRIGGER_WORDS):
         tools.add("AccessibilityTool")

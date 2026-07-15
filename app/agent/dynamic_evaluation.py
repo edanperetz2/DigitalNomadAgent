@@ -257,6 +257,14 @@ def _extract_criterion_scores(
                 score = min(score, 0.4)
             scores["accessibility"] = score
 
+        elif r.tool_name == "LocalMobilityTool":
+            limitation = (
+                "Local mobility counts and Wikivoyage context were collected, but transportation "
+                "scoring awaits the LLM reasoning contract."
+            )
+            if limitation not in drawbacks:
+                drawbacks.append(limitation)
+
         elif r.tool_name == "EducationOptionsTool":
             score = nd.get("match_score")
             if score is not None:
@@ -270,7 +278,7 @@ def _extract_criterion_scores(
 
 
 def _check_hard_constraints(
-    profile: PlaceRequestProfile, criterion_scores: dict[str, float], results: list[ToolResult]
+    profile: PlaceRequestProfile, criterion_scores: dict[str, float]
 ) -> tuple[bool, str | None, dict[str, bool]]:
     hard_results: dict[str, bool] = {}
     eliminated = False
@@ -285,19 +293,6 @@ def _check_hard_constraints(
         if not within_limit:
             eliminated = True
             reason = "Estimated cost substantially exceeds the required budget."
-
-    car_free_required = "car-free" in profile.mobility_requirements or any(
-        "car" in hc.lower() for hc in profile.hard_constraints
-    )
-    if car_free_required:
-        accessibility_result = next((r for r in results if r.tool_name == "AccessibilityTool"), None)
-        if accessibility_result is not None and not accessibility_result.error:
-            likely_car_dependent = accessibility_result.normalized_data.get("likely_car_dependent")
-            if likely_car_dependent is not None:
-                hard_results["car_free_feasible"] = not likely_car_dependent
-                if likely_car_dependent and not eliminated:
-                    eliminated = True
-                    reason = "This destination appears car-dependent, violating the car-free requirement."
 
     return eliminated, reason, hard_results
 
@@ -319,10 +314,19 @@ def evaluate_candidates(
             confidence_factors,
         ) = _extract_criterion_scores(results, profile)
         eliminated, elimination_reason, hard_constraint_results = _check_hard_constraints(
-            profile, criterion_scores, results
+            profile, criterion_scores
         )
 
         missing_evidence = [c for c in profile.relevant_criteria if c not in criterion_scores]
+        unscored_evidence = sorted(
+            {
+                "transportation"
+                for result in results
+                if result.tool_name == "LocalMobilityTool"
+                and not result.error
+                and result.normalized_data.get("scoring_status") == "unresolved_pending_llm"
+            }
+        )
 
         weights = dict(profile.inferred_weights)
         for c in criterion_scores:
@@ -364,6 +368,7 @@ def evaluate_candidates(
                 confidence_score=round(min(1.0, confidence_score), 4),
                 hard_constraint_results=hard_constraint_results,
                 missing_evidence=missing_evidence,
+                unscored_evidence=unscored_evidence,
                 advantages=advantages[:5],
                 drawbacks=drawbacks[:5],
                 eliminated=eliminated,

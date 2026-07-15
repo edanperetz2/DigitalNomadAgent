@@ -37,6 +37,7 @@ from app.tools.budget_fit import BudgetFitTool
 from app.tools.education_options import EducationOptionsTool
 from app.tools.geocoding import GeocodingTool
 from app.tools.http_client import JsonHttpClient
+from app.tools.local_mobility import LocalMobilityTool
 from app.tools.mediawiki_client import WIKIVOYAGE_API, MediaWikiClient
 from app.tools.official_sources import OfficialSourceTool
 from app.tools.overpass_client import OverpassClient
@@ -45,6 +46,7 @@ from app.tools.registry import ToolRegistry
 from app.tools.timezone_fit import TimezoneFitTool
 from app.tools.weather import WeatherTool
 from app.tools.wikivoyage_climate import WikivoyageClimateTool
+from app.tools.wikivoyage_sections import WikivoyageSectionClient
 
 TEAM_INFO_PATH = REPO_ROOT / "config" / "team_info.json"
 TEMPLATES_DIR = REPO_ROOT / "app" / "templates"
@@ -86,11 +88,18 @@ def _build_tool_registry(
     http = JsonHttpClient(timeout=timeout)
     overpass = OverpassClient(http=http)
     mediawiki = MediaWikiClient(WIKIVOYAGE_API, http=http)
+    wikivoyage_sections = WikivoyageSectionClient(mediawiki)
     tools = {
         "GeocodingTool": GeocodingTool(cache, timeout, http=http),
         "WeatherTool": WeatherTool(cache, timeout, http=http),
         "WikivoyageClimateTool": WikivoyageClimateTool(cache, timeout, mediawiki=mediawiki),
         "AmenitiesTool": AmenitiesTool(cache, timeout, overpass=overpass),
+        "LocalMobilityTool": LocalMobilityTool(
+            cache,
+            timeout,
+            overpass=overpass,
+            wikivoyage=wikivoyage_sections,
+        ),
         "PlaceContextTool": PlaceContextTool(cache, timeout, mediawiki=mediawiki),
         "TimezoneFitTool": TimezoneFitTool(cache, timeout, http=http),
         "BudgetFitTool": BudgetFitTool(),

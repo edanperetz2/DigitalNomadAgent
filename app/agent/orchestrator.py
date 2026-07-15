@@ -34,6 +34,7 @@ _CRITERION_TO_TOOLS: dict[str, set[str]] = {
     "work_infrastructure": {"AmenitiesTool"},
     "cost": {"BudgetFitTool"},
     "timezone": {"TimezoneFitTool"},
+    "transportation": {"LocalMobilityTool"},
     "activities": {"ActivitiesTool"},
     "student_life": {"AmenitiesTool"},
     "education": {"EducationOptionsTool"},

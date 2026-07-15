@@ -125,16 +125,17 @@ Planned commit: `Amenities tool: return category-level evidence`
 - Keep the one-request-per-candidate design, shared two-request Overpass concurrency cap, bounded endpoint failover, and cache-first behavior; no category may add a separate request that risks the 285-second backend budget.
 - Test prompt-to-category inference in both interpreters, purpose defaults, supported and unsupported explicit categories, one-request query generation, independent counts, node/way/relation handling, deduplication, cache behavior, fallback/rate errors, partial results, and criterion-specific scoring.
 
-### 7. LocalMobilityTool — PLANNED
+### 7. LocalMobilityTool — COMPLETE
 
-Planned commit: `feat(tools): add local car-free mobility evidence`
+Planned commit: `Local mobility tool: add car-free mobility evidence`
 
-- Add a tool for bus stops, metro/tram/rail stations, pedestrian ways, and cycleways within 3 km.
-- Classify car-free feasibility as `likely`, `uncertain`, or `unlikely` from explicit normalized components.
-- Route car-free, walkability, and public-transport requirements to this tool.
-- Permit hard elimination only for non-stale, medium-or-higher-confidence `unlikely` results.
-- Combine all required OSM mobility categories into one bounded Overpass request per candidate, reuse the shared two-request concurrency cap/cache/failover path, and include deadline impact in review.
-- Test dense, sparse, missing, stale, and contradictory mobility evidence.
+- Add a tool for bus stops, metro/tram/rail stations, pedestrian ways, and cycleways within 3 km. Query nodes, ways, and relations, deduplicate by OSM element type and ID, and return the independent raw counts without converting them into a tool-level mobility score.
+- Extract the canonical destination's revision-pinned Wikivoyage `Get around` section through the shared MediaWiki client and return a bounded section excerpt, exact section identity, revision identity, and source URL. Do not apply a phrase lexicon or convert the prose into a numeric value.
+- Persist the OSM counts and Wikivoyage section as separately attributable evidence so the future reasoning agent can compare the quantitative infrastructure with the qualitative local context and produce a justified aggregate score.
+- Route car-free, walkability, and public-transport requirements to this tool and stop using arrival infrastructure from AccessibilityTool as evidence of local car-free living. Until the reasoning backbone is connected, transportation evidence is available but its final aggregate score is explicitly unresolved.
+- Do not hard-eliminate a candidate from raw counts or Wikivoyage prose in this unit. Hard car-free feasibility remains unresolved until the reasoning agent can assess both sources under a separately reviewed scoring contract.
+- Combine all required OSM mobility categories into one bounded Overpass request per candidate and use at most three cache-first MediaWiki requests to resolve and retrieve the revision-pinned `Get around` section. Reuse the shared provider limits, cache, and failover paths, keep all work inside the per-tool/request deadlines, and include measured deadline impact in review.
+- Test dense, sparse, missing, stale, and partial OSM evidence; Wikivoyage redirects, missing `Get around` sections, excerpt bounds, revision attribution, separate evidence persistence, tool selection, unresolved scoring, and the absence of hard elimination.
 
 ### 8. TransportAccessTool — PLANNED
 
@@ -142,19 +143,20 @@ Planned commit: `refactor(tools): separate destination transport access`
 
 - Rename the arrival-related AccessibilityTool to TransportAccessTool.
 - Return airports within 50 km, intercity rail and bus/ferry terminals within 10 km, and straight-line origin distance when resolvable.
+- Return a bounded, revision-pinned Wikivoyage `Get in` section alongside the independent OSM counts and distance evidence. Keep the quantitative and contextual sources separate and let the future reasoning agent assess destination access rather than interpreting the prose inside the tool.
 - Route origin, distance, and arrival-access concerns here; stop using arrival infrastructure as proof of car-free living.
 - Avoid claims about live routes, schedules, prices, or travel times.
-- Use one bounded infrastructure query per candidate plus at most one cached origin-resolution call per request; do not add live routing/schedule fan-out that could threaten the deadline.
+- Use one bounded infrastructure query per candidate, at most one cached origin-resolution call per request, and bounded cache-first MediaWiki section retrieval; do not add live routing/schedule fan-out that could threaten the deadline.
 
 ### 9. ActivitiesTool — PLANNED
 
 Planned commit: `feat(tools): add category-specific activity evidence`
 
 - Query nodes, ways, and relations with category-specific radii: 5 km for culture/nightlife/parks, 10 km for beaches, and 20 km for hiking.
-- Return and score every requested category separately; average only requested categories.
+- Return every requested category count separately and add bounded, revision-pinned Wikivoyage `See` and `Do` context where available. Keep counts and prose separately attributable and defer the final activity score to the future reasoning agent.
 - Treat absent evidence as missing, not zero.
 - Merge requested categories into one bounded Overpass request per candidate despite their different radii; category count must not multiply network calls, retries, or failovers.
-- Test multi-category requests, hiking relations, duplicated OSM elements, generic vacation fallback, and unsupported activities.
+- Test multi-category requests, hiking relations, duplicated OSM elements, Wikivoyage section retrieval and attribution, generic vacation fallback, and unsupported activities.
 
 ### 10. EducationOptionsTool — PLANNED
 
@@ -224,5 +226,6 @@ Planned commit: `feat(tools): complete curated official-source evidence`
 - Timeouts are graceful-degradation events after candidate generation: they must preserve completed evidence and return a provisional recommendation, not discard the run solely because one provider is slow.
 - Any deployed proxy/load balancer request or idle timeout must exceed the 285-second backend deadline; declare the real value with `UPSTREAM_REQUEST_TIMEOUT_SECONDS` for startup validation and configure the external platform itself.
 - Disability accessibility is outside these transport tools; they cover reaching a destination and moving locally.
+- For an OSM-backed tool whose criterion has a directly relevant Wikivoyage section, return the independent OSM counts plus a bounded, revision-pinned section excerpt as separately attributable evidence. Evidence tools do not translate community-written prose into scores. The future reasoning agent will compare both sources and explain its aggregate judgment; until that backbone exists, the contextual evidence remains visible but numerically unresolved and cannot cause hard elimination.
 - Change the order only through an approved master-plan revision.
 - Each tool is implemented in one commit; the shared foundation is the only approved non-tool commit.

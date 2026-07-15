@@ -86,6 +86,7 @@ class CandidateEvaluation(BaseModel):
     confidence_score: float = 0.0
     hard_constraint_results: dict[str, bool] = Field(default_factory=dict)
     missing_evidence: list[str] = Field(default_factory=list)
+    unscored_evidence: list[str] = Field(default_factory=list)
     advantages: list[str] = Field(default_factory=list)
     drawbacks: list[str] = Field(default_factory=list)
     eliminated: bool = False

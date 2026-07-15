@@ -35,7 +35,11 @@ def validate_recommendations(
 
     top_candidates = viable[:3]
     for evaluation in top_candidates:
-        missing_high = [c for c in evaluation.missing_evidence if c in high_weight_criteria]
+        missing_high = [
+            criterion
+            for criterion in evaluation.missing_evidence
+            if criterion in high_weight_criteria and criterion not in evaluation.unscored_evidence
+        ]
         for criterion in missing_high:
             missing_research.append(MissingResearchItem(place=evaluation.place, criterion=criterion))
 

@@ -76,8 +76,21 @@ def test_climate_gap_research_retries_both_climate_sources():
     assert _CRITERION_TO_TOOLS["climate"] == {"WeatherTool", "WikivoyageClimateTool"}
 
 
-def test_transportation_is_not_routed_to_amenities():
-    assert "transportation" not in _CRITERION_TO_TOOLS
+def test_transportation_is_routed_only_to_local_mobility():
+    assert _CRITERION_TO_TOOLS["transportation"] == {"LocalMobilityTool"}
+
+
+def test_car_free_and_public_transport_select_local_mobility_not_arrival_access():
+    profiles = [
+        _profile(mobility_requirements=["car-free"]),
+        _profile(relevant_criteria=["public transportation"]),
+        _profile(soft_preferences=["walkable centre"]),
+    ]
+
+    for profile in profiles:
+        tools = select_tools(profile)
+        assert "LocalMobilityTool" in tools
+        assert "AccessibilityTool" not in tools
 
 
 def test_vacation_selects_accessibility_when_origin_present():

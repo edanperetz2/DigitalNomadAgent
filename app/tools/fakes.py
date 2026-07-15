@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 from app.agent.models import CandidatePlace, PlaceRequestProfile
 from app.climate_scoring import requested_climate_dimensions
-from app.evidence.models import ToolResult
+from app.evidence.models import EvidenceItem, EvidenceSource, ToolResult
 
 _KNOWN_COORDS: dict[str, tuple[float, float, str]] = {
     "lisbon": (38.7223, -9.1393, "PT"),
@@ -283,6 +283,73 @@ class FakeAccessibilityTool:
         )
 
 
+class FakeLocalMobilityTool:
+    name = "LocalMobilityTool"
+
+    async def run(self, candidate: CandidatePlace, profile: PlaceRequestProfile) -> ToolResult:
+        del profile
+        seed = sum(ord(c) for c in candidate.place_name)
+        now = datetime.now(UTC)
+        counts = {
+            "bus_stops": 5 + seed % 30,
+            "rail_metro_tram_stations": seed % 8,
+            "pedestrian_ways": 10 + seed % 50,
+            "cycleways": seed % 25,
+        }
+        context = {
+            "resolved_title": candidate.canonical_name or candidate.place_name,
+            "page_id": 12345,
+            "revision_id": 123456,
+            "revision_timestamp": "2026-01-01T00:00:00Z",
+            "section_title": "Get around",
+            "section_index": "4",
+            "section_anchor": "Get_around",
+            "excerpt": "Deterministic fake local-mobility context for agent reasoning.",
+        }
+        return ToolResult(
+            tool_name=self.name,
+            place=candidate.place_name,
+            normalized_data={
+                "counts_by_component": counts,
+                "valid_element_count": sum(counts.values()),
+                "radius_m": 3000,
+                "osm_status": "available",
+                "wikivoyage_context": context,
+                "wikivoyage_status": "available",
+                "scoring_status": "unresolved_pending_llm",
+                "partial": False,
+            },
+            source_name="OpenStreetMap and Wikivoyage (fake)",
+            retrieved_at=now,
+            confidence="medium",
+            evidence_items=[
+                EvidenceItem(
+                    criterion="transportation",
+                    component="osm_local_mobility_counts",
+                    normalized_data={"counts_by_component": counts, "radius_m": 3000},
+                    source=EvidenceSource(
+                        source_name="OpenStreetMap local mobility infrastructure (fake)",
+                        source_url="https://wiki.openstreetmap.org/wiki/Overpass_API",
+                        retrieved_at=now,
+                    ),
+                ),
+                EvidenceItem(
+                    criterion="transportation",
+                    component="wikivoyage_get_around_context",
+                    normalized_data=context,
+                    source=EvidenceSource(
+                        source_name="Wikivoyage Get around section (fake)",
+                        source_url=(
+                            "https://en.wikivoyage.org/w/index.php?oldid=123456#Get_around"
+                        ),
+                        retrieved_at=now,
+                        data_date="Wikivoyage fake revision 123456",
+                    ),
+                ),
+            ],
+        )
+
+
 class FakeActivitiesTool:
     name = "ActivitiesTool"
 
@@ -328,6 +395,7 @@ def build_fake_tool_registry_dict() -> dict[str, object]:
         "BudgetFitTool": FakeBudgetFitTool(),
         "EducationOptionsTool": FakeEducationOptionsTool(),
         "AccessibilityTool": FakeAccessibilityTool(),
+        "LocalMobilityTool": FakeLocalMobilityTool(),
         "ActivitiesTool": FakeActivitiesTool(),
         "OfficialSourceTool": FakeOfficialSourceTool(),
     }

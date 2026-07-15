@@ -23,6 +23,7 @@ TOOL_TTL_HOURS: dict[str, int] = {
     "WikivoyageClimateTool": 24 * 14,
     "TimezoneFitTool:origin": 24 * 30,
     "AmenitiesTool": 24 * 14,
+    "LocalMobilityTool": 24 * 14,
     "PlaceContextTool": 24 * 14,
     "BudgetFitTool": 24 * 30,
     "EducationOptionsTool": 24 * 30,

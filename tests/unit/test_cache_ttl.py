@@ -33,6 +33,10 @@ def test_wikivoyage_climate_cache_ttl_is_two_weeks():
     assert TOOL_TTL_HOURS["WikivoyageClimateTool"] == 24 * 14
 
 
+def test_local_mobility_cache_ttl_is_two_weeks():
+    assert TOOL_TTL_HOURS["LocalMobilityTool"] == 24 * 14
+
+
 def test_timezone_origin_cache_ttl_is_thirty_days():
     assert TOOL_TTL_HOURS["TimezoneFitTool:origin"] == 24 * 30
 
