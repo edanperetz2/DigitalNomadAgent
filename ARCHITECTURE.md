@@ -111,11 +111,10 @@ for each candidate, computes per-criterion `[0,1]` ratings, and combines them as
 - A criterion with **no evidence is excluded** from both the weighted sum and the weight
   normalization — it is never scored as 0 or 1, and it is recorded in `missing_evidence` so the
   Validator and the final response can disclose the gap honestly.
-- Hard constraints are checked **before** ranking, independently of the weighted score. A violated
-  hard constraint (e.g. a `car-free` requirement against a car-dependent destination, or a strict
-  budget requirement against a candidate whose estimated cost is far above it) sets
-  `eliminated=True` with an `elimination_reason` — the candidate is removed from ranking entirely,
-  not merely penalized.
+- Hard constraints are eliminated only when a tool contract explicitly permits it. Structured cost,
+  mobility, activity, and transport evidence currently remains unresolved until the LLM reasoning
+  contract is implemented; missing, stale, or incomparable evidence cannot produce a favorable hard
+  result or eliminate a candidate.
 
 This is deterministic and extensively unit-tested (`tests/unit/test_dynamic_evaluation.py`) — the
 same inputs always produce the same score.
@@ -177,8 +176,8 @@ claims to know the real provider-side balance (see README "Budget control").
 ## 8. Security boundaries
 
 - **Outbound allow-list** (`app/core/security.py`): only `https`, only exact/allow-listed hostnames
-  (Nominatim, Overpass, Open-Meteo, GOV.UK, World Bank, Wikivoyage/Wikipedia, plus the curated
-  official-source domains),
+  (Nominatim, Overpass, Open-Meteo, GOV.UK, World Bank, WhereNext, Frankfurter,
+  Wikivoyage/Wikipedia, plus the curated official-source domains),
   raw IP literals rejected, DNS-resolved private/loopback/reserved addresses rejected, redirects
   disabled. There is no generic URL-fetch tool anywhere in the codebase.
 - **Prompt-injection resistance**: every system prompt sent to the LLM (Request Interpreter,

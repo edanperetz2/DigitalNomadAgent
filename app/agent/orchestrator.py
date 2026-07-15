@@ -46,7 +46,6 @@ _PRIMARY_VALUE_FIELDS = (
     "avg_high_c",
     "count",
     "estimated_workday_overlap_hours",
-    "lower_monthly_estimate",
 )
 
 

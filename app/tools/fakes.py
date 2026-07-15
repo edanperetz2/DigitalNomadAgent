@@ -240,22 +240,132 @@ class FakeBudgetFitTool:
 
     async def run(self, candidate: CandidatePlace, profile: PlaceRequestProfile) -> ToolResult:
         seed = sum(ord(c) for c in candidate.place_name)
-        lower = 800 + (seed % 400)
-        upper = lower + 700
+        rent_center = float(900 + seed % 500)
+        rent_outside = float(650 + seed % 350)
+        utilities = 120.0
+        internet = 40.0
+        transit = 50.0
+        prices = [
+            {
+                "category": "Housing",
+                "item": "1-bedroom apartment, center",
+                "price_local": rent_center,
+                "price_usd": rent_center,
+            },
+            {
+                "category": "Housing",
+                "item": "1-bedroom apartment, outside",
+                "price_local": rent_outside,
+                "price_usd": rent_outside,
+            },
+            {
+                "category": "Utilities & Internet",
+                "item": "Electricity, water, garbage (85m²)",
+                "price_local": utilities,
+                "price_usd": utilities,
+            },
+            {
+                "category": "Utilities & Internet",
+                "item": "Internet (60+ Mbps)",
+                "price_local": internet,
+                "price_usd": internet,
+            },
+            {"category": "Transport", "item": "Monthly transit pass", "price_local": transit, "price_usd": transit},
+            {"category": "Groceries", "item": "Loaf of bread (500g)", "price_local": 2.0, "price_usd": 2.0},
+        ]
+        budget_comparable = (
+            profile.budget.amount is not None
+            and profile.budget.period == "monthly"
+            and profile.budget.includes_accommodation is not False
+            and profile.budget.currency == "USD"
+        )
+        budget_amount = profile.budget.amount if budget_comparable else None
+        if profile.budget.amount is None:
+            budget_status = "not_provided"
+        elif profile.budget.period != "monthly":
+            budget_status = "unsupported_period"
+        elif profile.budget.includes_accommodation is False:
+            budget_status = "excludes_accommodation"
+        elif profile.budget.currency != "USD":
+            budget_status = "conversion_unavailable"
+        else:
+            budget_status = "comparable_without_conversion"
+        scenarios = {
+            "center": {
+                "monthly_total_local": rent_center + utilities + internet + transit,
+                "local_currency": "USD",
+                "monthly_total_usd": rent_center + utilities + internet + transit,
+                "budget_remaining_after_named_items": (
+                    {"amount": budget_amount - rent_center - utilities - internet - transit, "currency": "USD"}
+                    if budget_amount is not None and profile.budget.currency == "USD"
+                    else None
+                ),
+            },
+            "outside_center": {
+                "monthly_total_local": rent_outside + utilities + internet + transit,
+                "local_currency": "USD",
+                "monthly_total_usd": rent_outside + utilities + internet + transit,
+                "budget_remaining_after_named_items": (
+                    {"amount": budget_amount - rent_outside - utilities - internet - transit, "currency": "USD"}
+                    if budget_amount is not None and profile.budget.currency == "USD"
+                    else None
+                ),
+            },
+        }
+        now = datetime.now(UTC)
+        metadata = {
+            "title": f"Item-level prices in {candidate.place_name} (fake)",
+            "version": "fake-2026.1",
+            "source": "WhereNext City Price Dataset (fake)",
+            "license": "CC BY 4.0",
+            "updated": "2026-01-15",
+            "methodology": "https://getwherenext.com/methodology",
+            "currency": "USD",
+        }
         return ToolResult(
             tool_name=self.name,
             place=candidate.place_name,
             normalized_data={
-                "lower_monthly_estimate": float(lower),
-                "upper_monthly_estimate": float(upper),
-                "currency": "USD",
-                "included_categories": "rent+food+transport+utilities",
+                "evidence_level": "city",
+                "resolved_city_key": f"XX-{candidate.place_name}",
+                "dataset_metadata": metadata,
+                "price_basket": prices,
+                "fixed_cost_scenarios": scenarios,
+                "missing_fixed_cost_items": [],
+                "budget_context": {
+                    "status": budget_status,
+                    "original_amount": profile.budget.amount,
+                    "original_currency": profile.budget.currency,
+                    "period": profile.budget.period,
+                    "includes_accommodation": profile.budget.includes_accommodation,
+                    "comparison_amount": budget_amount,
+                    "comparison_currency": "USD" if budget_amount is not None else None,
+                },
+                "scoring_status": "unresolved_pending_llm",
             },
-            source_name="PlaceMatch curated cost estimates (fake)",
-            retrieved_at=datetime.now(UTC),
-            data_date="fake-test-data",
-            confidence="low",
-            warnings=["This is a curated sample/test-only estimate, not a live price."],
+            source_name="WhereNext City Price Dataset (fake)",
+            source_url=f"https://getwherenext.com/api/data/city-prices?city=XX-{candidate.place_name}",
+            retrieved_at=now,
+            data_date="2026-01-15",
+            confidence="medium",
+            warnings=["Affordability scoring awaits the LLM reasoning contract."],
+            evidence_items=[
+                EvidenceItem(
+                    criterion="cost",
+                    component="city_price_basket",
+                    normalized_data={
+                        "evidence_level": "city",
+                        "dataset_metadata": metadata,
+                        "prices": prices,
+                        "fixed_cost_scenarios": scenarios,
+                    },
+                    source=EvidenceSource(
+                        source_name="WhereNext City Price Dataset (fake)",
+                        retrieved_at=now,
+                        data_date="2026-01-15",
+                    ),
+                )
+            ],
         )
 
 

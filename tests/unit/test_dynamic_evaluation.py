@@ -149,7 +149,7 @@ def test_unsupported_amenity_request_is_exposed_as_drawback():
     assert evaluation.criterion_scores == {}
 
 
-def test_budget_hard_constraint_eliminates_candidate():
+def test_budget_hard_constraint_remains_unresolved_before_llm_reasoning():
     profile = PlaceRequestProfile(
         purpose="remote_work",
         relevant_criteria=["cost"],
@@ -162,13 +162,23 @@ def test_budget_hard_constraint_eliminates_candidate():
             _tool_result(
                 "BudgetFitTool",
                 "ExpensiveCity",
-                {"lower_monthly_estimate": 3000.0, "upper_monthly_estimate": 4000.0, "currency": "USD"},
+                {
+                    "evidence_level": "city",
+                    "price_basket": [{"item": "1-bedroom apartment, center", "price_usd": 3000.0}],
+                    "fixed_cost_scenarios": {
+                        "center": {"monthly_total_usd": 3500.0, "local_currency": "USD"}
+                    },
+                    "scoring_status": "unresolved_pending_llm",
+                },
             )
         ]
     }
     evaluations = evaluate_candidates([expensive], profile, evidence)
-    assert evaluations[0].eliminated is True
-    assert evaluations[0].elimination_reason is not None
+    assert evaluations[0].eliminated is False
+    assert evaluations[0].hard_constraint_results == {}
+    assert "cost" not in evaluations[0].criterion_scores
+    assert evaluations[0].unscored_evidence == ["cost"]
+    assert any("affordability scoring awaits" in drawback for drawback in evaluations[0].drawbacks)
 
 
 def test_car_free_requirement_is_not_eliminated_before_llm_mobility_reasoning():
@@ -341,26 +351,6 @@ def test_stale_or_single_source_safety_evidence_is_not_scored():
 
     assert all("safety" not in evaluation.criterion_scores for evaluation in evaluations)
     assert all("safety" in evaluation.missing_evidence for evaluation in evaluations)
-
-
-def test_eliminated_candidates_sorted_last():
-    profile = PlaceRequestProfile(
-        purpose="remote_work",
-        hard_constraints=["must stay within budget"],
-        relevant_criteria=["cost"],
-        budget=Budget(amount=100.0, period="monthly"),
-    )
-    good = _candidate("Affordable")
-    bad = _candidate("TooExpensive")
-    affordable_data = {"lower_monthly_estimate": 80.0, "upper_monthly_estimate": 100.0, "currency": "USD"}
-    expensive_data = {"lower_monthly_estimate": 5000.0, "upper_monthly_estimate": 6000.0, "currency": "USD"}
-    evidence = {
-        "Affordable": [_tool_result("BudgetFitTool", "Affordable", affordable_data)],
-        "TooExpensive": [_tool_result("BudgetFitTool", "TooExpensive", expensive_data)],
-    }
-    evaluations = evaluate_candidates([bad, good], profile, evidence)
-    assert evaluations[-1].eliminated is True
-    assert evaluations[0].place == "Affordable"
 
 
 def test_scoring_is_deterministic():

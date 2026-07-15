@@ -42,6 +42,13 @@ def test_timezone_origin_cache_ttl_is_thirty_days():
     assert TOOL_TTL_HOURS["TransportAccessTool"] == 24 * 14
 
 
+def test_budget_source_cache_ttls_separate_prices_from_exchange_rates():
+    assert TOOL_TTL_HOURS["BudgetFitTool:coverage"] == 24 * 30
+    assert TOOL_TTL_HOURS["BudgetFitTool:city_prices"] == 24 * 30
+    assert TOOL_TTL_HOURS["BudgetFitTool:country_costs"] == 24 * 30
+    assert TOOL_TTL_HOURS["BudgetFitTool:exchange_rate"] == 24
+
+
 @pytest.mark.asyncio
 async def test_cache_expired_marked_stale(db, monkeypatch):
     cache = ToolCache(db)

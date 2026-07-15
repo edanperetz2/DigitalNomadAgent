@@ -258,11 +258,10 @@ python scripts/check_llmod_connection.py
 
 - **Live/network**: OpenStreetMap Nominatim (geocoding/verification), Open-Meteo historical archive
   (climate evidence), OpenStreetMap Overpass (amenities/activities/accessibility density), Wikivoyage
-  MediaWiki API (short place-context excerpts).
-- **Local/curated (no network)**: `app/data/cost_estimates.csv` (sample/test-only cost ranges,
-  clearly dated and labeled — never presented as live pricing), `app/data/official_sources.json`
-  (curated official tourism/immigration links), and a small curated origin→timezone map
-  (`app/tools/timezone_fit.py`).
+  MediaWiki API (revision-pinned context), GOV.UK and World Bank (safety), WhereNext (typed city-price
+  and country cost context), and Frankfurter (budget currency conversion).
+- **Local/curated (no network)**: `app/data/official_sources.json` (curated official
+  tourism/immigration links, pending removal) and deterministic offline fakes for tests.
 
 All outbound requests are restricted to an explicit domain allow-list with SSRF protections
 (`app/core/security.py`) — there is no generic URL-fetch tool anywhere in the codebase.
@@ -270,11 +269,10 @@ All outbound requests are restricted to an explicit domain allow-list with SSRF 
 ## Cache behavior
 
 SQLite-backed (`tool_cache` table), cache-first, with per-source TTLs (`app/evidence/cache.py`):
-geocoding and climate-normal data cached long (30 days / 1 year), amenities/place-context medium
-(2 weeks), official sources medium (1 week), weather forecasts short (1 day, and never reused as
-long-term climate evidence — the two are stored under different cache keys). If a live call fails
-and only expired cache is available, the stale value is returned but explicitly marked `stale=True`
-— never silently presented as current.
+geocoding, cost datasets, and climate-normal data cached long (30 days / 1 year),
+amenities/place-context medium (2 weeks), official sources medium (1 week), and exchange rates and
+weather forecasts short (1 day). If a live call fails and only expired cache is available, the
+stale value is returned but explicitly marked `stale=True` — never silently presented as current.
 
 ---
 
@@ -285,8 +283,8 @@ pytest -q
 ruff check .
 ```
 
-The entire test suite (124 tests at last count) runs fully offline: `MockLLMClient` (zero LLM
-cost) plus deterministic fake tool implementations (zero network calls), with an autouse fixture
+The entire offline test suite runs with `MockLLMClient` (zero LLM cost) plus deterministic fake
+tool implementations (zero network calls), with an autouse fixture
 that raises if any test ever attempts a real outbound HTTP request. Optional live tests (which
 would spend real LLMod.ai credit) are gated behind `RUN_LIVE_TESTS=1` and are **not** included in
 this repository by default — do not enable this flag casually.
@@ -354,8 +352,10 @@ ordinary `pytest` runs.
 
 ## Known limitations
 
-- `cost_estimates.csv` contains hand-curated, dated, sample/test-only estimates, not live pricing —
-  clearly labeled as such in every response.
+- Detailed typed city prices currently cover 57 cities through a third-party researched/modelled
+  dataset. Other covered countries receive low-confidence country context, never a city estimate.
+  Fixed-cost scenarios include only named rent, utilities, internet, and transit items; they are
+  not complete personal monthly budgets.
 - The origin→timezone mapping (`TimezoneFitTool`) covers a small curated set of common origins; an
   unmapped origin results in an honest "timezone overlap unknown" rather than a guess.
 - The deterministic keyword-based Request Interpreter used by `MockLLMClient` is a simplified stand-in

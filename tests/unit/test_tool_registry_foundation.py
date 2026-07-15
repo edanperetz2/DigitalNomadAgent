@@ -56,6 +56,7 @@ def test_production_registry_reuses_shared_clients():
     wikivoyage_climate = registry.get("WikivoyageClimateTool")
     timezone_fit = registry.get("TimezoneFitTool")
     safety = registry.get("SafetyTool")
+    budget_fit = registry.get("BudgetFitTool")
 
     assert geocoding._http is weather._http is timezone_fit._http
     assert amenities._overpass is local_mobility._overpass is transport_access._overpass is activities._overpass
@@ -66,6 +67,7 @@ def test_production_registry_reuses_shared_clients():
     assert activities._wikivoyage is local_mobility._wikivoyage
     assert safety._wikivoyage is local_mobility._wikivoyage
     assert safety._http is geocoding._http
+    assert budget_fit._http is geocoding._http
     assert transport_access._origin_resolver is timezone_fit._origin_resolver
 
 

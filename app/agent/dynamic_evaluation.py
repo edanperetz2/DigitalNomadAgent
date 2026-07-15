@@ -219,28 +219,12 @@ def _extract_criterion_scores(
                 drawbacks.append(limitation)
 
         elif r.tool_name == "BudgetFitTool":
-            lower = nd.get("lower_monthly_estimate")
-            upper = nd.get("upper_monthly_estimate")
-            if (
-                profile.budget.amount
-                and profile.budget.period in ("monthly", "unknown")
-                and lower is not None
-                and upper is not None
-            ):
-                mid_estimate = (lower + upper) / 2
-                if mid_estimate:
-                    ratio = profile.budget.amount / mid_estimate
-                    score = max(0.0, min(1.0, ratio))
-                    scores["cost"] = score
-                    currency = nd.get("currency", "")
-                    if score < 0.6:
-                        drawbacks.append(
-                            f"Estimated cost (~{lower:.0f}-{upper:.0f} {currency}/month) may exceed your budget."
-                        )
-                    else:
-                        advantages.append(
-                            f"Estimated cost (~{lower:.0f}-{upper:.0f} {currency}/month) fits within your budget."
-                        )
+            limitation = (
+                "Structured city or country cost evidence was collected, but affordability scoring awaits "
+                "the LLM reasoning contract."
+            )
+            if limitation not in drawbacks:
+                drawbacks.append(limitation)
 
         elif r.tool_name == "TimezoneFitTool":
             overlap = nd.get("estimated_workday_overlap_hours")
@@ -306,16 +290,6 @@ def _check_hard_constraints(
     eliminated = False
     reason: str | None = None
 
-    budget_is_hard = any(
-        ("budget" in hc.lower() or "afford" in hc.lower()) for hc in profile.hard_constraints
-    ) or any("budget" in db.lower() for db in profile.deal_breakers)
-    if budget_is_hard and "cost" in criterion_scores:
-        within_limit = criterion_scores["cost"] >= 0.3
-        hard_results["budget_within_limit"] = within_limit
-        if not within_limit:
-            eliminated = True
-            reason = "Estimated cost substantially exceeds the required budget."
-
     return eliminated, reason, hard_results
 
 
@@ -344,6 +318,7 @@ def evaluate_candidates(
             "ActivitiesTool": "activities",
             "LocalMobilityTool": "transportation",
             "TransportAccessTool": "accessibility",
+            "BudgetFitTool": "cost",
         }
         unscored_evidence = sorted(
             {

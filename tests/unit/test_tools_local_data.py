@@ -1,34 +1,12 @@
 import pytest
 
 from app.agent.models import CandidatePlace, PlaceRequestProfile
-from app.tools.budget_fit import DATA_PATH as BUDGET_DATA_PATH
-from app.tools.budget_fit import BudgetFitTool
 from app.tools.official_sources import DATA_PATH as OFFICIAL_SOURCES_DATA_PATH
 from app.tools.official_sources import OfficialSourceTool
 
 
 def _candidate(name, country="Portugal", lat=38.7, lon=-9.1):
     return CandidatePlace(place_name=name, country=country, reason_for_inclusion="t", verified=True, lat=lat, lon=lon)
-
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(not BUDGET_DATA_PATH.exists(), reason="production cost dataset has not been supplied")
-async def test_budget_fit_tool_known_city():
-    tool = BudgetFitTool()
-    profile = PlaceRequestProfile(purpose="remote_work")
-    result = await tool.run(_candidate("Lisbon"), profile)
-    assert result.error is None
-    assert result.normalized_data["lower_monthly_estimate"] > 0
-    assert "sample" in " ".join(result.warnings).lower() or "sample" in result.source_name.lower()
-
-
-@pytest.mark.asyncio
-async def test_budget_fit_tool_unknown_city_returns_unknown_not_positive():
-    tool = BudgetFitTool()
-    profile = PlaceRequestProfile(purpose="remote_work")
-    result = await tool.run(_candidate("Nonexistentville"), profile)
-    assert result.error is not None
-    assert result.normalized_data == {}
 
 
 @pytest.mark.asyncio

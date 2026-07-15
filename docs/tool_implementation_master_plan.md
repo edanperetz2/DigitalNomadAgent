@@ -206,7 +206,7 @@ Planned commit: `Safety tool: add composite destination evidence`
 - Route the `safety` criterion to this tool and never present the result as an objective universal city-safety rating.
 - Fetch the three independent components concurrently within shared limits, with bounded retries and cache-first reuse; partial completion degrades confidence instead of delaying for unbounded recovery.
 
-### 12. BudgetFitTool — PLANNED
+### 12. BudgetFitTool — COMPLETE
 
 Planned commit: `Budget fit tool: replace local estimates with live cost context`
 
@@ -234,7 +234,9 @@ Planned commit: `Official source tool: remove unused curated link lookup`
 ## Per-commit verification
 
 - Focused unit/contract tests use recorded or injected responses and never access the network.
-- Full `pytest -q` remains green. Until the BudgetFitTool and OfficialSourceTool revisions land, their two obsolete production-data checks remain skipped; each unit removes its own skip. The final steady state has only the explicitly opt-in live SLA check skipped by default.
+- Full `pytest -q` remains green. Until the OfficialSourceTool removal lands, its obsolete
+  production-data check and the explicitly opt-in live SLA check remain skipped. The final steady
+  state has only the live SLA check skipped by default.
 - `ruff check .` passes.
 - Applicable live smoke checks run serially against known destinations and use only free APIs.
 - Every selected criterion maps to a real tool or is explicitly unresolved.

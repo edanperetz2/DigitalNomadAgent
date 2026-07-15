@@ -109,7 +109,7 @@ def _build_tool_registry(
             http=http,
             origin_resolver=origin_resolver,
         ),
-        "BudgetFitTool": BudgetFitTool(),
+        "BudgetFitTool": BudgetFitTool(cache, timeout, http=http),
         "TransportAccessTool": TransportAccessTool(
             cache,
             timeout,

@@ -20,6 +20,11 @@ def test_safety_provider_domains_pass():
     validate_outbound_url("https://api.worldbank.org/v2/country/PT/indicator/VC.IHR.PSRC.P5")
 
 
+def test_budget_provider_domains_pass():
+    validate_outbound_url("https://getwherenext.com/api/data/city-prices?city=PT-Lisbon")
+    validate_outbound_url("https://api.frankfurter.dev/v2/rate/EUR/USD")
+
+
 def test_http_scheme_rejected():
     with pytest.raises(OutboundRequestBlocked):
         validate_outbound_url("http://nominatim.openstreetmap.org/search")
