@@ -55,6 +55,7 @@ def test_production_registry_reuses_shared_clients():
     place_context = registry.get("PlaceContextTool")
     wikivoyage_climate = registry.get("WikivoyageClimateTool")
     timezone_fit = registry.get("TimezoneFitTool")
+    safety = registry.get("SafetyTool")
 
     assert geocoding._http is weather._http is timezone_fit._http
     assert amenities._overpass is local_mobility._overpass is transport_access._overpass is activities._overpass
@@ -63,6 +64,8 @@ def test_production_registry_reuses_shared_clients():
     assert local_mobility._wikivoyage._mediawiki is place_context._mediawiki
     assert transport_access._wikivoyage is local_mobility._wikivoyage
     assert activities._wikivoyage is local_mobility._wikivoyage
+    assert safety._wikivoyage is local_mobility._wikivoyage
+    assert safety._http is geocoding._http
     assert transport_access._origin_resolver is timezone_fit._origin_resolver
 
 
@@ -71,6 +74,13 @@ def test_education_options_tool_is_absent_from_production_and_fake_registries():
 
     assert "EducationOptionsTool" not in registry.tool_names
     assert "EducationOptionsTool" not in build_fake_tool_registry_dict()
+
+
+def test_safety_tool_is_present_in_production_and_fake_registries():
+    registry = _build_tool_registry(cache=object(), timeout=1.0, max_concurrent=5)
+
+    assert "SafetyTool" in registry.tool_names
+    assert "SafetyTool" in build_fake_tool_registry_dict()
 
 
 @pytest.mark.asyncio

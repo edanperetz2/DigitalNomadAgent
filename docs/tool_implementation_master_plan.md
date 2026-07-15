@@ -32,6 +32,7 @@ Unrelated user changes are never staged. If they overlap the active unit, stop a
 ## Status legend
 
 - `IN PROGRESS`: approved and currently being implemented or reviewed.
+- `APPROVED`: scope is approved, but implementation is waiting for an earlier plan revision or unit to finish.
 - `PLANNED`: scoped but implementation has not been approved for that unit yet.
 - `DEFERRED`: deliberately removed from the active sequence and retained only for possible later reconsideration.
 - `DROPPED`: intentionally removed from the product and active tool registry because its responsibility is already covered elsewhere.
@@ -191,44 +192,49 @@ Planned commit: `Education options tool: remove redundant study matching`
 - Remove the obsolete five-city curated university directory and its deterministic `0.8`/`0.4` match heuristic.
 - Test study selection without EducationOptionsTool, AmenitiesTool routing for education and student-life concerns, study requests without field clarification, profile-schema removal, registry/fake removal, unchanged public endpoint shapes, and the absence of education-program claims.
 
-### 11. SafetyTool — PLANNED
+### 11. SafetyTool — COMPLETE
 
-Planned commit: `feat(tools): add composite destination safety evidence`
+Planned commit: `Safety tool: add composite destination evidence`
 
 - Add three visible components: 40% current FCDO advisory severity through the GOV.UK Content API; 35% latest available World Bank/UNODC intentional-homicide rate through the World Bank API; and 25% deterministic analysis of Wikivoyage's city-level Stay safe section through MediaWiki.
-- Map FCDO statuses from `1.0` with no warning to `0.0` for avoid-all-travel, using the most severe active status.
+- Map the most severe active FCDO status transparently: no warning `1.0`, avoid all but essential
+  travel to parts `0.75`, avoid all travel to parts `0.50`, avoid all but essential travel to the
+  whole country `0.25`, and avoid all travel to the whole country `0.0`.
 - Map homicide rates through documented piecewise thresholds: `<=1 -> 1.0`, `3 -> 0.85`, `6 -> 0.70`, `10 -> 0.55`, `20 -> 0.35`, `>20 -> 0.15`, with linear interpolation.
 - Use a versioned, negation-aware phrase lexicon for Wikivoyage: limited reassurance credit, moderate petty-crime/scam/harassment penalties, and stronger violent-crime/kidnapping/avoid-area penalties.
 - Renormalize when one component is missing, require at least two components for a score, cap confidence at medium with all three and low with two, and expose every component/date/excerpt.
 - Route the `safety` criterion to this tool and never present the result as an objective universal city-safety rating.
 - Fetch the three independent components concurrently within shared limits, with bounded retries and cache-first reuse; partial completion degrades confidence instead of delaying for unbounded recovery.
 
-### 12. BudgetFitTool — BLOCKED
+### 12. BudgetFitTool — PLANNED
 
-Planned commit: `feat(tools): complete currency-aware budget evidence`
+Planned commit: `Budget fit tool: replace local estimates with live cost context`
 
-- Do not create a production placeholder. Wait for the missing dataset.
-- Validate/migrate it to city, country code, lower/upper monthly estimates, currency, included categories, source name/URL, and data date.
-- Use `(city, country_code)` identity and convert budgets through the keyless Frankfurter API, retaining original and converted values.
-- Never compare different currencies; unavailable conversion means missing evidence.
-- Cache and reuse one bounded FX lookup per currency/date across candidates; provider failure must degrade to missing evidence without a retry chain that risks the request deadline.
-- Validate candidate coverage, dates, URLs, ranges, fixture behavior, conversion, and hard-budget handling before committing.
+- Delete the dependency on `app/data/cost_estimates.csv`, the curated lower/upper monthly estimates, and the corresponding missing-production-data skip. Do not replace them with another hard-coded cost table.
+- Use WhereNext's free, no-authentication, CC BY 4.0 city-price API as the primary source. Resolve candidates by normalized `(country_code, city_name)` against its cached coverage index, then retrieve typed local-currency and USD prices for available categories such as one-bedroom rent, groceries, utilities, internet, monthly transport, restaurants, and leisure. Preserve the dataset version, update date, declared upstream source, methodology URL, licence, and exact API source.
+- When city-level data is unavailable, fall back to WhereNext's cached 95-country cost dataset and expose its monthly USD estimate and category indices strictly as low-confidence country context. Never present a country fallback as city-specific evidence, and never turn absent coverage into a positive affordability result.
+- Convert the user's stated budget to USD through the keyless Frankfurter API when necessary, retaining the original value, converted value, rate, and rate date. Coalesce concurrent identical FX requests across candidates, use one-day FX caching, and treat unavailable conversion as unresolved rather than comparing currencies.
+- Return the complete typed city-price basket rather than hiding it behind one aggregate. When the necessary monthly items exist, also expose transparent centre and outside-centre fixed-cost scenarios consisting only of one-bedroom rent, utilities, internet, and monthly transit, plus the budget remaining after those named items. Do not estimate food consumption, deposits, healthcare, discretionary spending, shared housing, or total monthly cost.
+- Remove the current deterministic `cost` score and hard-budget pass/fail based on local estimates. The future reasoning agent will assess the visible basket, fixed-cost scenarios, user duration/purpose, and country fallback. Incomplete or stale evidence cannot satisfy a hard budget constraint or positively eliminate uncertainty.
+- Keep provider usage fast and bounded: one cached city-coverage lookup, at most one detailed city request per covered candidate, one shared country-dataset request for all uncovered candidates, and at most one coalesced FX pair request per user budget currency. Cache versioned cost data for 30 days, retain stale fallback, and use no retry chain beyond the shared HTTP policy.
+- Do not use Wikivoyage in the initial BudgetFitTool implementation. Its `Eat`, `Sleep`, and `Get around` sections are travel-oriented, inconsistently dated, often delegate to district articles, and do not cover a stable monthly basket. Reconsider it later only if real evaluation shows that its context materially improves uncovered destinations.
+- Cap WhereNext city evidence at medium confidence because it is a third-party researched/modelled dataset with detailed coverage for only 57 cities; cap the country fallback at low. Do not use Numbeo scraping or its paid/keyed API, and do not substitute a broad purchasing-power score for direct city prices.
+- Test city identity and aliases, coverage-index reuse, every returned category, missing items, fixed-cost scenario composition, country fallback labelling, dataset metadata and attribution, FX coalescing/conversion/failure, cache/stale fallback, partial failures, timeouts, source persistence, unresolved scoring, hard-budget behavior, fakes, registry wiring, and removal of the local-data skip.
 
-### 13. OfficialSourceTool — BLOCKED
+### 13. OfficialSourceTool — DROPPED
 
-Planned commit: `feat(tools): complete curated official-source evidence`
+Planned commit: `Official source tool: remove unused curated link lookup`
 
-- Do not create a production placeholder. Wait for the missing dataset.
-- Validate/migrate it to country code, source type, official name, URL, jurisdiction, and last-verified date.
-- Add country aliases and require HTTPS URLs belonging to declared official domains.
-- Return links and verification instructions only; never infer visa eligibility or legal conclusions.
-- Keep production lookup local and bounded; adding network validation or per-link availability checks is out of scope unless separately budgeted under the 285-second deadline.
-- Validate schema, aliases, domains, seeded-country coverage, and missing-country behavior before committing.
+- Delete OfficialSourceTool and remove it from the production registry, deterministic fake registry, cache configuration, nationality/visa-based selection, tests, README, and source tree. Remove the corresponding missing-production-data skip; do not retain a dormant implementation or placeholder dataset.
+- Keep `nationality` in PlaceRequestProfile as user context, but do not use it to infer or claim visa eligibility, entry rights, immigration requirements, or legal conclusions.
+- Remove deterministic candidate claims such as "visa-friendly" that cannot be verified after the tool is removed. Preserve the general final-response warning that users must verify entry and legal requirements with the relevant authorities.
+- Do not replace the tool with automatic government-site discovery or generic web search. Such links do not determine personal eligibility and would add latency without supporting destination scoring.
+- Test registry/fake removal, selection without the tool, unchanged profile and public endpoint shapes, removal of the production-data skip, preservation of the verification warning, and absence of unverified visa or entry claims.
 
 ## Per-commit verification
 
 - Focused unit/contract tests use recorded or injected responses and never access the network.
-- Full `pytest -q` remains green; before the datasets arrive, two skips are production-data checks and one is the explicitly opt-in live SLA check.
+- Full `pytest -q` remains green. Until the BudgetFitTool and OfficialSourceTool revisions land, their two obsolete production-data checks remain skipped; each unit removes its own skip. The final steady state has only the explicitly opt-in live SLA check skipped by default.
 - `ruff check .` passes.
 - Applicable live smoke checks run serially against known destinations and use only free APIs.
 - Every selected criterion maps to a real tool or is explicitly unresolved.

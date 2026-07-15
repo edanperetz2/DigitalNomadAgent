@@ -15,6 +15,11 @@ def test_allowed_suffix_domain_passes():
     validate_outbound_url("https://en.wikivoyage.org/wiki/Lisbon")
 
 
+def test_safety_provider_domains_pass():
+    validate_outbound_url("https://www.gov.uk/api/content/foreign-travel-advice/portugal")
+    validate_outbound_url("https://api.worldbank.org/v2/country/PT/indicator/VC.IHR.PSRC.P5")
+
+
 def test_http_scheme_rejected():
     with pytest.raises(OutboundRequestBlocked):
         validate_outbound_url("http://nominatim.openstreetmap.org/search")

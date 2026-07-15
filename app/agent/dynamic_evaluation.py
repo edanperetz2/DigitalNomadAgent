@@ -24,6 +24,7 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "accessibility": 0.4,
     "culture": 0.3,
     "nightlife": 0.3,
+    "safety": 0.6,
 }
 
 REQUIRED_TIMEZONE_OVERLAP_HOURS = 4.0
@@ -266,6 +267,34 @@ def _extract_criterion_scores(
             )
             if limitation not in drawbacks:
                 drawbacks.append(limitation)
+
+        elif r.tool_name == "SafetyTool":
+            composite = nd.get("composite_score")
+            component_count = nd.get("available_component_count")
+            if (
+                isinstance(composite, (int, float))
+                and isinstance(component_count, int)
+                and component_count >= 2
+                and not r.stale
+            ):
+                score = clamp(float(composite))
+                scores["safety"] = score
+                raw_components = nd.get("component_scores", {})
+                if isinstance(raw_components, dict):
+                    component_scores["safety"] = {
+                        name: clamp(float(value))
+                        for name, value in raw_components.items()
+                        if isinstance(value, (int, float))
+                    }
+                confidence_factors["safety"] = 1.0 if r.confidence == "medium" else 0.5
+                description = (
+                    "available safety evidence compares favorably"
+                    if score >= 0.7
+                    else "available safety evidence raises concerns"
+                )
+                (advantages if score >= 0.7 else drawbacks).append(
+                    f"The {description}; this is comparative evidence, not a universal city-safety rating."
+                )
 
     return scores, component_scores, advantages, drawbacks, confidence_factors
 

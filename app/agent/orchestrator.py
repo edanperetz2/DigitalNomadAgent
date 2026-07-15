@@ -39,6 +39,7 @@ _CRITERION_TO_TOOLS: dict[str, set[str]] = {
     "student_life": {"AmenitiesTool"},
     "education": {"AmenitiesTool"},
     "accessibility": {"TransportAccessTool"},
+    "safety": {"SafetyTool"},
 }
 
 _PRIMARY_VALUE_FIELDS = (
@@ -173,6 +174,7 @@ class Orchestrator:
             "TransportAccessTool": ("airport", "distance", "remote", "arrival", "get there"),
             "WeatherTool": ("weather", "climate", "temperature", "rain", "snow"),
             "ActivitiesTool": ("activit", "hiking", "beach", "culture", "nightlife"),
+            "SafetyTool": ("safety", "safe", "crime", "danger", "security"),
         }
         for tool_name, keywords in hard_tool_keywords.items():
             if tool_name in priorities and any(keyword in hard_text for keyword in keywords):

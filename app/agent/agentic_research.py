@@ -101,6 +101,7 @@ _ACCESSIBILITY_TRIGGER_WORDS = [
     "remoteness",
 ]
 _VISA_TRIGGER_WORDS = ["visa"]
+_SAFETY_TRIGGER_WORDS = ["safety", "safe", "crime", "danger", "security"]
 
 
 def select_tools(profile: PlaceRequestProfile) -> set[str]:
@@ -140,6 +141,9 @@ def select_tools(profile: PlaceRequestProfile) -> set[str]:
         tools.add("AmenitiesTool")
     if profile.activity_preferences:
         tools.add("ActivitiesTool")
+
+    if "safety" in profile.relevant_criteria or any(w in haystack for w in _SAFETY_TRIGGER_WORDS):
+        tools.add("SafetyTool")
 
     if any(w in haystack for w in _LOCAL_MOBILITY_TRIGGER_WORDS):
         tools.add("LocalMobilityTool")

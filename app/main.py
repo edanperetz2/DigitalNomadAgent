@@ -42,6 +42,7 @@ from app.tools.origin_resolution import OriginResolver
 from app.tools.overpass_client import OverpassClient
 from app.tools.place_context import PlaceContextTool
 from app.tools.registry import ToolRegistry
+from app.tools.safety import SafetyTool
 from app.tools.timezone_fit import TimezoneFitTool
 from app.tools.transport_access import TransportAccessTool
 from app.tools.weather import WeatherTool
@@ -120,6 +121,12 @@ def _build_tool_registry(
             cache,
             timeout,
             overpass=overpass,
+            wikivoyage=wikivoyage_sections,
+        ),
+        "SafetyTool": SafetyTool(
+            cache,
+            timeout,
+            http=http,
             wikivoyage=wikivoyage_sections,
         ),
         "OfficialSourceTool": OfficialSourceTool(),

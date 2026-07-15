@@ -90,6 +90,16 @@ def test_education_and_student_life_are_routed_to_amenities():
     assert _CRITERION_TO_TOOLS["student_life"] == {"AmenitiesTool"}
 
 
+def test_safety_concerns_select_and_route_safety_tool():
+    assert _CRITERION_TO_TOOLS["safety"] == {"SafetyTool"}
+    for profile in (
+        _profile(relevant_criteria=["safety"]),
+        _profile(soft_preferences=["a safe place"]),
+        _profile(deal_breakers=["high crime"]),
+    ):
+        assert "SafetyTool" in select_tools(profile)
+
+
 def test_car_free_and_public_transport_select_local_mobility_not_arrival_access():
     profiles = [
         _profile(mobility_requirements=["car-free"]),

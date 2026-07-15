@@ -362,8 +362,9 @@ ordinary `pytest` runs.
   for the real LLMod.ai model; real LLM output will generally extract richer nuance.
 - Candidate discovery draws from a modest curated seed pool per purpose (both in `MockLLMClient` and
   as a grounding aid for the real model); it is not an exhaustive global city database.
-- No dedicated safety-rating data source is integrated; the system never fabricates a safety score
-  and instead discloses it as missing evidence rather than guessing.
+- Safety evidence combines a current FCDO advisory, the latest available World Bank/UNODC
+  country homicide rate, and revision-pinned Wikivoyage city context. The result requires at
+  least two sources and is presented as comparative evidence, never a universal city-safety rating.
 
 ## Legal and ethical limitations
 

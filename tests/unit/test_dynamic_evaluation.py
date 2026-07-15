@@ -268,6 +268,81 @@ def test_activity_evidence_remains_unscored_before_llm_reasoning():
     assert any("activity scoring awaits" in drawback for drawback in evaluation.drawbacks)
 
 
+def test_safety_composite_is_scored_with_visible_components():
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        relevant_criteria=["safety"],
+        inferred_weights={"safety": 0.9},
+        budget=Budget(),
+    )
+    candidate = _candidate("SafeCity")
+    evidence = {
+        "SafeCity": [
+            _tool_result(
+                "SafetyTool",
+                "SafeCity",
+                {
+                    "composite_score": 0.82,
+                    "component_scores": {
+                        "fcdo_advisory": 1.0,
+                        "homicide_rate": 0.75,
+                        "wikivoyage_stay_safe": 0.70,
+                    },
+                    "available_component_count": 3,
+                },
+            )
+        ]
+    }
+
+    evaluation = evaluate_candidates([candidate], profile, evidence)[0]
+
+    assert evaluation.criterion_scores["safety"] == 0.82
+    assert evaluation.criterion_component_scores["safety"] == {
+        "fcdo_advisory": 1.0,
+        "homicide_rate": 0.75,
+        "wikivoyage_stay_safe": 0.70,
+    }
+    assert evaluation.confidence_score == 1.0
+    assert any("not a universal" in advantage for advantage in evaluation.advantages)
+
+
+def test_stale_or_single_source_safety_evidence_is_not_scored():
+    profile = PlaceRequestProfile(purpose="vacation", relevant_criteria=["safety"], budget=Budget())
+    stale_candidate = _candidate("StaleCity")
+    single_candidate = _candidate("SingleCity")
+    evidence = {
+        "StaleCity": [
+            _tool_result(
+                "SafetyTool",
+                "StaleCity",
+                {
+                    "composite_score": 0.9,
+                    "component_scores": {"fcdo_advisory": 0.9, "homicide_rate": 0.9},
+                    "available_component_count": 2,
+                },
+                stale=True,
+            )
+        ],
+        "SingleCity": [
+            _tool_result(
+                "SafetyTool",
+                "SingleCity",
+                {
+                    "composite_score": 1.0,
+                    "component_scores": {"fcdo_advisory": 1.0},
+                    "available_component_count": 1,
+                },
+                confidence="low",
+            )
+        ],
+    }
+
+    evaluations = evaluate_candidates([stale_candidate, single_candidate], profile, evidence)
+
+    assert all("safety" not in evaluation.criterion_scores for evaluation in evaluations)
+    assert all("safety" in evaluation.missing_evidence for evaluation in evaluations)
+
+
 def test_eliminated_candidates_sorted_last():
     profile = PlaceRequestProfile(
         purpose="remote_work",

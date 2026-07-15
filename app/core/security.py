@@ -23,6 +23,8 @@ ALLOWED_EXACT_DOMAINS: set[str] = {
     "api.open-meteo.com",
     "archive-api.open-meteo.com",
     "geocoding-api.open-meteo.com",
+    "api.worldbank.org",
+    "www.gov.uk",
 }
 
 # Domains allowed by exact match OR any subdomain (e.g. en.wikivoyage.org).

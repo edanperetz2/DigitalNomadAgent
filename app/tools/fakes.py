@@ -523,6 +523,68 @@ class FakeOfficialSourceTool:
         )
 
 
+class FakeSafetyTool:
+    name = "SafetyTool"
+
+    async def run(self, candidate: CandidatePlace, profile: PlaceRequestProfile) -> ToolResult:
+        del profile
+        now = datetime.now(UTC)
+        component_scores = {
+            "fcdo_advisory": 1.0,
+            "homicide_rate": 0.85,
+            "wikivoyage_stay_safe": 0.75,
+        }
+        source_data = (
+            ("fcdo_advisory", "UK FCDO foreign travel advice (fake)", {"active_statuses": []}),
+            (
+                "homicide_rate",
+                "World Bank / UNODC intentional homicide indicator (fake)",
+                {"rate_per_100k": 3.0, "year": "2023"},
+            ),
+            (
+                "wikivoyage_stay_safe",
+                "Wikivoyage Stay safe section (fake)",
+                {
+                    "preview_excerpt": "The destination is generally safe; ordinary precautions apply.",
+                    "context_chunks": [],
+                    "lexicon_version": 1,
+                },
+            ),
+        )
+        composite = round(0.40 * 1.0 + 0.35 * 0.85 + 0.25 * 0.75, 4)
+        return ToolResult(
+            tool_name=self.name,
+            place=candidate.place_name,
+            normalized_data={
+                "composite_score": composite,
+                "component_scores": component_scores,
+                "configured_weights": {
+                    "fcdo_advisory": 0.40,
+                    "homicide_rate": 0.35,
+                    "wikivoyage_stay_safe": 0.25,
+                },
+                "component_status": {name: "available" for name in component_scores},
+                "available_component_count": 3,
+                "minimum_components_required": 2,
+                "rating_scope": "comparative_destination_evidence_not_universal_city_rating",
+            },
+            source_name="FCDO, World Bank / UNODC, and Wikivoyage (fake)",
+            retrieved_at=now,
+            confidence="medium",
+            warnings=["This is comparative evidence, not a universal city-safety rating."],
+            evidence_items=[
+                EvidenceItem(
+                    criterion="safety",
+                    component=component,
+                    value=component_scores[component],
+                    normalized_data={"score": component_scores[component], **normalized_data},
+                    source=EvidenceSource(source_name=source_name, retrieved_at=now),
+                )
+                for component, source_name, normalized_data in source_data
+            ],
+        )
+
+
 def build_fake_tool_registry_dict() -> dict[str, object]:
     return {
         "GeocodingTool": FakeGeocodingTool(),
@@ -535,5 +597,6 @@ def build_fake_tool_registry_dict() -> dict[str, object]:
         "TransportAccessTool": FakeTransportAccessTool(),
         "LocalMobilityTool": FakeLocalMobilityTool(),
         "ActivitiesTool": FakeActivitiesTool(),
+        "SafetyTool": FakeSafetyTool(),
         "OfficialSourceTool": FakeOfficialSourceTool(),
     }

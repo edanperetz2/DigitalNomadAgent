@@ -177,7 +177,8 @@ claims to know the real provider-side balance (see README "Budget control").
 ## 8. Security boundaries
 
 - **Outbound allow-list** (`app/core/security.py`): only `https`, only exact/allow-listed hostnames
-  (Nominatim, Overpass, Open-Meteo, Wikivoyage/Wikipedia, plus the curated official-source domains),
+  (Nominatim, Overpass, Open-Meteo, GOV.UK, World Bank, Wikivoyage/Wikipedia, plus the curated
+  official-source domains),
   raw IP literals rejected, DNS-resolved private/loopback/reserved addresses rejected, redirects
   disabled. There is no generic URL-fetch tool anywhere in the codebase.
 - **Prompt-injection resistance**: every system prompt sent to the LLM (Request Interpreter,
