@@ -195,7 +195,15 @@ def create_app(*, tool_registry_override=None, llm_client_override=None) -> Fast
     app.add_exception_handler(Exception, unhandled_exception_handler)
 
     app.include_router(router)
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    if STATIC_DIR.is_dir():
+        app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    else:
+        # StaticFiles(directory=...) validates existence immediately and raises at import
+        # time (this function runs at module load via `app = create_app()` below) --
+        # some serverless bundlers don't reliably include non-Python-imported asset
+        # directories, so degrade to a missing /static mount rather than crash the
+        # whole app over CSS/JS.
+        logger.warning("Static directory %s not found; /static will 404.", STATIC_DIR)
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:
