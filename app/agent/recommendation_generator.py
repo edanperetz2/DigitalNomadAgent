@@ -65,6 +65,15 @@ def _build_payload(
     }
 
 
+def _mode_disclosure_line(client: BaseLLMClient) -> str:
+    mode = (
+        "mock deterministic mode (MOCK_LLM=true)"
+        if type(client).__name__ == "MockLLMClient"
+        else "a real LLM provider (LLMod.ai)"
+    )
+    return f"\n\n*Generated using: {mode}.*"
+
+
 def render_recommendation_fallback(
     profile: PlaceRequestProfile,
     evaluations: list[CandidateEvaluation],
@@ -75,7 +84,12 @@ def render_recommendation_fallback(
 ) -> str:
     """Render a recommendation without another network or LLM call."""
     payload = _build_payload(profile, evaluations, validation, sources, max_final_recommendations)
-    return render_recommendation_markdown(payload)
+    markdown = render_recommendation_markdown(payload)
+    return (
+        markdown
+        + "\n\n*Generated using: a deterministic fallback template "
+        "(no recommendation-writing model was used for this response).*"
+    )
 
 
 async def generate_recommendation(
@@ -110,7 +124,7 @@ async def generate_recommendation(
             response_model=_RecommendationOutput,
         )
         response = await asyncio.wait_for(call, timeout=llm_timeout_seconds) if llm_timeout_seconds else await call
-        return response["markdown"]
+        return response["markdown"] + _mode_disclosure_line(client)
     except (BudgetExceededError, LLMOutputError, TimeoutError):
         fallback = render_recommendation_fallback(
             profile,

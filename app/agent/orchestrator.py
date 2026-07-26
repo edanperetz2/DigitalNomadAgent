@@ -14,8 +14,8 @@ from dataclasses import dataclass, field
 
 from app.agent.agentic_research import generate_candidates, select_tools
 from app.agent.candidate_funnel import select_finalists
-from app.agent.dynamic_evaluation import evaluate_candidates
-from app.agent.models import CandidatePlace, PlaceRequestProfile, ValidationResult
+from app.agent.dynamic_evaluation import apply_llm_scores, evaluate_candidates, score_unresolved_criteria
+from app.agent.models import CandidateEvaluation, CandidatePlace, PlaceRequestProfile, ValidationResult
 from app.agent.recommendation_generator import generate_recommendation, render_recommendation_fallback
 from app.agent.recommendation_validator import validate_recommendations
 from app.agent.request_interpreter import interpret_request
@@ -182,6 +182,38 @@ class Orchestrator:
             if tool_name in priorities and any(keyword in hard_text for keyword in keywords):
                 priorities[tool_name] = max(priorities[tool_name], 2.0)
         return priorities
+
+    async def _score_unresolved_criteria(
+        self,
+        evaluations: list[CandidateEvaluation],
+        candidates: list[CandidatePlace],
+        profile: PlaceRequestProfile,
+        evidence_by_place: dict[str, list[ToolResult]],
+        request_id: str,
+        execution_trace: list[dict],
+    ) -> list[CandidateEvaluation]:
+        """The single Dynamic Evaluation LLM call, fired exactly once per request
+        from VALIDATING's approved branch -- after any gap-research round, so it
+        never runs twice even if RESEARCHING_GAP looped. On failure, evaluations
+        are returned unchanged (cost/transportation/accessibility/activities stay
+        in unscored_evidence) rather than aborting the whole request.
+        """
+        try:
+            llm_scores = await score_unresolved_criteria(
+                evaluations,
+                profile,
+                evidence_by_place,
+                client=self._llm,
+                budget=self._budget,
+                request_id=request_id,
+                execution_trace=execution_trace,
+                max_output_tokens=self._max_output_tokens,
+            )
+        except (BudgetExceededError, LLMOutputError):
+            return evaluations
+        if not llm_scores:
+            return evaluations
+        return apply_llm_scores(evaluations, candidates, profile, evidence_by_place, llm_scores)
 
     async def run(self, prompt: str) -> AgentResult:
         request_id = uuid.uuid4().hex
@@ -479,10 +511,18 @@ class Orchestrator:
                         if validation.should_research_again:
                             gap_iteration_used = True
                             validation = validate_recommendations(
-                        evaluations, profile, gap_iteration_used, self._max_final_recommendations
-                    )
+                                evaluations, profile, gap_iteration_used, self._max_final_recommendations
+                            )
                             validation.issues.append(
                                 "The optional gap-research round was skipped because the research time budget expired."
+                            )
+                        evaluations = await self._score_unresolved_criteria(
+                            evaluations, candidates, profile, evidence_by_place, request_id, execution_trace
+                        )
+                        checkpoint.evaluations = list(evaluations)
+                        if all(e.eliminated for e in evaluations):
+                            raise PlaceMatchError(
+                                "All candidate destinations were eliminated by hard constraints."
                             )
                         checkpoint.validation = validation
                         state = AgentState.GENERATING_RESPONSE

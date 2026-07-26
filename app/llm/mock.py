@@ -11,7 +11,13 @@ from __future__ import annotations
 import json
 import re
 
-from app.core.module_names import AGENTIC_RESEARCH, RECOMMENDATION_GENERATOR, REQUEST_INTERPRETER
+from app.agent.candidate_funnel import estimate_affordability
+from app.core.module_names import (
+    AGENTIC_RESEARCH,
+    DYNAMIC_EVALUATION,
+    RECOMMENDATION_GENERATOR,
+    REQUEST_INTERPRETER,
+)
 from app.core.rendering import render_recommendation_markdown
 from app.llm.base import BaseLLMClient, LLMRawResponse
 
@@ -1022,6 +1028,81 @@ def generate_candidate_seeds(profile: dict) -> list[dict]:
     return [{field: c[field] for field in _SEED_FIELDS} for c in generate_candidates(profile)]
 
 
+# ---------------------------------------------------------------------------
+# Dynamic Evaluation: deterministic stand-in for the batched scoring call
+# ---------------------------------------------------------------------------
+
+_COUNT_SATURATION = 20.0
+
+
+def _counts_sum(counts: dict | None) -> float:
+    if not isinstance(counts, dict):
+        return 0.0
+    return sum(v for v in counts.values() if isinstance(v, (int, float)))
+
+
+def _score_transportation(evidence: dict) -> tuple[float, str]:
+    total = _counts_sum(evidence.get("counts_by_component"))
+    score = min(1.0, total / _COUNT_SATURATION)
+    return score, f"Local mobility infrastructure count ({total:g}) informs this score."
+
+
+def _score_accessibility(evidence: dict) -> tuple[float, str]:
+    distance_km = evidence.get("straight_line_distance_km")
+    if isinstance(distance_km, (int, float)):
+        score = max(0.0, min(1.0, 1.0 - distance_km / 3000.0))
+        return score, f"Straight-line distance from origin (~{distance_km:g}km) informs this score."
+    total = _counts_sum(evidence.get("counts_by_component"))
+    score = min(1.0, total / _COUNT_SATURATION)
+    return score, f"Arrival-infrastructure count ({total:g}) informs this score, no origin distance available."
+
+
+def _score_activities(evidence: dict, activity_preferences: list) -> tuple[float, str]:
+    counts = evidence.get("counts_by_category") or {}
+    total = _counts_sum(counts)
+    matched = [pref for pref in activity_preferences if counts.get(pref)]
+    base = min(1.0, total / _COUNT_SATURATION)
+    score = min(1.0, base + 0.1 * len(matched))
+    return score, f"Activity counts ({total:g}), matching {len(matched)} requested preference(s)."
+
+
+def score_unresolved_mock(payload: dict) -> list[dict]:
+    """Deterministic stand-in for the real Dynamic Evaluation scoring call.
+
+    Reuses candidate_funnel.estimate_affordability for "cost" so mock and real
+    scoring share the same budget-comparison reading, and simple count-based
+    saturation heuristics for the other three criteria.
+    """
+    scores: list[dict] = []
+    for candidate in payload.get("candidates", []):
+        place = candidate.get("place", "")
+        criteria = candidate.get("criteria", {})
+        preferences = candidate.get("preferences", {})
+
+        if "cost" in criteria:
+            score = estimate_affordability(criteria["cost"])
+            rationale = "Cost evidence compared against the stated budget informs this score."
+            scores.append({"place": place, "criterion": "cost", "score": round(score, 4), "rationale": rationale})
+        if "transportation" in criteria:
+            score, rationale = _score_transportation(criteria["transportation"])
+            scores.append(
+                {"place": place, "criterion": "transportation", "score": round(score, 4), "rationale": rationale}
+            )
+        if "accessibility" in criteria:
+            score, rationale = _score_accessibility(criteria["accessibility"])
+            scores.append(
+                {"place": place, "criterion": "accessibility", "score": round(score, 4), "rationale": rationale}
+            )
+        if "activities" in criteria:
+            score, rationale = _score_activities(
+                criteria["activities"], preferences.get("activity_preferences", [])
+            )
+            scores.append(
+                {"place": place, "criterion": "activities", "score": round(score, 4), "rationale": rationale}
+            )
+    return scores
+
+
 class MockLLMClient(BaseLLMClient):
     """Deterministic client used whenever MOCK_LLM=true (the default)."""
 
@@ -1050,6 +1131,12 @@ class MockLLMClient(BaseLLMClient):
                 profile = {}
             candidates = generate_candidate_seeds(profile)
             text = json.dumps({"candidates": candidates})
+        elif module == DYNAMIC_EVALUATION:
+            try:
+                payload = json.loads(user_content)
+            except json.JSONDecodeError:
+                payload = {}
+            text = json.dumps({"scores": score_unresolved_mock(payload)})
         elif module == RECOMMENDATION_GENERATOR:
             try:
                 payload = json.loads(user_content)

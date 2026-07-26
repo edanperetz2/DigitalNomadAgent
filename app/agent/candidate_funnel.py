@@ -18,18 +18,20 @@ IMPORTANCE_WEIGHT = 0.6
 AFFORDABILITY_WEIGHT = 0.4
 
 
-def estimate_affordability(result: ToolResult | None) -> float:
+def estimate_affordability(normalized_data: dict | None) -> float:
     """0-1 affordability score from BudgetFitTool's own budget comparison.
 
     0.5 is neutral (no stated budget, or evidence that can't be meaningfully
     compared); the score rises toward 1.0 when comfortably under budget and
     falls toward 0.0 when over it. Reuses BudgetFitTool's already-computed
-    comparison rather than re-deriving currency conversion here.
+    comparison rather than re-deriving currency conversion here. Takes the
+    plain normalized_data dict (not a ToolResult) so MockLLMClient's
+    deterministic Dynamic Evaluation stand-in can reuse this exact logic.
     """
-    if result is None or result.error or not result.normalized_data:
+    if not normalized_data:
         return 0.5
 
-    data = result.normalized_data
+    data = normalized_data
     budget_context = data.get("budget_context") or {}
     status = budget_context.get("status")
     if status in (None, "not_provided"):
@@ -79,7 +81,8 @@ def select_finalists(
             continue
         importance = clamp(candidate.geocoding_importance or 0.0)
         budget_result = (budget_results.get(candidate.place_name) or [None])[0]
-        affordability = estimate_affordability(budget_result)
+        normalized_data = budget_result.normalized_data if budget_result and not budget_result.error else None
+        affordability = estimate_affordability(normalized_data)
         composite = IMPORTANCE_WEIGHT * importance + AFFORDABILITY_WEIGHT * affordability
         survivors.append((composite, candidate))
 

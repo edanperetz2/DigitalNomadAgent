@@ -11,7 +11,12 @@ from __future__ import annotations
 import json
 from datetime import date
 
-from app.core.module_names import AGENTIC_RESEARCH, RECOMMENDATION_GENERATOR, REQUEST_INTERPRETER
+from app.core.module_names import (
+    AGENTIC_RESEARCH,
+    DYNAMIC_EVALUATION,
+    RECOMMENDATION_GENERATOR,
+    REQUEST_INTERPRETER,
+)
 from app.core.rendering import render_recommendation_markdown
 from app.llm.mock import generate_candidates, interpret_prompt
 
@@ -110,10 +115,32 @@ def _build_example(prompt_text: str) -> dict:
     research_step = {
         "module": AGENTIC_RESEARCH,
         "prompt": {
-            "system": "Propose 4-5 diverse candidate destinations for the interpreted profile.",
+            "system": "Propose up to 30 candidate destinations for the interpreted profile "
+            "(a bulk recall step; a cheap non-LLM funnel narrows these down before research).",
             "user": json.dumps({"profile": profile_dict}),
         },
         "response": {"candidates": candidates},
+    }
+    dynamic_evaluation_step = {
+        "module": DYNAMIC_EVALUATION,
+        "prompt": {
+            "system": "Score cost, transportation, accessibility, and activities for every "
+            "finalist in one batched call, using evidence already collected by the tool suite.",
+            "user": json.dumps(
+                {"candidates": [{"place": c["place_name"], "country": c["country"]} for c in candidates]}
+            ),
+        },
+        "response": {
+            "scores": [
+                {
+                    "place": c["place_name"],
+                    "criterion": "cost",
+                    "score": 0.7,
+                    "rationale": "Illustrative example; real scores come from collected tool evidence.",
+                }
+                for c in candidates
+            ]
+        },
     }
     generator_step = {
         "module": RECOMMENDATION_GENERATOR,
@@ -127,7 +154,7 @@ def _build_example(prompt_text: str) -> dict:
     return {
         "prompt": prompt_text,
         "full_response": markdown,
-        "steps": [interpreter_step, research_step, generator_step],
+        "steps": [interpreter_step, research_step, dynamic_evaluation_step, generator_step],
     }
 
 

@@ -12,16 +12,19 @@ throughout the code, the diagram, `/api/agent_info`, LLM-call tracing, and this 
 | Canonical name | File | Calls the LLM? |
 |---|---|---|
 | Request Interpreter | `app/agent/request_interpreter.py` | Yes — 1 call |
-| Agentic Research | `app/agent/agentic_research.py` | Yes — 1 call (candidate generation only) |
+| Agentic Research | `app/agent/agentic_research.py` | Yes — 1 call (bulk candidate recall only) |
 | Tool Registry | `app/tools/registry.py` | No |
 | Evidence Memory | `app/evidence/memory.py` | No |
-| Dynamic Evaluation | `app/agent/dynamic_evaluation.py` | No |
+| Dynamic Evaluation | `app/agent/dynamic_evaluation.py` | Yes — 1 batched call (scores cost/transportation/accessibility/activities for all finalists at once) |
 | Recommendation Validator | `app/agent/recommendation_validator.py` | No |
 | Recommendation Generator | `app/agent/recommendation_generator.py` | Yes — 1 call |
 
-Only three modules ever produce a `steps` entry in `/api/execute`'s response, because only three
-modules ever call an LLM. Everything else — tool selection, scoring, validation — is deterministic
-Python, which is both cheaper (course budget is $13 total) and easier to test exhaustively.
+Four modules ever produce a `steps` entry in `/api/execute`'s response, because four modules ever
+call an LLM — always exactly once each per request, so the total stays at 4 calls even when a
+gap-research round runs (Dynamic Evaluation's call fires only once, from the state machine's single
+post-gap-resolution branch — see §2). Everything else — tool selection, the candidate-discovery
+funnel, validation — is deterministic Python, which is both cheaper (course budget is $13 total)
+and easier to test exhaustively.
 
 ## 2. State machine and conditional flow
 
@@ -101,9 +104,11 @@ optional error). `Orchestrator._persist_evidence()` converts successful results 
 `EvidenceRecord`s stored in the SQLite `evidence` table (deduplicated on
 `place, criterion, source_name`), giving full traceability from a claim back to its source.
 
-`Dynamic Evaluation` (`evaluate_candidates()`) is a pure function: it reads the evidence collected
-for each candidate, computes per-criterion `[0,1]` ratings, and combines them as
-`score = Σ(weight_i · rating_i) − uncertainty_penalty`, where:
+`Dynamic Evaluation` runs in two passes. `evaluate_candidates()` is a pure function (no LLM): it
+reads the evidence collected for each candidate, computes per-criterion `[0,1]` ratings for the
+five criteria deterministic normalization can score directly (climate, work_infrastructure,
+timezone, student_life, safety), and combines them as `score = Σ(weight_i · rating_i) −
+uncertainty_penalty`, where:
 
 - Weights start from the Request Interpreter's `inferred_weights` (derived from language cues —
   "most important" → 0.9, "prefer" → 0.6, "would be nice" → 0.3, "do not care about X" → dropped)
@@ -111,10 +116,20 @@ for each candidate, computes per-criterion `[0,1]` ratings, and combines them as
 - A criterion with **no evidence is excluded** from both the weighted sum and the weight
   normalization — it is never scored as 0 or 1, and it is recorded in `missing_evidence` so the
   Validator and the final response can disclose the gap honestly.
-- Hard constraints are eliminated only when a tool contract explicitly permits it. Structured cost,
-  mobility, activity, and transport evidence currently remains unresolved until the LLM reasoning
-  contract is implemented; missing, stale, or incomparable evidence cannot produce a favorable hard
-  result or eliminate a candidate.
+
+The remaining four criteria — cost, transportation, accessibility, activities — need reasoning over
+unstructured evidence (Wikivoyage excerpts, cost baskets, mobility counts) that deterministic
+normalization can't do justice to. These stay in `unscored_evidence` through the first pass and the
+`EVALUATING ⇄ RESEARCHING_GAP` loop, then get resolved by `score_unresolved_criteria()` — the one
+Dynamic Evaluation LLM call, fired once from `VALIDATING`'s approved branch (always after any
+gap-research round), batching every viable finalist × all four criteria into a single request.
+`apply_llm_scores()` folds the results back in and recomputes totals via the same weighting math.
+
+`_check_hard_constraints()` runs in both passes: a region-only check (works from geocoded country
+identity alone, so it's available even before any criterion is scored) plus keyword-triggered
+score-threshold checks — a criterion is only judged if it's both actually scored and textually
+referenced as a hard constraint or deal-breaker, so missing or incomparable evidence never produces
+a false elimination.
 
 This is deterministic and extensively unit-tested (`tests/unit/test_dynamic_evaluation.py`) — the
 same inputs always produce the same score.

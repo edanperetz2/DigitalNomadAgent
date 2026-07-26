@@ -48,20 +48,23 @@ def _budget_result(place, *, status, remaining=None, monthly_total=None, error=N
 
 def test_estimate_affordability_neutral_when_budget_not_provided():
     result = _budget_result("Valencia", status="not_provided")
-    assert estimate_affordability(result) == 1.0
+    assert estimate_affordability(result.normalized_data) == 1.0
 
 
 def test_estimate_affordability_neutral_on_missing_or_error_evidence():
     assert estimate_affordability(None) == 0.5
-    assert estimate_affordability(_budget_result("X", status="not_provided", error="lookup failed")) == 0.5
+    assert estimate_affordability({}) == 0.5
 
 
 def test_estimate_affordability_scores_comfortably_under_budget_higher():
     comfortable = _budget_result("Valencia", status="comparable_without_conversion", remaining=500, monthly_total=1000)
     tight = _budget_result("Valencia", status="comparable_without_conversion", remaining=50, monthly_total=1000)
     over_budget = _budget_result("Valencia", status="comparable_without_conversion", remaining=-500, monthly_total=1000)
-    assert estimate_affordability(comfortable) > estimate_affordability(tight) > estimate_affordability(over_budget)
-    assert estimate_affordability(over_budget) < 0.5
+    comfortable_score = estimate_affordability(comfortable.normalized_data)
+    tight_score = estimate_affordability(tight.normalized_data)
+    over_budget_score = estimate_affordability(over_budget.normalized_data)
+    assert comfortable_score > tight_score > over_budget_score
+    assert over_budget_score < 0.5
 
 
 def test_select_finalists_excludes_region_and_ranks_by_composite():
