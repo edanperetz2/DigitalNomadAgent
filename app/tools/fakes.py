@@ -62,6 +62,7 @@ class FakeGeocodingTool:
                 "lon": lon,
                 "canonical_name": f"{candidate.place_name}, {candidate.country}",
                 "country_code": cc,
+                "importance": 0.7,
             },
             source_name="OpenStreetMap Nominatim (fake)",
             source_url="https://nominatim.openstreetmap.org/",

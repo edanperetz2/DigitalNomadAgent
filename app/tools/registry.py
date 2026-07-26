@@ -110,6 +110,7 @@ class ToolRegistry:
                 candidate.lon = result.normalized_data.get("lon")
                 candidate.canonical_name = result.normalized_data.get("canonical_name")
                 candidate.country_code = result.normalized_data.get("country_code")
+                candidate.geocoding_importance = result.normalized_data.get("importance")
                 verified.append(candidate)
         return verified, list(results)
 

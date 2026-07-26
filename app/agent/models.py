@@ -51,6 +51,20 @@ class PlaceRequestProfile(BaseModel):
     clarification_question: str | None = None
 
 
+class CandidatePlaceSeed(BaseModel):
+    """Lean Stage-1 bulk-recall shape: enough to identify a place, nothing else.
+
+    Kept intentionally minimal so the bulk (~30 candidate) LLM call stays cheap;
+    the richer CandidatePlace fields below are only ever populated for finalists.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    place_name: str
+    country: str
+    reason_for_inclusion: str
+
+
 class CandidatePlace(BaseModel):
     """A candidate destination proposed by Agentic Research, pre-verification."""
 
@@ -69,6 +83,7 @@ class CandidatePlace(BaseModel):
     lon: float | None = None
     canonical_name: str | None = None
     country_code: str | None = None
+    geocoding_importance: float | None = None
 
 
 class CandidateEvaluation(BaseModel):

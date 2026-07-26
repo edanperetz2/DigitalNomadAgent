@@ -283,6 +283,40 @@ def _extract_criterion_scores(
     return scores, component_scores, advantages, drawbacks, confidence_factors
 
 
+def check_geocoded_constraints(
+    profile: PlaceRequestProfile, candidate: CandidatePlace
+) -> tuple[bool, str | None]:
+    """Cheap, LLM-free region pre-check used by the Stage-2 candidate funnel.
+
+    Runs right after geocoding, before any criterion is scored, so it can only
+    compare country identity -- not a call into _check_hard_constraints, whose
+    signature needs criterion_scores that don't exist yet at this stage. Matches
+    country names/ISO codes case-insensitively; broader region names (e.g.
+    "Southeast Asia") are not resolved to member countries since no
+    region-taxonomy dataset exists in this codebase. Missing country identity
+    fails open (never eliminates), matching the rest of the codebase's rule that
+    missing evidence cannot produce a positive hard-constraint result.
+    """
+    country = (candidate.country or "").strip().casefold()
+    country_code = (candidate.country_code or "").strip().casefold()
+    if not country and not country_code:
+        return False, None
+
+    for region in profile.excluded_regions:
+        region_norm = region.strip().casefold()
+        if region_norm and region_norm in (country, country_code):
+            return True, f"{candidate.place_name} is in {candidate.country}, which is an excluded region."
+
+    if profile.preferred_regions:
+        normalized_preferred = {r.strip().casefold() for r in profile.preferred_regions if r.strip()}
+        if normalized_preferred and country not in normalized_preferred and country_code not in normalized_preferred:
+            return True, (
+                f"{candidate.place_name} is in {candidate.country}, which is outside the preferred regions."
+            )
+
+    return False, None
+
+
 def _check_hard_constraints(
     profile: PlaceRequestProfile, criterion_scores: dict[str, float]
 ) -> tuple[bool, str | None, dict[str, bool]]:

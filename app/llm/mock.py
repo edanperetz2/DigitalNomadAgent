@@ -190,6 +190,22 @@ def _extract_duration(text: str) -> str | None:
     return None
 
 
+_EXCLUDED_REGION_PATTERN = re.compile(
+    r"\b(?:avoid|skip|excluding|not interested in)\s+"
+    r"([A-Z][\w'-]*(?:\s+(?:and|,)\s+[A-Z][\w'-]*)*)"
+)
+
+
+def _extract_excluded_regions(text: str) -> list[str]:
+    """Best-effort capitalized-phrase heuristic; the real LLM reasons about this properly."""
+    regions: list[str] = []
+    for match in _EXCLUDED_REGION_PATTERN.finditer(text):
+        for part in re.split(r"\s*(?:,|\band\b)\s*", match.group(1)):
+            if part.strip():
+                regions.append(part.strip())
+    return regions
+
+
 def _extract_amenity_preferences(text: str) -> list[str]:
     preferences: list[str] = []
     category_aliases = {**_AMENITY_ALIASES, **_KNOWN_UNSUPPORTED_AMENITY_ALIASES}
@@ -287,6 +303,7 @@ def interpret_prompt(prompt: str) -> dict:
     deal_breakers = []
     for m in re.finditer(r"\b(avoid|never)\b[^.]{0,60}", lowered):
         deal_breakers.append(m.group(0).strip())
+    excluded_regions = _extract_excluded_regions(text)
     soft_preferences = []
     for m in re.finditer(r"\bprefer\b[^.]{0,60}", lowered):
         soft_preferences.append(m.group(0).strip())
@@ -325,7 +342,7 @@ def interpret_prompt(prompt: str) -> dict:
         "origin": origin,
         "nationality": None,
         "preferred_regions": [],
-        "excluded_regions": [],
+        "excluded_regions": excluded_regions,
         "preferred_languages": [],
         "mobility_requirements": mobility_requirements,
         "climate_preferences": climate_preferences,
@@ -385,6 +402,181 @@ _SEED_CANDIDATES: dict[str, list[dict]] = {
             "likely_weakness": "Air quality and traffic congestion.",
             "criteria_to_verify": ["timezone", "culture"],
         },
+        {
+            "place_name": "Chiang Mai", "country": "Thailand",
+            "reason_for_inclusion": "Long-established digital-nomad base with a very low cost of living.",
+            "expected_strengths": ["low cost", "large nomad community"],
+            "likely_weakness": "Seasonal air-quality issues from agricultural burning.",
+            "criteria_to_verify": ["cost", "climate"],
+        },
+        {
+            "place_name": "Canggu", "country": "Indonesia",
+            "reason_for_inclusion": "Coastal remote-work hub with a dense coworking/cafe scene.",
+            "expected_strengths": ["coworking cafes", "warm climate"],
+            "likely_weakness": "Traffic congestion and infrastructure strain.",
+            "criteria_to_verify": ["work_infrastructure", "climate"],
+        },
+        {
+            "place_name": "Budapest", "country": "Hungary",
+            "reason_for_inclusion": "Central-European hub with strong transit and moderate costs.",
+            "expected_strengths": ["public transport", "moderate cost"],
+            "likely_weakness": "Air quality dips in winter inversions.",
+            "criteria_to_verify": ["transportation", "cost"],
+        },
+        {
+            "place_name": "Buenos Aires", "country": "Argentina",
+            "reason_for_inclusion": "Large coworking scene with favorable currency-driven affordability.",
+            "expected_strengths": ["affordability", "vibrant culture"],
+            "likely_weakness": "Economic volatility can affect pricing stability.",
+            "criteria_to_verify": ["cost", "culture"],
+        },
+        {
+            "place_name": "Medellin", "country": "Colombia",
+            "reason_for_inclusion": "Mild year-round climate and an established nomad community.",
+            "expected_strengths": ["mild climate", "coworking spaces"],
+            "likely_weakness": "Security varies notably by neighborhood.",
+            "criteria_to_verify": ["climate", "safety"],
+        },
+        {
+            "place_name": "Prague", "country": "Czechia",
+            "reason_for_inclusion": "Reliable infrastructure and extensive public transport network.",
+            "expected_strengths": ["public transport", "coworking network"],
+            "likely_weakness": "Higher cost than nearby regional alternatives.",
+            "criteria_to_verify": ["transportation", "cost"],
+        },
+        {
+            "place_name": "Ho Chi Minh City", "country": "Vietnam",
+            "reason_for_inclusion": "Very low cost of living with a fast-growing coworking scene.",
+            "expected_strengths": ["low cost", "growing coworking scene"],
+            "likely_weakness": "Dense traffic and limited pedestrian infrastructure.",
+            "criteria_to_verify": ["cost", "transportation"],
+        },
+        {
+            "place_name": "Cape Town", "country": "South Africa",
+            "reason_for_inclusion": "Strong coworking infrastructure with a favorable cost/climate mix.",
+            "expected_strengths": ["mild climate", "coworking spaces"],
+            "likely_weakness": "Periodic power-supply interruptions.",
+            "criteria_to_verify": ["climate", "work_infrastructure"],
+        },
+        {
+            "place_name": "Split", "country": "Croatia",
+            "reason_for_inclusion": "Coastal alternative with a dedicated digital-nomad visa program.",
+            "expected_strengths": ["coastal setting", "nomad-visa support"],
+            "likely_weakness": "Costs rise sharply during the summer tourist season.",
+            "criteria_to_verify": ["cost", "climate"],
+        },
+        {
+            "place_name": "Riga", "country": "Latvia",
+            "reason_for_inclusion": "Compact, walkable city with reliable public transport.",
+            "expected_strengths": ["public transport", "walkable center"],
+            "likely_weakness": "Long, dark winters.",
+            "criteria_to_verify": ["transportation", "climate"],
+        },
+        {
+            "place_name": "Da Nang", "country": "Vietnam",
+            "reason_for_inclusion": "Beach-adjacent nomad hub with low living costs.",
+            "expected_strengths": ["low cost", "beach access"],
+            "likely_weakness": "Smaller coworking ecosystem than Ho Chi Minh City.",
+            "criteria_to_verify": ["cost", "work_infrastructure"],
+        },
+        {
+            "place_name": "Bansko", "country": "Bulgaria",
+            "reason_for_inclusion": "Purpose-built nomad community with very low costs.",
+            "expected_strengths": ["low cost", "dedicated coworking spaces"],
+            "likely_weakness": "Limited outside the core nomad-focused area.",
+            "criteria_to_verify": ["cost", "work_infrastructure"],
+        },
+        {
+            "place_name": "Krakow", "country": "Poland",
+            "reason_for_inclusion": "Established tech scene with moderate costs and solid transit.",
+            "expected_strengths": ["tech scene", "public transport"],
+            "likely_weakness": "Winter air-quality concerns.",
+            "criteria_to_verify": ["work_infrastructure", "climate"],
+        },
+        {
+            "place_name": "Valencia", "country": "Spain",
+            "reason_for_inclusion": "Mediterranean climate with a growing remote-work community.",
+            "expected_strengths": ["mild climate", "coworking spaces"],
+            "likely_weakness": "Rising rents in central neighborhoods.",
+            "criteria_to_verify": ["climate", "cost"],
+        },
+        {
+            "place_name": "Taipei", "country": "Taiwan",
+            "reason_for_inclusion": "Excellent infrastructure and a very high safety profile.",
+            "expected_strengths": ["safety", "public transport"],
+            "likely_weakness": "Humid, hot summers.",
+            "criteria_to_verify": ["safety", "climate"],
+        },
+        {
+            "place_name": "Barcelona", "country": "Spain",
+            "reason_for_inclusion": "Large coworking and cafe density with strong transit.",
+            "expected_strengths": ["coworking density", "public transport"],
+            "likely_weakness": "High demand drives up housing costs.",
+            "criteria_to_verify": ["work_infrastructure", "cost"],
+        },
+        {
+            "place_name": "Playa del Carmen", "country": "Mexico",
+            "reason_for_inclusion": "Beach-adjacent nomad hub with US-timezone overlap.",
+            "expected_strengths": ["timezone overlap", "beach access"],
+            "likely_weakness": "Tourist-driven price spikes in high season.",
+            "criteria_to_verify": ["timezone", "cost"],
+        },
+        {
+            "place_name": "Tallinn", "country": "Estonia",
+            "reason_for_inclusion": "Digital-first city with strong infrastructure and e-residency ties.",
+            "expected_strengths": ["digital infrastructure", "coworking spaces"],
+            "likely_weakness": "Cold, dark winters.",
+            "criteria_to_verify": ["work_infrastructure", "climate"],
+        },
+        {
+            "place_name": "Cluj-Napoca", "country": "Romania",
+            "reason_for_inclusion": "Growing tech hub with low costs relative to Western Europe.",
+            "expected_strengths": ["low cost", "tech scene"],
+            "likely_weakness": "Fewer direct international flights.",
+            "criteria_to_verify": ["cost", "transportation"],
+        },
+        {
+            "place_name": "Ubud", "country": "Indonesia",
+            "reason_for_inclusion": "Quieter alternative to the coastal nomad hubs, still well-connected.",
+            "expected_strengths": ["coworking cafes", "low cost"],
+            "likely_weakness": "Further from the main international airport.",
+            "criteria_to_verify": ["cost", "transportation"],
+        },
+        {
+            "place_name": "Belgrade", "country": "Serbia",
+            "reason_for_inclusion": "Low costs with a fast-growing IT and coworking scene.",
+            "expected_strengths": ["low cost", "growing coworking scene"],
+            "likely_weakness": "Limited English signage outside central areas.",
+            "criteria_to_verify": ["cost", "work_infrastructure"],
+        },
+        {
+            "place_name": "Bucharest", "country": "Romania",
+            "reason_for_inclusion": "Strong internet infrastructure and low costs.",
+            "expected_strengths": ["internet speed", "low cost"],
+            "likely_weakness": "Traffic congestion in central districts.",
+            "criteria_to_verify": ["work_infrastructure", "cost"],
+        },
+        {
+            "place_name": "Kuala Lumpur", "country": "Malaysia",
+            "reason_for_inclusion": "Modern infrastructure with a favorable cost-to-quality ratio.",
+            "expected_strengths": ["public transport", "coworking spaces"],
+            "likely_weakness": "Hot, humid climate year-round.",
+            "criteria_to_verify": ["work_infrastructure", "climate"],
+        },
+        {
+            "place_name": "Antalya", "country": "Turkey",
+            "reason_for_inclusion": "Warm climate alternative with a growing nomad presence.",
+            "expected_strengths": ["warm climate", "low cost"],
+            "likely_weakness": "Coworking scene is smaller than in major cities.",
+            "criteria_to_verify": ["climate", "cost"],
+        },
+        {
+            "place_name": "Montevideo", "country": "Uruguay",
+            "reason_for_inclusion": "Stable, safe alternative in South America with mild climate.",
+            "expected_strengths": ["safety", "mild climate"],
+            "likely_weakness": "Smaller coworking scene than regional peers.",
+            "criteria_to_verify": ["safety", "climate"],
+        },
     ],
     "study": [
         {
@@ -421,6 +613,181 @@ _SEED_CANDIDATES: dict[str, list[dict]] = {
             "expected_strengths": ["student life", "safety"],
             "likely_weakness": "Higher cost and long-haul travel distance.",
             "criteria_to_verify": ["student_life", "cost", "transportation"],
+        },
+        {
+            "place_name": "Amsterdam", "country": "Netherlands",
+            "reason_for_inclusion": "Large international student population with excellent cycling/transit access.",
+            "expected_strengths": ["student community", "public transport"],
+            "likely_weakness": "Very tight student housing market.",
+            "criteria_to_verify": ["student_life", "cost"],
+        },
+        {
+            "place_name": "Barcelona", "country": "Spain",
+            "reason_for_inclusion": "Popular exchange destination with strong student life and mild climate.",
+            "expected_strengths": ["student life", "mild climate"],
+            "likely_weakness": "Rising rents for short-term student housing.",
+            "criteria_to_verify": ["student_life", "cost"],
+        },
+        {
+            "place_name": "Vienna", "country": "Austria",
+            "reason_for_inclusion": "High safety and quality of life for international students.",
+            "expected_strengths": ["safety", "student life"],
+            "likely_weakness": "Higher cost than Central-European peers.",
+            "criteria_to_verify": ["safety", "cost"],
+        },
+        {
+            "place_name": "Krakow", "country": "Poland",
+            "reason_for_inclusion": "Large historic university with low living costs.",
+            "expected_strengths": ["low cost", "student community"],
+            "likely_weakness": "Winter air quality can be poor.",
+            "criteria_to_verify": ["cost", "student_life"],
+        },
+        {
+            "place_name": "Lyon", "country": "France",
+            "reason_for_inclusion": "Major student city with lower costs than Paris.",
+            "expected_strengths": ["student life", "public transport"],
+            "likely_weakness": "Fewer English-speaking options outside major campuses.",
+            "criteria_to_verify": ["student_life", "transportation"],
+        },
+        {
+            "place_name": "Bologna", "country": "Italy",
+            "reason_for_inclusion": "One of Europe's oldest university cities with a dense student scene.",
+            "expected_strengths": ["student community", "walkable center"],
+            "likely_weakness": "Aging housing stock in the historic center.",
+            "criteria_to_verify": ["student_life", "cost"],
+        },
+        {
+            "place_name": "Edinburgh", "country": "United Kingdom",
+            "reason_for_inclusion": "Strong English-speaking academic environment with high safety.",
+            "expected_strengths": ["safety", "student community"],
+            "likely_weakness": "High accommodation costs.",
+            "criteria_to_verify": ["safety", "cost"],
+        },
+        {
+            "place_name": "Montreal", "country": "Canada",
+            "reason_for_inclusion": "Large bilingual student population with relatively low tuition.",
+            "expected_strengths": ["student life", "public transport"],
+            "likely_weakness": "Very cold winters.",
+            "criteria_to_verify": ["student_life", "transportation"],
+        },
+        {
+            "place_name": "Toronto", "country": "Canada",
+            "reason_for_inclusion": "Large, diverse student population with strong transit.",
+            "expected_strengths": ["student community", "public transport"],
+            "likely_weakness": "High cost of living.",
+            "criteria_to_verify": ["student_life", "cost"],
+        },
+        {
+            "place_name": "Seoul", "country": "South Korea",
+            "reason_for_inclusion": "Extensive student infrastructure with very high transit reliability.",
+            "expected_strengths": ["public transport", "student life"],
+            "likely_weakness": "Language barrier outside major English-speaking campuses.",
+            "criteria_to_verify": ["transportation", "student_life"],
+        },
+        {
+            "place_name": "Singapore", "country": "Singapore",
+            "reason_for_inclusion": "Very high safety with strong university infrastructure.",
+            "expected_strengths": ["safety", "student life"],
+            "likely_weakness": "Higher cost of living than regional peers.",
+            "criteria_to_verify": ["safety", "cost"],
+        },
+        {
+            "place_name": "Utrecht", "country": "Netherlands",
+            "reason_for_inclusion": "Compact, bike-friendly student city.",
+            "expected_strengths": ["student life", "public transport"],
+            "likely_weakness": "Limited housing supply for students.",
+            "criteria_to_verify": ["student_life", "cost"],
+        },
+        {
+            "place_name": "Leuven", "country": "Belgium",
+            "reason_for_inclusion": "Small, historic university town with a dense student community.",
+            "expected_strengths": ["student community", "walkable center"],
+            "likely_weakness": "Limited nightlife/activity variety outside term time.",
+            "criteria_to_verify": ["student_life", "activities"],
+        },
+        {
+            "place_name": "Coimbra", "country": "Portugal",
+            "reason_for_inclusion": "Historic university city with low costs.",
+            "expected_strengths": ["low cost", "student community"],
+            "likely_weakness": "Smaller city with fewer amenities.",
+            "criteria_to_verify": ["cost", "student_life"],
+        },
+        {
+            "place_name": "Groningen", "country": "Netherlands",
+            "reason_for_inclusion": "One of the most bike/transit-friendly student cities in Europe.",
+            "expected_strengths": ["public transport", "student life"],
+            "likely_weakness": "Remote from major international airports.",
+            "criteria_to_verify": ["transportation", "student_life"],
+        },
+        {
+            "place_name": "Uppsala", "country": "Sweden",
+            "reason_for_inclusion": "High safety and strong student community near Stockholm.",
+            "expected_strengths": ["safety", "student life"],
+            "likely_weakness": "High cost of living.",
+            "criteria_to_verify": ["safety", "cost"],
+        },
+        {
+            "place_name": "Copenhagen", "country": "Denmark",
+            "reason_for_inclusion": "Excellent cycling/transit infrastructure and student safety.",
+            "expected_strengths": ["public transport", "safety"],
+            "likely_weakness": "Very high cost of living.",
+            "criteria_to_verify": ["transportation", "cost"],
+        },
+        {
+            "place_name": "Milan", "country": "Italy",
+            "reason_for_inclusion": "Major academic and business hub with a large student population.",
+            "expected_strengths": ["student community", "public transport"],
+            "likely_weakness": "Higher cost than other Italian university cities.",
+            "criteria_to_verify": ["student_life", "cost"],
+        },
+        {
+            "place_name": "Brno", "country": "Czechia",
+            "reason_for_inclusion": "Large student city with notably low costs.",
+            "expected_strengths": ["low cost", "student community"],
+            "likely_weakness": "Smaller international community than Prague.",
+            "criteria_to_verify": ["cost", "student_life"],
+        },
+        {
+            "place_name": "Ljubljana", "country": "Slovenia",
+            "reason_for_inclusion": "Compact, safe student city with low costs.",
+            "expected_strengths": ["safety", "low cost"],
+            "likely_weakness": "Small international student network.",
+            "criteria_to_verify": ["safety", "cost"],
+        },
+        {
+            "place_name": "Wellington", "country": "New Zealand",
+            "reason_for_inclusion": "High safety and quality of life for international students.",
+            "expected_strengths": ["safety", "student life"],
+            "likely_weakness": "Long-haul travel distance for most students.",
+            "criteria_to_verify": ["safety", "transportation"],
+        },
+        {
+            "place_name": "Auckland", "country": "New Zealand",
+            "reason_for_inclusion": "Large university with a diverse international student body.",
+            "expected_strengths": ["student community", "safety"],
+            "likely_weakness": "Higher cost of living.",
+            "criteria_to_verify": ["student_life", "cost"],
+        },
+        {
+            "place_name": "Kyoto", "country": "Japan",
+            "reason_for_inclusion": "Historic academic city with very high safety.",
+            "expected_strengths": ["safety", "student community"],
+            "likely_weakness": "Language barrier outside major English-speaking campuses.",
+            "criteria_to_verify": ["safety", "student_life"],
+        },
+        {
+            "place_name": "Cork", "country": "Ireland",
+            "reason_for_inclusion": "English-speaking alternative to Dublin with lower costs.",
+            "expected_strengths": ["low cost", "student community"],
+            "likely_weakness": "Smaller international student network than Dublin.",
+            "criteria_to_verify": ["cost", "student_life"],
+        },
+        {
+            "place_name": "Glasgow", "country": "United Kingdom",
+            "reason_for_inclusion": "Large student population with lower costs than Edinburgh.",
+            "expected_strengths": ["student life", "low cost"],
+            "likely_weakness": "Frequent rain and overcast weather.",
+            "criteria_to_verify": ["student_life", "climate"],
         },
     ],
     "vacation": [
@@ -459,15 +826,200 @@ _SEED_CANDIDATES: dict[str, list[dict]] = {
             "likely_weakness": "More expensive than other Mediterranean options.",
             "criteria_to_verify": ["cost", "culture"],
         },
+        {
+            "place_name": "Dubrovnik", "country": "Croatia",
+            "reason_for_inclusion": "Coastal old-town destination with strong cultural attractions.",
+            "expected_strengths": ["culture", "beaches"],
+            "likely_weakness": "Very crowded in peak summer season.",
+            "criteria_to_verify": ["activities", "cost"],
+        },
+        {
+            "place_name": "Split", "country": "Croatia",
+            "reason_for_inclusion": "Beach access combined with easy island-hopping activities.",
+            "expected_strengths": ["beaches", "activities"],
+            "likely_weakness": "Accommodation prices spike in summer.",
+            "criteria_to_verify": ["activities", "cost"],
+        },
+        {
+            "place_name": "Positano", "country": "Italy",
+            "reason_for_inclusion": "Scenic coastal hiking with dramatic Amalfi Coast views.",
+            "expected_strengths": ["hiking", "scenery"],
+            "likely_weakness": "Among the most expensive Mediterranean options.",
+            "criteria_to_verify": ["cost", "activities"],
+        },
+        {
+            "place_name": "Lagos", "country": "Portugal",
+            "reason_for_inclusion": "Algarve beach town with lower costs than Spanish/Italian coastal peers.",
+            "expected_strengths": ["beaches", "low cost"],
+            "likely_weakness": "Smaller nightlife scene outside peak season.",
+            "criteria_to_verify": ["cost", "activities"],
+        },
+        {
+            "place_name": "Ibiza", "country": "Spain",
+            "reason_for_inclusion": "Strongest match for nightlife alongside beach access.",
+            "expected_strengths": ["nightlife", "beaches"],
+            "likely_weakness": "High prices and crowds in peak season.",
+            "criteria_to_verify": ["activities", "cost"],
+        },
+        {
+            "place_name": "Mykonos", "country": "Greece",
+            "reason_for_inclusion": "Well-known beach and nightlife destination.",
+            "expected_strengths": ["beaches", "nightlife"],
+            "likely_weakness": "Among the most expensive Greek islands.",
+            "criteria_to_verify": ["cost", "activities"],
+        },
+        {
+            "place_name": "Chania", "country": "Greece",
+            "reason_for_inclusion": "Crete's combination of beaches, hiking, and historical sites.",
+            "expected_strengths": ["beaches", "hiking", "culture"],
+            "likely_weakness": "Requires a connecting flight/ferry from most origins.",
+            "criteria_to_verify": ["activities", "transportation"],
+        },
+        {
+            "place_name": "Phuket", "country": "Thailand",
+            "reason_for_inclusion": "Long-haul beach destination with extensive tourism infrastructure.",
+            "expected_strengths": ["beaches", "activities"],
+            "likely_weakness": "Long travel distance for most origins.",
+            "criteria_to_verify": ["transportation", "activities"],
+        },
+        {
+            "place_name": "Ubud", "country": "Indonesia",
+            "reason_for_inclusion": "Cultural and hiking-oriented alternative to Bali's coastal towns.",
+            "expected_strengths": ["hiking", "culture"],
+            "likely_weakness": "Not directly on the coast.",
+            "criteria_to_verify": ["activities", "culture"],
+        },
+        {
+            "place_name": "Da Nang", "country": "Vietnam",
+            "reason_for_inclusion": "Beach destination with a very low cost of living.",
+            "expected_strengths": ["beaches", "low cost"],
+            "likely_weakness": "Long travel distance for most origins.",
+            "criteria_to_verify": ["cost", "transportation"],
+        },
+        {
+            "place_name": "Queenstown", "country": "New Zealand",
+            "reason_for_inclusion": "Strongest match for hiking and outdoor adventure activities.",
+            "expected_strengths": ["hiking", "outdoor activities"],
+            "likely_weakness": "Very long travel distance for most origins.",
+            "criteria_to_verify": ["activities", "transportation"],
+        },
+        {
+            "place_name": "Interlaken", "country": "Switzerland",
+            "reason_for_inclusion": "Mountain hiking destination with excellent transit access.",
+            "expected_strengths": ["hiking", "public transport"],
+            "likely_weakness": "Among the most expensive hiking destinations in Europe.",
+            "criteria_to_verify": ["activities", "cost"],
+        },
+        {
+            "place_name": "Monterosso al Mare", "country": "Italy",
+            "reason_for_inclusion": "Cinque Terre coastal hiking trails between villages.",
+            "expected_strengths": ["hiking", "scenery"],
+            "likely_weakness": "Limited accommodation capacity drives up prices.",
+            "criteria_to_verify": ["activities", "cost"],
+        },
+        {
+            "place_name": "Zakynthos", "country": "Greece",
+            "reason_for_inclusion": "Beach-focused island destination with notable natural scenery.",
+            "expected_strengths": ["beaches", "scenery"],
+            "likely_weakness": "Limited activity variety outside beach-related options.",
+            "criteria_to_verify": ["activities", "cost"],
+        },
+        {
+            "place_name": "Valletta", "country": "Malta",
+            "reason_for_inclusion": "Compact destination combining beaches, culture, and history.",
+            "expected_strengths": ["culture", "beaches"],
+            "likely_weakness": "Small size limits activity variety.",
+            "criteria_to_verify": ["activities", "culture"],
+        },
+        {
+            "place_name": "Malaga", "country": "Spain",
+            "reason_for_inclusion": "Costa del Sol beach access with strong cultural attractions.",
+            "expected_strengths": ["beaches", "culture"],
+            "likely_weakness": "Very crowded in peak summer months.",
+            "criteria_to_verify": ["activities", "cost"],
+        },
+        {
+            "place_name": "Taormina", "country": "Italy",
+            "reason_for_inclusion": "Sicilian coastal town combining beaches with historical sites.",
+            "expected_strengths": ["beaches", "culture"],
+            "likely_weakness": "Higher prices than mainland southern Italy.",
+            "criteria_to_verify": ["cost", "culture"],
+        },
+        {
+            "place_name": "Ponta Delgada", "country": "Portugal",
+            "reason_for_inclusion": "Azores hiking and volcanic-landscape activities.",
+            "expected_strengths": ["hiking", "scenery"],
+            "likely_weakness": "Fewer direct international flight connections.",
+            "criteria_to_verify": ["activities", "transportation"],
+        },
+        {
+            "place_name": "Corfu", "country": "Greece",
+            "reason_for_inclusion": "Greenery-backed beaches with a distinct cultural history.",
+            "expected_strengths": ["beaches", "culture"],
+            "likely_weakness": "Can be crowded near the main tourist areas.",
+            "criteria_to_verify": ["activities", "culture"],
+        },
+        {
+            "place_name": "Cagliari", "country": "Italy",
+            "reason_for_inclusion": "Sardinian beaches with lower prices than mainland Italian coast.",
+            "expected_strengths": ["beaches", "low cost"],
+            "likely_weakness": "Fewer direct international flight connections.",
+            "criteria_to_verify": ["cost", "transportation"],
+        },
+        {
+            "place_name": "Bodrum", "country": "Turkey",
+            "reason_for_inclusion": "Beach and nightlife destination at a lower cost than Greek islands.",
+            "expected_strengths": ["beaches", "nightlife", "low cost"],
+            "likely_weakness": "Very crowded in peak summer months.",
+            "criteria_to_verify": ["activities", "cost"],
+        },
+        {
+            "place_name": "Tenerife", "country": "Spain",
+            "reason_for_inclusion": "Combines beach access with volcanic-landscape hiking.",
+            "expected_strengths": ["beaches", "hiking"],
+            "likely_weakness": "Southern resort zones can feel heavily touristic.",
+            "criteria_to_verify": ["activities", "cost"],
+        },
+        {
+            "place_name": "Paphos", "country": "Cyprus",
+            "reason_for_inclusion": "Beach destination with strong historical/cultural sites.",
+            "expected_strengths": ["beaches", "culture"],
+            "likely_weakness": "Fewer direct international flight connections.",
+            "criteria_to_verify": ["activities", "transportation"],
+        },
+        {
+            "place_name": "Budva", "country": "Montenegro",
+            "reason_for_inclusion": "Lower-cost Adriatic beach town with nearby mountain hiking.",
+            "expected_strengths": ["beaches", "low cost"],
+            "likely_weakness": "Smaller tourism infrastructure than larger resort towns.",
+            "criteria_to_verify": ["cost", "activities"],
+        },
+        {
+            "place_name": "Galle", "country": "Sri Lanka",
+            "reason_for_inclusion": "Beach access combined with strong colonial-era cultural sites.",
+            "expected_strengths": ["beaches", "culture"],
+            "likely_weakness": "Very long travel distance for most origins.",
+            "criteria_to_verify": ["activities", "transportation"],
+        },
     ],
 }
-_SEED_CANDIDATES["mixed"] = _SEED_CANDIDATES["remote_work"][:2] + _SEED_CANDIDATES["vacation"][:3]
+_SEED_CANDIDATES["mixed"] = _SEED_CANDIDATES["remote_work"][:15] + _SEED_CANDIDATES["vacation"][:15]
 _SEED_CANDIDATES["unknown"] = _SEED_CANDIDATES["vacation"]
 
 
 def generate_candidates(profile: dict) -> list[dict]:
     purpose = profile.get("purpose", "unknown")
     return _SEED_CANDIDATES.get(purpose, _SEED_CANDIDATES["vacation"])
+
+
+_SEED_FIELDS = ("place_name", "country", "reason_for_inclusion")
+
+
+def generate_candidate_seeds(profile: dict) -> list[dict]:
+    """Lean-schema (Stage-1 bulk recall) variant of generate_candidates -- only
+    the fields CandidatePlaceSeed accepts, since that model forbids extras.
+    """
+    return [{field: c[field] for field in _SEED_FIELDS} for c in generate_candidates(profile)]
 
 
 class MockLLMClient(BaseLLMClient):
@@ -496,7 +1048,7 @@ class MockLLMClient(BaseLLMClient):
                 profile = payload.get("profile", {})
             except json.JSONDecodeError:
                 profile = {}
-            candidates = generate_candidates(profile)
+            candidates = generate_candidate_seeds(profile)
             text = json.dumps({"candidates": candidates})
         elif module == RECOMMENDATION_GENERATOR:
             try:

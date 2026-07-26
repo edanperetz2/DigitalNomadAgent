@@ -61,8 +61,9 @@ class Settings(BaseSettings):
 
     # --- Request limits ---------------------------------------------------------------
     max_prompt_length: int = 4000
-    max_candidates: int = 5
-    max_final_recommendations: int = 3
+    max_bulk_candidates: int = 30
+    max_finalists: int = 8
+    max_final_recommendations: int = 8
     max_research_iterations: int = 1
     max_json_repair_attempts: int = 1
 

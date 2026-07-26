@@ -115,3 +115,13 @@ def test_study_candidate_hypotheses_do_not_claim_program_availability():
 
     assert "program" not in candidate_text
     assert "admission" not in candidate_text
+
+
+def test_avoid_phrasing_populates_excluded_regions():
+    profile = interpret_prompt("I want a vacation with hiking, but I want to avoid France.")
+    assert profile["excluded_regions"] == ["France"]
+
+
+def test_excluding_accommodation_does_not_leak_into_excluded_regions():
+    profile = interpret_prompt("I want a vacation with a budget of 1000 EUR per month, excluding accommodation.")
+    assert profile["excluded_regions"] == []

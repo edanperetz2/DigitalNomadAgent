@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.agent.dynamic_evaluation import evaluate_candidates
+from app.agent.dynamic_evaluation import check_geocoded_constraints, evaluate_candidates
 from app.agent.models import Budget, CandidatePlace, PlaceRequestProfile
 from app.evidence.models import ToolResult
 
@@ -597,3 +597,52 @@ def test_place_context_excerpt_is_not_treated_as_an_advantage():
 
     assert all(excerpt[:30] not in advantage for advantage in evaluation.advantages)
     assert evaluation.criterion_scores == {}
+
+
+def _geocoded_candidate(name: str, country: str, country_code: str) -> CandidatePlace:
+    return CandidatePlace(
+        place_name=name,
+        country=country,
+        reason_for_inclusion="test",
+        verified=True,
+        country_code=country_code,
+    )
+
+
+def test_check_geocoded_constraints_eliminates_excluded_region():
+    profile = PlaceRequestProfile(purpose="vacation", excluded_regions=["France"])
+    candidate = _geocoded_candidate("Nice", "France", "FR")
+    eliminated, reason = check_geocoded_constraints(profile, candidate)
+    assert eliminated is True
+    assert "excluded" in reason.lower()
+
+
+def test_check_geocoded_constraints_matches_by_country_code_too():
+    profile = PlaceRequestProfile(purpose="vacation", excluded_regions=["FR"])
+    candidate = _geocoded_candidate("Nice", "France", "FR")
+    eliminated, _ = check_geocoded_constraints(profile, candidate)
+    assert eliminated is True
+
+
+def test_check_geocoded_constraints_eliminates_outside_preferred_region():
+    profile = PlaceRequestProfile(purpose="vacation", preferred_regions=["Spain"])
+    candidate = _geocoded_candidate("Nice", "France", "FR")
+    eliminated, reason = check_geocoded_constraints(profile, candidate)
+    assert eliminated is True
+    assert "preferred" in reason.lower()
+
+
+def test_check_geocoded_constraints_passes_matching_preferred_region():
+    profile = PlaceRequestProfile(purpose="vacation", preferred_regions=["France"])
+    candidate = _geocoded_candidate("Nice", "France", "FR")
+    eliminated, reason = check_geocoded_constraints(profile, candidate)
+    assert eliminated is False
+    assert reason is None
+
+
+def test_check_geocoded_constraints_fails_open_without_country_identity():
+    profile = PlaceRequestProfile(purpose="vacation", excluded_regions=["France"])
+    candidate = CandidatePlace(place_name="Unknown", country="", reason_for_inclusion="test")
+    eliminated, reason = check_geocoded_constraints(profile, candidate)
+    assert eliminated is False
+    assert reason is None

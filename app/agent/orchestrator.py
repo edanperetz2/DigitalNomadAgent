@@ -13,6 +13,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from app.agent.agentic_research import generate_candidates, select_tools
+from app.agent.candidate_funnel import select_finalists
 from app.agent.dynamic_evaluation import evaluate_candidates
 from app.agent.models import CandidatePlace, PlaceRequestProfile, ValidationResult
 from app.agent.recommendation_generator import generate_recommendation, render_recommendation_fallback
@@ -75,7 +76,8 @@ class Orchestrator:
         budget: BudgetManager,
         *,
         max_output_tokens: int,
-        max_candidates: int,
+        max_bulk_candidates: int,
+        max_finalists: int,
         max_final_recommendations: int,
         max_prompt_length: int,
         execution_timeout_seconds: float,
@@ -86,7 +88,8 @@ class Orchestrator:
         self._llm = llm_client
         self._budget = budget
         self._max_output_tokens = max_output_tokens
-        self._max_candidates = max_candidates
+        self._max_bulk_candidates = max_bulk_candidates
+        self._max_finalists = max_finalists
         self._max_final_recommendations = max_final_recommendations
         self._max_prompt_length = max_prompt_length
         self._execution_timeout_seconds = execution_timeout_seconds
@@ -254,7 +257,7 @@ class Orchestrator:
                 candidates = [
                     CandidatePlace.model_validate(candidate)
                     for candidate in generate_fallback_candidates(profile.model_dump(mode="json"))[
-                        : self._max_candidates
+                        : self._max_finalists
                     ]
                 ]
 
@@ -368,13 +371,13 @@ class Orchestrator:
                             request_id=request_id,
                             execution_trace=execution_trace,
                             max_output_tokens=self._max_output_tokens,
-                            max_candidates=self._max_candidates,
+                            max_bulk_candidates=self._max_bulk_candidates,
                         )
                     except (BudgetExceededError, LLMOutputError):
                         candidates = [
                             CandidatePlace.model_validate(candidate)
                             for candidate in generate_fallback_candidates(profile.model_dump(mode="json"))[
-                                : self._max_candidates
+                                : self._max_bulk_candidates
                             ]
                         ]
                         profile.assumptions.append(
@@ -405,11 +408,38 @@ class Orchestrator:
                     else:
                         candidates = verified
                         checkpoint.candidates = list(candidates)
-                    tool_names = select_tools(profile)
+
+                    # Stage 2 of the candidate-discovery funnel: a cheap, zero-LLM filter/rank
+                    # over all geocoded survivors (up to max_bulk_candidates), narrowing down to
+                    # max_finalists before the expensive full tool suite (Stage 3) ever runs.
+                    remaining_research = max(0.0, research_deadline - asyncio.get_running_loop().time())
+                    budget_grouped = await self._tools.run_tools(
+                        {"BudgetFitTool"},
+                        candidates,
+                        profile,
+                        timeout_seconds=remaining_research,
+                        request_id=request_id,
+                    )
+                    finalists = select_finalists(
+                        candidates, profile, budget_grouped, max_finalists=self._max_finalists
+                    )
+                    if not finalists:
+                        raise PlaceMatchError(
+                            "All candidate destinations were eliminated by region constraints "
+                            "before research began."
+                        )
+                    candidates = finalists
+                    checkpoint.candidates = list(candidates)
+                    finalist_names = {c.place_name for c in candidates}
+
+                    tool_names = select_tools(profile) - {"BudgetFitTool"}
                     tool_priorities = self._tool_priorities(profile, tool_names)
                     evidence_by_place = {}
                     for result in geocoding_results:
-                        evidence_by_place.setdefault(result.place, []).append(result)
+                        if result.place in finalist_names:
+                            evidence_by_place.setdefault(result.place, []).append(result)
+                    for place in finalist_names:
+                        evidence_by_place.setdefault(place, []).extend(budget_grouped.get(place, []))
                     checkpoint.evidence_by_place = evidence_by_place
 
                     remaining_research = max(0.0, research_deadline - asyncio.get_running_loop().time())

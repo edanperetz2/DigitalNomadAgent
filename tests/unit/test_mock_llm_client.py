@@ -19,7 +19,7 @@ async def test_request_interpreter_module_returns_valid_json():
 
 
 @pytest.mark.asyncio
-async def test_agentic_research_module_returns_candidates():
+async def test_agentic_research_module_returns_lean_bulk_candidates():
     client = MockLLMClient()
     payload = json.dumps({"profile": {"purpose": "study"}})
     response = await client.complete(
@@ -28,8 +28,10 @@ async def test_agentic_research_module_returns_candidates():
         metadata={"module": AGENTIC_RESEARCH},
     )
     parsed = json.loads(response.text)
-    assert len(parsed["candidates"]) >= 4
-    assert all("place_name" in c for c in parsed["candidates"])
+    assert len(parsed["candidates"]) >= 25
+    assert all(
+        set(c) == {"place_name", "country", "reason_for_inclusion"} for c in parsed["candidates"]
+    )
 
 
 @pytest.mark.asyncio

@@ -62,7 +62,7 @@ Planned commit: `feat(tools): harden destination geocoding`
 
 - Request multiple Nominatim matches, require country agreement, reject ambiguity, and return canonical name, coordinates, country code, OSM identity, and confidence.
 - Cache for 30 days, process candidates serially, and persist geocoding evidence rather than discarding it.
-- Keep verification bounded by `MAX_CANDIDATES`; serial Nominatim rate-limit waits and bounded retries count against the same 285-second request deadline.
+- Keep verification bounded by `MAX_BULK_CANDIDATES`; serial Nominatim rate-limit waits and bounded retries count against the same 285-second request deadline.
 - Test ambiguity, country mismatch, low importance, rate limiting, cache fallback, and malformed responses.
 
 ### 2. PlaceContextTool — DEFERRED
