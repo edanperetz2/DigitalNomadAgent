@@ -35,7 +35,7 @@ def _profile_and_validation():
 def test_fallback_rendering_discloses_deterministic_template():
     profile, validation = _profile_and_validation()
     markdown = render_recommendation_fallback(profile, [], validation, [])
-    assert "Generated using: a deterministic fallback template" in markdown
+    assert "Generated using:** a deterministic fallback template" in markdown
 
 
 @pytest.mark.asyncio
@@ -52,7 +52,7 @@ async def test_generate_recommendation_discloses_mock_mode():
         execution_trace=[],
         max_output_tokens=500,
     )
-    assert "Generated using: mock deterministic mode" in markdown
+    assert "Generated using:** mock deterministic mode" in markdown
 
 
 @pytest.mark.asyncio
@@ -69,4 +69,4 @@ async def test_generate_recommendation_discloses_real_llm_mode():
         execution_trace=[],
         max_output_tokens=500,
     )
-    assert "Generated using: a real LLM provider" in markdown
+    assert "Generated using:** a real LLM provider" in markdown

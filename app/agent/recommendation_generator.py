@@ -71,7 +71,7 @@ def _mode_disclosure_line(client: BaseLLMClient) -> str:
         if type(client).__name__ == "MockLLMClient"
         else "a real LLM provider (LLMod.ai)"
     )
-    return f"\n\n*Generated using: {mode}.*"
+    return f"\n\n**Generated using:** {mode}."
 
 
 def render_recommendation_fallback(
@@ -87,8 +87,8 @@ def render_recommendation_fallback(
     markdown = render_recommendation_markdown(payload)
     return (
         markdown
-        + "\n\n*Generated using: a deterministic fallback template "
-        "(no recommendation-writing model was used for this response).*"
+        + "\n\n**Generated using:** a deterministic fallback template "
+        "(no recommendation-writing model was used for this response)."
     )
 
 
@@ -135,6 +135,6 @@ async def generate_recommendation(
         )
         return (
             fallback
-            + "\n\n*(Note: this is a limited automated summary generated without the "
-            "recommendation-writing model, due to a budget, availability, or time limitation.)*"
+            + "\n\n**Note:** this is a limited automated summary generated without the "
+            "recommendation-writing model, due to a budget, availability, or time limitation."
         )

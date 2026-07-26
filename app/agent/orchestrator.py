@@ -317,7 +317,7 @@ class Orchestrator:
                 self._collect_sources(checkpoint.evidence_by_place),
                 max_final_recommendations=self._max_final_recommendations,
             )
-            response += "\n\n*(Timing note: incomplete research was cancelled so this response could arrive on time.)*"
+            response += "\n\n**Timing note:** incomplete research was cancelled so this response could arrive on time."
             return AgentResult(status="ok", response=response, error=None, steps=execution_trace)
         except Exception as exc:  # noqa: BLE001 - final no-I/O fallback must preserve the API contract
             return AgentResult(
