@@ -22,18 +22,22 @@ def validate_recommendations(
     evaluations: list[CandidateEvaluation],
     profile: PlaceRequestProfile,
     gap_iteration_used: bool,
+    max_final_recommendations: int = 3,
 ) -> ValidationResult:
     issues: list[str] = []
     missing_research: list[MissingResearchItem] = []
 
     viable = [e for e in evaluations if not e.eliminated]
 
-    if len(evaluations) >= 3 and len(viable) < 3:
-        issues.append("Fewer than 3 viable candidates remain after hard-constraint checks.")
+    if len(evaluations) >= max_final_recommendations and len(viable) < max_final_recommendations:
+        issues.append(
+            f"Fewer than {max_final_recommendations} viable candidates remain after "
+            "hard-constraint checks."
+        )
 
     high_weight_criteria = {c for c, w in profile.inferred_weights.items() if w >= HIGH_WEIGHT_THRESHOLD}
 
-    top_candidates = viable[:3]
+    top_candidates = viable[:max_final_recommendations]
     for evaluation in top_candidates:
         missing_high = [
             criterion

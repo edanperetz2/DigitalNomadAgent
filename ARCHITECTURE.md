@@ -121,8 +121,8 @@ same inputs always produce the same score.
 
 ## 5. Recommendation Validator
 
-`validate_recommendations()` is also a pure function. It checks: at least 3 viable candidates when
-reasonably possible, every viable candidate has recorded drawbacks, ranking stability (top two
+`validate_recommendations()` is also a pure function. It checks: at least `max_final_recommendations`
+viable candidates when reasonably possible, every viable candidate has recorded drawbacks, ranking stability (top two
 scores within a small margin are flagged "uncertain"), and — most importantly — whether any
 high-weight criterion is missing evidence for a top-3 candidate. If so, and no gap iteration has
 run yet, `should_research_again=True` triggers the `researching_gap` state described in §2. This

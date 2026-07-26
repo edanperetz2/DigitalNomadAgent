@@ -270,6 +270,7 @@ class Orchestrator:
                 evaluations,
                 profile,
                 gap_iteration_used=True,
+                max_final_recommendations=self._max_final_recommendations,
             )
             validation = validation.model_copy(deep=True)
             validation.approved = True
@@ -468,14 +469,18 @@ class Orchestrator:
                     state = AgentState.VALIDATING
 
                 elif state == AgentState.VALIDATING:
-                    validation = validate_recommendations(evaluations, profile, gap_iteration_used)
+                    validation = validate_recommendations(
+                        evaluations, profile, gap_iteration_used, self._max_final_recommendations
+                    )
                     research_time_exhausted = asyncio.get_running_loop().time() >= research_deadline
                     if validation.should_research_again and not gap_iteration_used and not research_time_exhausted:
                         state = AgentState.RESEARCHING_GAP
                     else:
                         if validation.should_research_again:
                             gap_iteration_used = True
-                            validation = validate_recommendations(evaluations, profile, gap_iteration_used)
+                            validation = validate_recommendations(
+                        evaluations, profile, gap_iteration_used, self._max_final_recommendations
+                    )
                             validation.issues.append(
                                 "The optional gap-research round was skipped because the research time budget expired."
                             )
