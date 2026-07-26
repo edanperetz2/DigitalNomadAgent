@@ -1,8 +1,8 @@
 (function () {
   "use strict";
 
-  const LEGACY_HISTORY_KEY = "placematch.recentConversations.v1";
-  const THEME_KEY = "placematch.theme";
+  const LEGACY_HISTORY_KEY = "digitalnomadagent.recentConversations.v1";
+  const THEME_KEY = "digitalnomadagent.theme";
 
   const shell = document.querySelector(".app-shell");
   const homeView = document.getElementById("home-view");
@@ -1033,7 +1033,7 @@
         body: JSON.stringify({ prompt }),
         signal: controller.signal,
       });
-      const sessionId = response.headers.get("X-PlaceMatch-Session-Id");
+      const sessionId = response.headers.get("X-DigitalNomadAgent-Session-Id");
       const data = await response.json();
 
       if (data.status === "ok") {
