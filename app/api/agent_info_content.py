@@ -26,7 +26,7 @@ _INTERPRETER_PROMPT_SUMMARY = (
 )
 
 DESCRIPTION = (
-    "PlaceMatch is an autonomous, evidence-based place-recommendation agent. It interprets "
+    "DigitalNomadAgent is an autonomous, evidence-based place-recommendation agent. It interprets "
     "unrestricted natural-language requests (remote work, studies, vacation, relocation, or "
     "mixed purposes), dynamically decides which research tools are relevant, gathers evidence "
     "from open data sources, deterministically scores and validates candidate destinations, and "
@@ -37,7 +37,7 @@ DESCRIPTION = (
 
 PURPOSE = (
     "Given a free-text request such as 'I want to spend three months somewhere in Europe where "
-    "I can work remotely, live without a car, and stay within €1,800 per month', PlaceMatch "
+    "I can work remotely, live without a car, and stay within €1,800 per month', DigitalNomadAgent "
     "extracts hard constraints and soft preferences, generates diverse candidate destinations, "
     "runs only the research tools relevant to this specific request (via the Agentic Research "
     "module), and produces a ranked shortlist with evidence-backed explanations."

@@ -32,7 +32,7 @@ def _block_real_network(request, monkeypatch):
 
 @pytest.fixture
 def app_instance(tmp_path, monkeypatch):
-    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test_placematch.db"))
+    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test_digitalnomadagent.db"))
     monkeypatch.setenv("MOCK_LLM", "true")
     monkeypatch.setenv("MAX_PROJECT_BUDGET_USD", "13")
     monkeypatch.setenv("MAX_LLM_CALLS_PER_REQUEST", "4")

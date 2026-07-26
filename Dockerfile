@@ -1,6 +1,6 @@
-# PlaceMatch -- production-ready image.
-# Build:  docker build -t placematch .
-# Run:    docker run --rm -p 8000:8000 --env-file .env placematch
+# DigitalNomadAgent -- production-ready image.
+# Build:  docker build -t digitalnomadagent .
+# Run:    docker run --rm -p 8000:8000 --env-file .env digitalnomadagent
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -24,7 +24,7 @@ USER appuser
 
 # Safe default: never spend real money unless explicitly overridden at deploy time.
 ENV MOCK_LLM=true \
-    SQLITE_PATH=/app/data/placematch.db \
+    SQLITE_PATH=/app/data/digitalnomadagent.db \
     APP_PORT=8000 \
     AGENT_EXECUTION_TIMEOUT_SECONDS=285 \
     RECOMMENDATION_RESERVE_SECONDS=60 \

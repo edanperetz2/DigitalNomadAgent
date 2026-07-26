@@ -1,4 +1,4 @@
-# PlaceMatch — Autonomous Evidence-Based Place Recommendation Agent
+# DigitalNomadAgent — Autonomous Evidence-Based Place Recommendation Agent
 
 An autonomous AI agent that recommends cities, regions, or destinations from unrestricted
 natural-language requests: remote work, studies, vacation, temporary relocation, family/cultural/
@@ -32,11 +32,11 @@ Given a prompt like:
 > "I want to spend three months somewhere in Europe where I can work remotely, live without a car,
 > and stay within €1,800 per month."
 
-PlaceMatch interprets the request, extracts hard constraints (budget cap, car-free) and soft
+DigitalNomadAgent interprets the request, extracts hard constraints (budget cap, car-free) and soft
 preferences, then runs a 3-stage candidate-discovery funnel: one LLM call proposes up to 30 broad
 candidates, a cheap deterministic filter (geocoding verification, region checks, budget ranking —
 no LLM, no expensive tools) narrows these down, and up to 8 finalists proceed to full research.
-PlaceMatch decides *which* research tools are actually relevant to this request (not a fixed list —
+DigitalNomadAgent decides *which* research tools are actually relevant to this request (not a fixed list —
 see `ARCHITECTURE.md` §3), gathers evidence from open data sources, verifies destination identity,
 scores candidates (deterministically for climate/work-infrastructure/timezone/student-life/safety,
 via one batched LLM call for cost/transportation/accessibility/activities), validates them, and
@@ -335,15 +335,15 @@ a syntactically valid URL — **without making any paid request at startup.**
 ## Docker
 
 ```powershell
-docker build -t placematch .
-docker run --rm -p 8000:8000 --env-file .env placematch
+docker build -t digitalnomadagent .
+docker run --rm -p 8000:8000 --env-file .env digitalnomadagent
 ```
 
 The image defaults to `MOCK_LLM=true` so a container never spends real money unless you explicitly
 override it. `SQLITE_PATH` is configurable and can be mounted as a volume for persistence:
 
 ```powershell
-docker run --rm -p 8000:8000 --env-file .env -v ${PWD}/data:/app/data placematch
+docker run --rm -p 8000:8000 --env-file .env -v ${PWD}/data:/app/data digitalnomadagent
 ```
 
 ## Deployment
@@ -359,7 +359,7 @@ The course spec requires deploying on **Vercel** specifically (not a general hos
 - **`functions.main.py.maxDuration = 300`** matches the spec's stated Vercel ceiling exactly — our
   own `AGENT_EXECUTION_TIMEOUT_SECONDS=285` already fits under this with margin.
 - **`env`** sets the same safe non-secret defaults as the Dockerfile (`MOCK_LLM=true`, timeouts).
-  `SQLITE_PATH=/tmp/placematch.db` is set here specifically because **Vercel's filesystem is
+  `SQLITE_PATH=/tmp/digitalnomadagent.db` is set here specifically because **Vercel's filesystem is
   read-only except `/tmp`, and `/tmp` resets on every cold start** — the local cache/evidence/
   budget-ledger SQLite database is not persistent across cold starts under Vercel. This is an
   accepted limitation, not a bug: the real budget backstop is the LLMod.ai account balance itself,
@@ -413,7 +413,7 @@ ordinary `pytest` runs.
 
 ## Legal and ethical limitations
 
-- PlaceMatch never claims live flight/hotel prices, guaranteed visa eligibility, guaranteed
+- DigitalNomadAgent never claims live flight/hotel prices, guaranteed visa eligibility, guaranteed
   university admission, guaranteed safety, or exact current housing costs/travel times. Visa,
   entry, and immigration wording is always cautious and directs the user to verify with the
   relevant official authorities directly.

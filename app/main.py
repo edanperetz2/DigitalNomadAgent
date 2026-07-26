@@ -177,7 +177,7 @@ async def lifespan(app: FastAPI):
         recommendation_reserve_seconds=settings.recommendation_reserve_seconds,
     )
 
-    logger.info("PlaceMatch started (mock_llm=%s)", settings.mock_llm)
+    logger.info("DigitalNomadAgent started (mock_llm=%s)", settings.mock_llm)
     yield
     await db.close()
 
@@ -185,7 +185,7 @@ async def lifespan(app: FastAPI):
 def create_app(*, tool_registry_override=None, llm_client_override=None) -> FastAPI:
     """Build the FastAPI app. Test code may inject a fake tool registry and/or
     LLM client so `pytest` never makes real network or paid LLM calls."""
-    app = FastAPI(title="PlaceMatch", lifespan=lifespan)
+    app = FastAPI(title="DigitalNomadAgent", lifespan=lifespan)
     app.state.tool_registry_override = tool_registry_override
     app.state.llm_client_override = llm_client_override
 

@@ -1,6 +1,6 @@
-# PlaceMatch — Architecture
+# DigitalNomadAgent — Architecture
 
-This document explains how PlaceMatch is built and, more importantly, *why* it is an autonomous
+This document explains how DigitalNomadAgent is built and, more importantly, *why* it is an autonomous
 agent rather than a fixed pipeline. See `assets/model_architecture.png` (also served at
 `GET /api/model_architecture`) for the visual diagram.
 
@@ -218,7 +218,7 @@ claims to know the real provider-side balance (see README "Budget control").
 
 ## 9. SQLite usage
 
-One database (`SQLITE_PATH`, default `./data/placematch.db`) with three tables, created idempotently
+One database (`SQLITE_PATH`, default `./data/digitalnomadagent.db`) with three tables, created idempotently
 at startup (`app/evidence/database.py`): `evidence` (Evidence Memory), `tool_cache` (generic
 per-tool cache with per-source TTLs), and `llm_usage` (the budget ledger). WAL mode is enabled to
 avoid "database is locked" errors under concurrent requests.

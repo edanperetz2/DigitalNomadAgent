@@ -1,6 +1,6 @@
-# PlaceMatch Tool Completion Master Plan
+# DigitalNomadAgent Tool Completion Master Plan
 
-This document is the canonical scope and status tracker for completing the PlaceMatch tools without invoking a real LLM. Any scope or ordering change requires user approval before implementation.
+This document is the canonical scope and status tracker for completing the DigitalNomadAgent tools without invoking a real LLM. Any scope or ordering change requires user approval before implementation.
 
 ## Non-negotiable end-to-end runtime requirement
 
@@ -52,7 +52,7 @@ Planned commit: `chore(tools): add shared tool infrastructure and master plan`
 - Version cache keys so incompatible cached response contracts are not reused.
 - Add reusable JSON HTTP, MediaWiki, Overpass, rate-limit, response-parsing, and test-injection helpers.
 - Serialize Nominatim candidate requests at one request per second in accordance with its usage policy.
-- Configure the shared Overpass client for at most two application-side concurrent requests and endpoint failover. This is a conservative PlaceMatch default, not a provider-mandated limit.
+- Configure the shared Overpass client for at most two application-side concurrent requests and endpoint failover. This is a conservative DigitalNomadAgent default, not a provider-mandated limit.
 - Keep all shared clients, retry waits, semaphores, and persistence operations cancellable under the single 285-second agent deadline; no helper may create a detached request that outlives cancellation.
 - Mark the two production-data tests skipped only when their files are absent. The separate live SLA test is also skipped unless explicitly enabled, yielding three expected skips in a normal offline run until those datasets arrive.
 
@@ -187,7 +187,7 @@ Planned commit: `Education options tool: remove redundant study matching`
 - Treat nearby study infrastructure as AmenitiesTool's responsibility: study requests already select independent university and library counts and score student life from those supported categories.
 - Route both `education` and `student_life` research concerns to AmenitiesTool. Do not introduce Wikidata, university-site, or Wikivoyage `Learn` calls for a second overlapping education tool.
 - Remove `study_field` from PlaceRequestProfile, the real interpreter contract, the deterministic mock, agent-info examples, and tests. Do not extract, store, or use an academic field for candidate generation or tool selection.
-- Study-purpose requests must not ask a blocking clarification about an academic field. PlaceMatch will recommend destinations from general study infrastructure and the user's ordinary constraints and preferences, not specialize recommendations by discipline.
+- Study-purpose requests must not ask a blocking clarification about an academic field. DigitalNomadAgent will recommend destinations from general study infrastructure and the user's ordinary constraints and preferences, not specialize recommendations by discipline.
 - Make no claims about current programs, admissions, academic eligibility, or field availability from university/library proximity counts.
 - Remove the obsolete five-city curated university directory and its deterministic `0.8`/`0.4` match heuristic.
 - Test study selection without EducationOptionsTool, AmenitiesTool routing for education and student-life concerns, study requests without field clarification, profile-schema removal, registry/fake removal, unchanged public endpoint shapes, and the absence of education-program claims.

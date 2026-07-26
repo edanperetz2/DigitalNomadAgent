@@ -1,7 +1,7 @@
 [project]
-name = "placematch"
+name = "digitalnomadagent"
 version = "0.1.0"
-description = "PlaceMatch — Autonomous Evidence-Based Place Recommendation Agent"
+description = "DigitalNomadAgent — Autonomous Evidence-Based Place Recommendation Agent"
 requires-python = ">=3.11"
 readme = "README.md"
 

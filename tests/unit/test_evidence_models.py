@@ -43,7 +43,7 @@ async def test_each_explicit_source_item_is_persisted_independently():
     result = ToolResult(
         tool_name="SafetyTool",
         place="Lisbon",
-        source_name="PlaceMatch safety composite",
+        source_name="DigitalNomadAgent safety composite",
         retrieved_at=datetime.now(UTC),
         evidence_items=[
             EvidenceItem(

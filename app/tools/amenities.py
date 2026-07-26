@@ -12,7 +12,7 @@ from app.tools.overpass_client import OverpassClient
 
 RADIUS_M = 3000
 OVERPASS_SOURCE_URL = "https://wiki.openstreetmap.org/wiki/Overpass_API"
-CATEGORY_REGISTRY_SOURCE = "PlaceMatch amenity category registry"
+CATEGORY_REGISTRY_SOURCE = "DigitalNomadAgent amenity category registry"
 
 # User text never reaches query construction directly; only these bounded OSM
 # selectors can be interpolated into an Overpass request.

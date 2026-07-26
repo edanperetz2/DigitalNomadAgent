@@ -276,7 +276,7 @@ class TransportAccessTool:
                         "straight_line_distance_km": distance_km,
                     },
                     source=EvidenceSource(
-                        source_name="Open-Meteo origin resolution and PlaceMatch Haversine calculation",
+                        source_name="Open-Meteo origin resolution and DigitalNomadAgent Haversine calculation",
                         source_url=GEOCODING_SOURCE_URL,
                         retrieved_at=origin.retrieved_at,
                         confidence="medium",

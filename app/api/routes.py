@@ -1,4 +1,4 @@
-"""The 4 required PlaceMatch API endpoints. Paths and shapes are exact and
+"""The 4 required DigitalNomadAgent API endpoints. Paths and shapes are exact and
 must never be renamed or restructured."""
 
 from __future__ import annotations

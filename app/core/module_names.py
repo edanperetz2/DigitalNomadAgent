@@ -1,4 +1,4 @@
-"""Single source of truth for canonical PlaceMatch architecture module names.
+"""Single source of truth for canonical DigitalNomadAgent architecture module names.
 
 These exact strings must be used everywhere the architecture is referenced:
 source code, the architecture diagram, /api/agent_info, LLM-call tracing,

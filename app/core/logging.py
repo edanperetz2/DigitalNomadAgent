@@ -44,7 +44,7 @@ class RedactingFilter(logging.Filter):
 
 
 def configure_logging(level: int = logging.INFO) -> logging.Logger:
-    logger = logging.getLogger("placematch")
+    logger = logging.getLogger("digitalnomadagent")
     logger.setLevel(level)
     if not logger.handlers:
         handler = logging.StreamHandler()

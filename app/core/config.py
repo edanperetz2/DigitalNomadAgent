@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     upstream_request_timeout_seconds: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
     # --- Storage / server -----------------------------------------------------------
-    sqlite_path: str = "./data/placematch.db"
+    sqlite_path: str = "./data/digitalnomadagent.db"
     app_port: int = 8000
 
     # --- Request limits ---------------------------------------------------------------
