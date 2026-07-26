@@ -245,6 +245,23 @@ automatically** by tests, installation, or app startup.
 python scripts/check_llmod_connection.py
 ```
 
+### Golden-set evaluation harness
+
+`scripts/golden_set/` is a fixed, representative prompt set (one per purpose plus edge cases:
+clarification-required, an unaffordable hard budget, an excluded region, a car-free requirement)
+with a structural comparison scorer — it checks contractual properties (right modules ran, no
+stale placeholder text, no banned claims, finalist count in bounds) rather than exact text, since
+LLM output is non-deterministic. It also runs as a normal pytest case
+(`tests/integration/test_golden_set_harness.py`), so a pipeline regression fails the test suite too.
+
+```powershell
+# Default: MockLLMClient, zero cost, safe anytime.
+python scripts/run_golden_set.py
+
+# Real LLMod.ai provider -- sends one real request per case, consumes course credit. Opt-in only.
+python scripts/run_golden_set.py --real
+```
+
 ---
 
 ## Budget control
