@@ -37,7 +37,6 @@ from app.tools.geocoding import GeocodingTool
 from app.tools.http_client import JsonHttpClient
 from app.tools.local_mobility import LocalMobilityTool
 from app.tools.mediawiki_client import WIKIVOYAGE_API, MediaWikiClient
-from app.tools.official_sources import OfficialSourceTool
 from app.tools.origin_resolution import OriginResolver
 from app.tools.overpass_client import OverpassClient
 from app.tools.place_context import PlaceContextTool
@@ -129,7 +128,6 @@ def _build_tool_registry(
             http=http,
             wikivoyage=wikivoyage_sections,
         ),
-        "OfficialSourceTool": OfficialSourceTool(),
     }
     return ToolRegistry(
         tools,

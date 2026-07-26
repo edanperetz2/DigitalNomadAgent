@@ -100,7 +100,6 @@ _ACCESSIBILITY_TRIGGER_WORDS = [
     "remote",
     "remoteness",
 ]
-_VISA_TRIGGER_WORDS = ["visa"]
 _SAFETY_TRIGGER_WORDS = ["safety", "safe", "crime", "danger", "security"]
 
 
@@ -150,12 +149,5 @@ def select_tools(profile: PlaceRequestProfile) -> set[str]:
 
     if any(w in haystack for w in _ACCESSIBILITY_TRIGGER_WORDS):
         tools.add("TransportAccessTool")
-
-    if (
-        profile.nationality
-        or any(w in haystack for w in _VISA_TRIGGER_WORDS)
-        or "study" in purposes
-    ):
-        tools.add("OfficialSourceTool")
 
     return tools

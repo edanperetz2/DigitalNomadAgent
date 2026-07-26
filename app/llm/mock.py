@@ -359,7 +359,7 @@ _SEED_CANDIDATES: dict[str, list[dict]] = {
         },
         {
             "place_name": "Tbilisi", "country": "Georgia",
-            "reason_for_inclusion": "Budget-oriented alternative with visa-friendly entry for many nationalities.",
+            "reason_for_inclusion": "Budget-oriented alternative with a growing remote-work and coworking scene.",
             "expected_strengths": ["low cost of living", "growing coworking scene"],
             "likely_weakness": "Fewer direct international flight connections.",
             "criteria_to_verify": ["cost", "transportation"],

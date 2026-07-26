@@ -260,8 +260,7 @@ python scripts/check_llmod_connection.py
   (climate evidence), OpenStreetMap Overpass (amenities/activities/accessibility density), Wikivoyage
   MediaWiki API (revision-pinned context), GOV.UK and World Bank (safety), WhereNext (typed city-price
   and country cost context), and Frankfurter (budget currency conversion).
-- **Local/curated (no network)**: `app/data/official_sources.json` (curated official
-  tourism/immigration links, pending removal) and deterministic offline fakes for tests.
+- **Local/curated (no network)**: deterministic offline fakes for tests.
 
 All outbound requests are restricted to an explicit domain allow-list with SSRF protections
 (`app/core/security.py`) — there is no generic URL-fetch tool anywhere in the codebase.
@@ -370,8 +369,8 @@ ordinary `pytest` runs.
 
 - PlaceMatch never claims live flight/hotel prices, guaranteed visa eligibility, guaranteed
   university admission, guaranteed safety, or exact current housing costs/travel times. Visa,
-  entry, and immigration wording is always cautious and directs the user to official sources
-  (`app/data/official_sources.json`, `OfficialSourceTool`).
+  entry, and immigration wording is always cautious and directs the user to verify with the
+  relevant official authorities directly.
 - External retrieved content (Wikivoyage excerpts, etc.) is always treated as untrusted evidence,
   never as instructions — every LLM system prompt explicitly says so.
 - No user data is persisted beyond what is necessary for evidence caching and the local budget

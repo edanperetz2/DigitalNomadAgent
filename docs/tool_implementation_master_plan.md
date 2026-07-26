@@ -221,7 +221,7 @@ Planned commit: `Budget fit tool: replace local estimates with live cost context
 - Cap WhereNext city evidence at medium confidence because it is a third-party researched/modelled dataset with detailed coverage for only 57 cities; cap the country fallback at low. Do not use Numbeo scraping or its paid/keyed API, and do not substitute a broad purchasing-power score for direct city prices.
 - Test city identity and aliases, coverage-index reuse, every returned category, missing items, fixed-cost scenario composition, country fallback labelling, dataset metadata and attribution, FX coalescing/conversion/failure, cache/stale fallback, partial failures, timeouts, source persistence, unresolved scoring, hard-budget behavior, fakes, registry wiring, and removal of the local-data skip.
 
-### 13. OfficialSourceTool — DROPPED
+### 13. OfficialSourceTool — DROPPED (removal landed)
 
 Planned commit: `Official source tool: remove unused curated link lookup`
 
@@ -234,8 +234,7 @@ Planned commit: `Official source tool: remove unused curated link lookup`
 ## Per-commit verification
 
 - Focused unit/contract tests use recorded or injected responses and never access the network.
-- Full `pytest -q` remains green. Until the OfficialSourceTool removal lands, its obsolete
-  production-data check and the explicitly opt-in live SLA check remain skipped. The final steady
+- Full `pytest -q` remains green. The OfficialSourceTool removal has landed; the final steady
   state has only the live SLA check skipped by default.
 - `ruff check .` passes.
 - Applicable live smoke checks run serially against known destinations and use only free APIs.
