@@ -1,0 +1,12 @@
+﻿services:
+  digitalnomadagent:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - digitalnomadagent-data:/app/data
+
+volumes:
+  digitalnomadagent-data:

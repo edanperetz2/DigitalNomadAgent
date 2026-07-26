@@ -26,6 +26,7 @@ from app.core.logging import logger
 from app.evidence.cache import ToolCache
 from app.evidence.database import Database
 from app.evidence.memory import EvidenceMemory
+from app.evidence.saved_searches import SavedSearchStore
 from app.llm.base import BaseLLMClient
 from app.llm.budget import BudgetManager
 from app.llm.llmod import LLModClient
@@ -207,7 +208,8 @@ def create_app(*, tool_registry_override=None, llm_client_override=None) -> Fast
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:
-        return templates.TemplateResponse(request, "index.html", {})
+        sessions = await SavedSearchStore(request.app.state.db).list_sessions()
+        return templates.TemplateResponse(request, "index.html", {"saved_search_sessions": sessions})
 
     return app
 

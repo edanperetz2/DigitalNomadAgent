@@ -3,69 +3,183 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DigitalNomadAgent — Autonomous Evidence-Based Place Recommendation Agent</title>
+  <title>DigitalNomadAgent &mdash; Autonomous Evidence-Based Place Recommendation Agent</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-  <main class="page">
-    <header class="page-header">
-      <h1>DigitalNomadAgent</h1>
-      <p class="subtitle">Autonomous Evidence-Based Place Recommendation Agent</p>
-      <p class="description">
-        Describe what you're looking for &mdash; remote work, studies, vacation, relocation, or a
-        mix &mdash; in plain language. DigitalNomadAgent will interpret your request, decide which
-        research is relevant, gather evidence from open data sources, and return ranked,
-        explainable recommendations with sources and trade-offs. Every run is bounded to finish
-        in under 300 seconds; slow research is stopped and disclosed instead of blocking the
-        available recommendations.
-      </p>
-      <nav class="links" aria-label="Agent resources">
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Conversation sidebar">
+      <div class="brand-row">
+        <a class="brand" href="/" aria-label="DigitalNomadAgent home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" role="img" focusable="false">
+              <path d="M7.5 4.5 3.8 8.2v7.5l3.7 3.8 3.2-3.2 3.1 3.2 6.4-6.4V5.6L16.4 2l-3.1 3.1L10.2 2 7.5 4.5Z" />
+              <path d="M7.7 5.1v10.4m5.6-9.8v10.6m3-13.4v10.3m-12.1 2.5 3.5-.2 5.6.8 6.5-3.3" />
+              <path d="M8.2 11.5a2.2 2.2 0 1 0 4.4 0 2.2 2.2 0 0 0-4.4 0Z" />
+            </svg>
+          </span>
+          <span>Digital Nomad</span>
+        </a>
+      </div>
+
+      <section class="sidebar-section" aria-labelledby="recent-heading">
+        <h2 id="recent-heading">Recent AI Conversations</h2>
+        <div id="history-list" class="conversation-list dynamic-history" hidden></div>
+        <button class="view-all-btn" type="button" id="view-all-conversations">
+          <span aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+            </svg>
+          </span>
+          <span>View all conversations</span>
+          <span aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          </span>
+        </button>
+      </section>
+
+      <nav class="resource-links" aria-label="Agent resources">
         <a href="/api/team_info">Team info</a>
         <a href="/api/agent_info">Agent info</a>
         <a href="/api/model_architecture">Architecture diagram</a>
       </nav>
-    </header>
+    </aside>
 
-    <section class="examples" aria-label="Example prompts">
-      <h2>Try an example</h2>
-      <div class="example-buttons">
-        <button type="button" class="example-btn" data-example="remote_work">Remote work</button>
-        <button type="button" class="example-btn" data-example="study">Study</button>
-        <button type="button" class="example-btn" data-example="vacation">Vacation</button>
-      </div>
-    </section>
+    <main class="app-main">
+      <header class="topbar" aria-label="Page actions">
+        <button class="theme-button" id="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M20.5 14.4A7.7 7.7 0 0 1 9.6 3.5 8.5 8.5 0 1 0 20.5 14.4Z" />
+          </svg>
+        </button>
+      </header>
 
-    <section class="request-form" aria-label="Request form">
-      <form id="execute-form">
-        <label for="prompt-input">Describe your request</label>
-        <textarea
-          id="prompt-input"
-          name="prompt"
-          rows="5"
-          maxlength="4000"
-          placeholder="e.g. I want to spend three months somewhere in Europe where I can work remotely, live without a car, and stay within €1,800 per month."
-          required
-        ></textarea>
-        <button type="submit" id="submit-btn">Get recommendations</button>
-      </form>
-      <div id="loading-indicator" class="loading" hidden>
-        <span class="spinner" aria-hidden="true"></span>
-        <p id="loading-stage">Thinking through your request&hellip;</p>
-      </div>
-      <p id="error-display" class="error" role="alert" hidden></p>
-    </section>
+      <section id="home-view" class="home-view" aria-label="Request recommendations">
+        <div class="hero-content">
+          <h1>Live. Work. Explore.<br /><span>Anywhere.</span></h1>
+          <p class="hero-copy">
+            Your AI travel companion for the digital nomad lifestyle.<br />
+            Get personalized recommendations, costs, visas and more.
+          </p>
 
-    <section id="results" class="results" aria-label="Recommendations" hidden>
-      <h2>Recommendations</h2>
-      <div id="results-content"></div>
+          <section class="request-form" aria-label="Request form">
+            <form id="execute-form">
+              <label for="prompt-input">Describe your request</label>
+              <div class="prompt-box">
+                <textarea
+                  id="prompt-input"
+                  name="prompt"
+                  rows="7"
+                  maxlength="4000"
+                  placeholder="e.g. I want to spend three months somewhere in Europe where I can work remotely, live without a car, and stay within &euro;1,800 per month."
+                  required
+                ></textarea>
+                <button type="submit" id="submit-btn" aria-label="Get recommendations">
+                  <span class="submit-label">Get recommendations</span>
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="m21 3-8.4 18-2.5-8.1L3 10.4 21 3Z" />
+                    <path d="m10.1 12.9 4.7-4.7" />
+                  </svg>
+                </button>
+              </div>
+            </form>
+            <div id="loading-indicator" class="loading" hidden>
+              <span class="spinner" aria-hidden="true"></span>
+              <p id="loading-stage">Thinking through your request...</p>
+            </div>
+            <p id="error-display" class="error" role="alert" hidden></p>
+          </section>
+        </div>
 
-      <details id="steps-details" class="steps">
-        <summary>Execution steps</summary>
-        <div id="steps-content"></div>
-      </details>
-    </section>
-  </main>
+        <section class="feature-strip" aria-label="Highlights">
+          <article class="feature-item">
+            <span class="feature-icon feature-blue" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M12 3 9.8 8.8 4 11l5.8 2.2L12 19l2.2-5.8L20 11l-5.8-2.2L12 3Z" />
+                <path d="M19 3v4M17 5h4" />
+              </svg>
+            </span>
+            <span>
+              <strong>AI-Powered Insights</strong>
+              <small>Smart recommendations tailored to your lifestyle and budget.</small>
+            </span>
+          </article>
+          <article class="feature-item">
+            <span class="feature-icon feature-green" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M12 3 5 6v5.8c0 4.3 2.8 7.8 7 9.2 4.2-1.4 7-4.9 7-9.2V6l-7-3Z" />
+                <path d="m9 12 2 2 4-5" />
+              </svg>
+            </span>
+            <span>
+              <strong>Trusted &amp; Up-to-Date</strong>
+              <small>Real-time visa, cost, and safety information you can rely on.</small>
+            </span>
+          </article>
+          <article class="feature-item">
+            <span class="feature-icon feature-purple" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M16 11a4 4 0 1 0-8 0" />
+                <path d="M4 20a8 8 0 0 1 16 0" />
+                <path d="M18 8a3 3 0 0 1 0 6" />
+                <path d="M22 20a6 6 0 0 0-4-5.7" />
+              </svg>
+            </span>
+            <span>
+              <strong>Built for Nomads</strong>
+              <small>From first destination to long-term stays, we have got you.</small>
+            </span>
+          </article>
+        </section>
+      </section>
 
+      <section id="conversations-view" class="conversations-view" aria-label="All conversations" hidden>
+        <div class="conversations-shell">
+          <button id="conversations-back" class="back-link" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="m15 18-6-6 6-6" />
+              <path d="M20 12H9" />
+            </svg>
+            <span>Back to chat</span>
+          </button>
+          <h1>AI Conversations</h1>
+          <div id="all-conversations-list" class="all-conversations-list"></div>
+        </div>
+      </section>
+
+      <section id="results" class="results-view" aria-label="Recommendations" hidden>
+        <div class="results-shell">
+          <div class="results-heading-row">
+            <button id="back-to-chat" class="back-link" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="m15 18-6-6 6-6" />
+                <path d="M20 12H9" />
+              </svg>
+              <span>Back to chat</span>
+            </button>
+          </div>
+
+          <div class="results-title-row">
+            <div>
+              <h1>AI Recommendation Results</h1>
+              <p id="user-request-display" class="results-subtitle"></p>
+            </div>
+          </div>
+
+          <div id="results-content"></div>
+
+          <details id="steps-details" class="steps">
+            <summary>Execution steps</summary>
+            <div id="steps-content"></div>
+          </details>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script id="saved-search-sessions" type="application/json">{{ saved_search_sessions | default([]) | tojson }}</script>
   <script src="/static/app.js"></script>
 </body>
 </html>
