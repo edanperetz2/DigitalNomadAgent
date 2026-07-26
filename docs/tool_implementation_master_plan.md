@@ -258,3 +258,16 @@ Planned commit: `Official source tool: remove unused curated link lookup`
 - For a tool whose criterion has a directly relevant Wikivoyage section, return its structured evidence plus a revision-pinned short preview, heading-aware reasoning chunks, and explicit coverage/truncation metadata as separately attributable evidence. Preserve up to 20,000 cleaned characters per section and distribute a truncated budget across subsections instead of keeping only the beginning. Evidence tools do not translate community-written prose into scores. The future reasoning agent will compare the sources and explain its aggregate judgment; until that backbone exists, the contextual evidence remains visible but numerically unresolved and cannot cause hard elimination.
 - Change the order only through an approved master-plan revision.
 - Each tool is implemented in one commit; the shared foundation and the explicitly approved shared Wikivoyage context-coverage follow-up are the only approved non-tool commits.
+
+## Status: tool-implementation phase complete
+
+Every unit above has landed (including OfficialSourceTool's removal). This document's own scope
+boundary above ("Do not invoke a real LLM or LLMod during this sequence") and line 258's "until
+that backbone exists, the contextual evidence remains visible but numerically unresolved" are now
+intentionally superseded, not violated: the tool-implementation phase this document governs is
+finished, and a new phase has begun implementing exactly the "future reasoning agent" this document
+anticipated -- a single batched Dynamic Evaluation LLM call that scores cost/transportation/
+accessibility/activities for every finalist and can now produce real hard-constraint eliminations.
+See `ARCHITECTURE.md` §1/§4 and `app/agent/dynamic_evaluation.py` for the current, load-bearing
+description of that phase; this document remains the historical record of how the tool suite itself
+was built and verified, not a live description of current scoring behavior.
