@@ -12,10 +12,34 @@ def test_normal_case_passes_with_expected_shape():
     data = {
         "status": "ok",
         "response": _NORMAL_RESPONSE,
-        "steps": [{"module": "Request Interpreter"}],
+        "steps": [
+            {
+                "module": "Request Interpreter",
+                "prompt": {"System_prompt": "sys", "User_prompt": "usr"},
+                "response": {},
+            }
+        ],
     }
     result = score_case(case, data, max_finalists=8)
     assert result.passed, result.failures
+
+
+def test_wrong_step_prompt_key_names_fail_the_case():
+    case = GoldenCase(name="bad_schema", prompt="p", expected_modules=frozenset({"Request Interpreter"}))
+    data = {
+        "status": "ok",
+        "response": _NORMAL_RESPONSE,
+        "steps": [
+            {
+                "module": "Request Interpreter",
+                "prompt": {"system": "sys", "user": "usr"},  # wrong: not System_prompt/User_prompt
+                "response": {},
+            }
+        ],
+    }
+    result = score_case(case, data, max_finalists=8)
+    assert not result.passed
+    assert any(c.check == "step_schema_matches_spec" for c in result.failures)
 
 
 def test_stale_placeholder_fails_the_case():

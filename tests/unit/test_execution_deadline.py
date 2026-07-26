@@ -56,7 +56,7 @@ async def test_orchestrator_cancels_active_work_and_preserves_completed_steps(mo
         execution_trace.append(
             {
                 "module": "Request Interpreter",
-                "prompt": {"system": "test", "user": "test"},
+                "prompt": {"System_prompt": "test", "User_prompt": "test"},
                 "response": {"purpose": "vacation"},
             }
         )

@@ -32,10 +32,14 @@ def _estimate_tokens(messages: list[dict]) -> int:
 
 
 def _sanitize_prompt(messages: list[dict]) -> dict:
-    """Compact, secret-free representation of what was sent to the LLM."""
+    """Compact, secret-free representation of what was sent to the LLM.
+
+    Key names (System_prompt/User_prompt) match the course spec's required
+    step object schema verbatim -- do not rename to snake_case.
+    """
     system = next((m["content"] for m in messages if m.get("role") == "system"), "")
     user = next((m["content"] for m in messages if m.get("role") == "user"), "")
-    return {"system": redact(system), "user": redact(user)}
+    return {"System_prompt": redact(system), "User_prompt": redact(user)}
 
 
 async def traced_llm_call(

@@ -31,6 +31,9 @@ def test_remote_work_prompt_returns_recommendations(client):
     # cost/transportation/accessibility/activities must be genuinely resolved, not left as the
     # old "scoring awaits the LLM reasoning contract" placeholder from before this call existed.
     assert "awaits the LLM reasoning contract" not in data["response"]
+    # Course spec's required step schema -- exact key names, checked end-to-end.
+    for step in data["steps"]:
+        assert set(step["prompt"].keys()) == {"System_prompt", "User_prompt"}
 
 
 def test_finalist_count_never_exceeds_max_finalists(client):

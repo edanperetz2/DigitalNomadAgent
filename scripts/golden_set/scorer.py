@@ -79,13 +79,21 @@ def score_case(case: GoldenCase, response_data: dict, *, max_finalists: int) -> 
         return CaseResult(case_name=case.name, checks=checks)
 
     response_text = response_data.get("response") or ""
-    modules_called = {s.get("module") for s in response_data.get("steps", [])}
+    steps = response_data.get("steps", [])
+    modules_called = {s.get("module") for s in steps}
 
     checks.append(
         CheckResult(
             "expected_modules_ran",
             case.expected_modules <= modules_called,
             f"expected {sorted(case.expected_modules)}, got {sorted(modules_called)}",
+        )
+    )
+    checks.append(
+        CheckResult(
+            "step_schema_matches_spec",
+            all(set(s.get("prompt", {}).keys()) == {"System_prompt", "User_prompt"} for s in steps),
+            "course spec requires prompt keys System_prompt/User_prompt on every step",
         )
     )
 

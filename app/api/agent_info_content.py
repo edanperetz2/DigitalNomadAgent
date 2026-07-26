@@ -109,24 +109,24 @@ def _build_example(prompt_text: str) -> dict:
 
     interpreter_step = {
         "module": REQUEST_INTERPRETER,
-        "prompt": {"system": _INTERPRETER_PROMPT_SUMMARY, "user": prompt_text},
+        "prompt": {"System_prompt": _INTERPRETER_PROMPT_SUMMARY, "User_prompt": prompt_text},
         "response": profile_dict,
     }
     research_step = {
         "module": AGENTIC_RESEARCH,
         "prompt": {
-            "system": "Propose up to 30 candidate destinations for the interpreted profile "
+            "System_prompt": "Propose up to 30 candidate destinations for the interpreted profile "
             "(a bulk recall step; a cheap non-LLM funnel narrows these down before research).",
-            "user": json.dumps({"profile": profile_dict}),
+            "User_prompt": json.dumps({"profile": profile_dict}),
         },
         "response": {"candidates": candidates},
     }
     dynamic_evaluation_step = {
         "module": DYNAMIC_EVALUATION,
         "prompt": {
-            "system": "Score cost, transportation, accessibility, and activities for every "
+            "System_prompt": "Score cost, transportation, accessibility, and activities for every "
             "finalist in one batched call, using evidence already collected by the tool suite.",
-            "user": json.dumps(
+            "User_prompt": json.dumps(
                 {"candidates": [{"place": c["place_name"], "country": c["country"]} for c in candidates]}
             ),
         },
@@ -145,8 +145,8 @@ def _build_example(prompt_text: str) -> dict:
     generator_step = {
         "module": RECOMMENDATION_GENERATOR,
         "prompt": {
-            "system": "Produce the final Markdown recommendation from the scored candidates.",
-            "user": json.dumps(payload),
+            "System_prompt": "Produce the final Markdown recommendation from the scored candidates.",
+            "User_prompt": json.dumps(payload),
         },
         "response": {"markdown": markdown},
     }
