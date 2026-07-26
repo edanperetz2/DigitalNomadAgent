@@ -38,19 +38,26 @@ transitions with structured conditions rather than a fixed sequence:
   discernible academic field). This short-circuits the rest of the pipeline — no candidates are
   generated, no tools run — and the response is simply the clarification question, still wrapped
   in the required four-field envelope.
-- **`planning_research → executing_tools`**: Agentic Research generates 4–5 diverse candidates
-  (one LLM call) and deterministically decides which of the 10 tools are relevant to *this*
-  request (`select_tools()` in `agentic_research.py`) — see §4 below for why this is deterministic.
+- **`planning_research → executing_tools`**: Agentic Research proposes up to `MAX_BULK_CANDIDATES`
+  (default 30) broad candidates in one LLM call, then `executing_tools` runs a cheap, zero-LLM
+  funnel (`app/agent/candidate_funnel.py`) — serial geocoding verification, a region-only
+  hard-constraint pre-check, and concurrent `BudgetFitTool` ranking — to narrow these down to
+  `MAX_FINALISTS` (default 8) before deterministically deciding which of the tools are relevant to
+  *this* request (`select_tools()` in `agentic_research.py`) — see §4 below for why tool selection
+  is deterministic.
 - **`executing_tools`**: `ToolRegistry.verify_candidates()` runs GeocodingTool first for every
-  candidate; unverifiable candidates are dropped. Only then are the other selected tools run,
-  concurrently, bounded by `MAX_CONCURRENT_TOOL_REQUESTS`.
+  bulk candidate; unverifiable candidates are dropped. The funnel then narrows the geocoded
+  survivors to the finalist count. Only then are the other selected tools run against the
+  finalists, concurrently, bounded by `MAX_CONCURRENT_TOOL_REQUESTS`.
 - **`validating → researching_gap`**: the Recommendation Validator (deterministic) can send control
   back to Agentic Research exactly once, only when a high-weight criterion is missing evidence for
-  a top-3 candidate. The orchestrator tracks a `gap_iteration_used` flag so this can never loop
-  more than once, satisfying the "at most one additional research iteration" requirement. Notably,
+  one of the top `MAX_FINAL_RECOMMENDATIONS` candidates. The orchestrator tracks a
+  `gap_iteration_used` flag so this can never loop more than once, satisfying the "at most one
+  additional research iteration" requirement. Notably,
   this gap round makes **zero** additional LLM calls — it re-runs only the specific missing
-  `(place, criterion)` tool calls — which keeps typical execution at 3 LLM calls total (Interpreter,
-  Agentic Research, Recommendation Generator), well under `MAX_LLM_CALLS_PER_REQUEST=4`.
+  `(place, criterion)` tool calls — which keeps typical execution at exactly 4 LLM calls total
+  (Interpreter, Agentic Research, Dynamic Evaluation, Recommendation Generator), at but never over
+  `MAX_LLM_CALLS_PER_REQUEST=4`, regardless of whether a gap round ran.
 - **`generating_response`**: the Recommendation Generator makes one LLM call with a compact,
   pre-scored payload (never raw tool output). If that call fails for any reason (budget refusal,
   provider error, malformed output after the repair attempt), a deterministic Python template
@@ -94,8 +101,12 @@ though the *code path* through the state machine is identical.
 
 The one place an LLM *is* used to shape the search space is candidate generation — deciding *which
 places* to consider — because that benefits from broader world knowledge than a rule table can
-encode. Even there, MockLLMClient's fallback is a curated, purpose-keyed seed list so the system
-remains fully testable offline.
+encode. This happens in one bulk call (up to `MAX_BULK_CANDIDATES`, default 30) rather than asking
+the LLM to also pick finalists: narrowing the bulk list down to `MAX_FINALISTS` is a separate,
+deterministic step (`app/agent/candidate_funnel.py`) so the expensive per-candidate tool suite only
+ever runs against a small, cheaply-vetted set. Even the bulk-recall step has a fallback:
+MockLLMClient's curated, purpose-keyed seed list (~30 entries per purpose) so the system remains
+fully testable offline.
 
 ## 4. Evidence Memory and Dynamic Evaluation
 
@@ -139,7 +150,7 @@ same inputs always produce the same score.
 `validate_recommendations()` is also a pure function. It checks: at least `max_final_recommendations`
 viable candidates when reasonably possible, every viable candidate has recorded drawbacks, ranking stability (top two
 scores within a small margin are flagged "uncertain"), and — most importantly — whether any
-high-weight criterion is missing evidence for a top-3 candidate. If so, and no gap iteration has
+high-weight criterion is missing evidence for one of the top `max_final_recommendations` candidates. If so, and no gap iteration has
 run yet, `should_research_again=True` triggers the `researching_gap` state described in §2. This
 is the feedback loop shown in the architecture diagram.
 

@@ -32,10 +32,14 @@ Given a prompt like:
 > and stay within €1,800 per month."
 
 PlaceMatch interprets the request, extracts hard constraints (budget cap, car-free) and soft
-preferences, generates 4–5 diverse candidate destinations, decides *which* research tools are
-actually relevant to this request (not a fixed list — see `ARCHITECTURE.md` §3), gathers evidence
-from open data sources, verifies destination identity, deterministically scores and validates
-candidates, and returns a ranked, explainable, source-cited Markdown recommendation.
+preferences, then runs a 3-stage candidate-discovery funnel: one LLM call proposes up to 30 broad
+candidates, a cheap deterministic filter (geocoding verification, region checks, budget ranking —
+no LLM, no expensive tools) narrows these down, and up to 8 finalists proceed to full research.
+PlaceMatch decides *which* research tools are actually relevant to this request (not a fixed list —
+see `ARCHITECTURE.md` §3), gathers evidence from open data sources, verifies destination identity,
+scores candidates (deterministically for climate/work-infrastructure/timezone/student-life/safety,
+via one batched LLM call for cost/transportation/accessibility/activities), validates them, and
+returns a ranked, explainable, source-cited Markdown recommendation.
 
 ### Supported request types
 
@@ -206,6 +210,9 @@ All variables are documented with safe defaults or empty placeholders in `.env.e
 | `MAX_PROJECT_BUDGET_USD` | Local hard cap, default `13` (the course budget) |
 | `MAX_LLM_CALLS_PER_REQUEST` | Default `4` |
 | `LLM_INPUT_COST_PER_1M`, `LLM_OUTPUT_COST_PER_1M` | Used only for conservative local cost *estimation* |
+| `MAX_BULK_CANDIDATES` | Stage-1 bulk candidate-recall size (still one LLM call); default `30` |
+| `MAX_FINALISTS` | Stage-3 finalist count that gets full research + scoring; default `8`, validated against real Overpass/Nominatim latency |
+| `MAX_FINAL_RECOMMENDATIONS` | Candidates actually presented in the response; default `8` |
 | `AGENT_EXECUTION_TIMEOUT_SECONDS` | Complete backend agent deadline; default and maximum `285` seconds |
 | `RECOMMENDATION_RESERVE_SECONDS` | Time reserved after research for scoring/rendering; default `60` seconds |
 | `TOOL_EXECUTION_TIMEOUT_SECONDS` | Complete budget for one tool/candidate invocation; default `50` seconds |
@@ -359,8 +366,10 @@ ordinary `pytest` runs.
   unmapped origin results in an honest "timezone overlap unknown" rather than a guess.
 - The deterministic keyword-based Request Interpreter used by `MockLLMClient` is a simplified stand-in
   for the real LLMod.ai model; real LLM output will generally extract richer nuance.
-- Candidate discovery draws from a modest curated seed pool per purpose (both in `MockLLMClient` and
-  as a grounding aid for the real model); it is not an exhaustive global city database.
+- Candidate discovery's Stage 1 draws from a curated seed pool per purpose in `MockLLMClient`
+  (~30 entries per purpose, mirroring the real bulk-recall step's target size); it is not an
+  exhaustive global city database, so offline/mock runs see a fixed set of destinations rather
+  than the real model's broader knowledge.
 - Safety evidence combines a current FCDO advisory, the latest available World Bank/UNODC
   country homicide rate, and revision-pinned Wikivoyage city context. The result requires at
   least two sources and is presented as comparative evidence, never a universal city-safety rating.
