@@ -1,12 +1,12 @@
 ﻿services:
-  placematch:
+  digitalnomadagent:
     build: .
     ports:
       - "8000:8000"
     env_file:
       - .env
     volumes:
-      - placematch-data:/app/data
+      - digitalnomadagent-data:/app/data
 
 volumes:
-  placematch-data:
+  digitalnomadagent-data:

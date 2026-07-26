@@ -68,7 +68,7 @@ async def execute(payload: ExecuteRequest, request: Request, response: Response)
                 "steps": [step.model_dump(mode="json") for step in steps],
             },
         )
-        response.headers["X-PlaceMatch-Session-Id"] = session["id"]
+        response.headers["X-DigitalNomadAgent-Session-Id"] = session["id"]
 
     return ExecuteResponse(
         status=result.status,

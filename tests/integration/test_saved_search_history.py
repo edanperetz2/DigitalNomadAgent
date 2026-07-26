@@ -24,7 +24,7 @@ def test_successful_search_is_persisted_and_reloaded(client):
 
     assert set(data_a) == {"status", "error", "response", "steps"}
     assert data_a["status"] == "ok"
-    session_id_a = response_a.headers["X-PlaceMatch-Session-Id"]
+    session_id_a = response_a.headers["X-DigitalNomadAgent-Session-Id"]
 
     refreshed_sessions = _saved_sessions(client.get("/").text)
     assert len(refreshed_sessions) == 1
@@ -39,15 +39,15 @@ def test_multiple_searches_survive_refresh_without_duplicates(client):
     prompt_b = "Find a warm coastal city with coworking for one month."
 
     response_a = client.post("/api/execute", json={"prompt": prompt_a})
-    session_id_a = response_a.headers["X-PlaceMatch-Session-Id"]
+    session_id_a = response_a.headers["X-DigitalNomadAgent-Session-Id"]
     response_b = client.post("/api/execute", json={"prompt": prompt_b})
-    session_id_b = response_b.headers["X-PlaceMatch-Session-Id"]
+    session_id_b = response_b.headers["X-DigitalNomadAgent-Session-Id"]
 
     sessions = _saved_sessions(client.get("/").text)
     assert [session["id"] for session in sessions] == [session_id_b, session_id_a]
 
     repeat_response_a = client.post("/api/execute", json={"prompt": prompt_a})
-    assert repeat_response_a.headers["X-PlaceMatch-Session-Id"] == session_id_a
+    assert repeat_response_a.headers["X-DigitalNomadAgent-Session-Id"] == session_id_a
 
     sessions_after_repeat = _saved_sessions(client.get("/").text)
     assert len(sessions_after_repeat) == 2
