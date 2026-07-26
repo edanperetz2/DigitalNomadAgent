@@ -18,9 +18,10 @@ nature/business travel, or any mix of these.
       reflects this; do not raise it without team agreement.
 - [ ] Run `pytest -q` and `ruff check .` one final time before submitting — both must pass with
       `MOCK_LLM=true` (the default), which costs $0.
-- [ ] If deploying, replace the "deployment URL" placeholder below with the real one, or leave it
-      documented as not yet deployed.
-- [ ] **Deployment URL:** `REPLACE_WITH_DEPLOYMENT_URL_OR_"not deployed"`.
+- [ ] Deploy on Vercel (required by the course spec — see Deployment section below) and replace
+      the placeholders below with the real URLs before submitting.
+- [ ] **Vercel URL:** `REPLACE_WITH_VERCEL_URL`
+- [ ] **GitHub Repo URL:** `REPLACE_WITH_GITHUB_REPO_URL`
 
 ---
 
@@ -347,17 +348,36 @@ docker run --rm -p 8000:8000 --env-file .env -v ${PWD}/data:/app/data placematch
 
 ## Deployment
 
-No public deployment has been performed as part of this build. The Dockerfile above is sufficient
-for any standard Docker-compatible host (a VM, a container platform, etc.). If/when deployed,
-replace the placeholder deployment URL in the Course Submission Checklist above.
+The course spec requires deploying on **Vercel** specifically (not a general host choice) — see
+`docs/Project instructions.pdf`. `vercel.json` at the repo root configures this:
 
-To preserve the under-300-second contract, configure every reverse proxy, load balancer, ingress,
-and hosting platform in front of Uvicorn with a request/read/idle timeout of **at least 290 seconds**.
-The backend returns by 285 seconds and the bundled UI stops waiting at 295 seconds. A common
-platform default of 60 or 100 seconds will otherwise disconnect the user before the graceful
-recommendation fallback arrives. `UPSTREAM_REQUEST_TIMEOUT_SECONDS=290` can declare the actual
-infrastructure value for startup validation, but it does not configure the external platform by
-itself. Direct API clients should wait at least 290 seconds as well.
+- **Entrypoint**: the existing `main.py` (`from app.main import app`) is used directly — Vercel's
+  Python runtime auto-detects a file named `main.py` at the project root exporting an `app`
+  variable, so no separate `api/` wrapper file is needed.
+- **`rewrites`** sends every path (`/`, `/static/*`, `/api/*`) to that one function, so FastAPI's
+  own router still handles everything internally exactly as it does under Uvicorn.
+- **`functions.main.py.maxDuration = 300`** matches the spec's stated Vercel ceiling exactly — our
+  own `AGENT_EXECUTION_TIMEOUT_SECONDS=285` already fits under this with margin.
+- **`env`** sets the same safe non-secret defaults as the Dockerfile (`MOCK_LLM=true`, timeouts).
+  `SQLITE_PATH=/tmp/placematch.db` is set here specifically because **Vercel's filesystem is
+  read-only except `/tmp`, and `/tmp` resets on every cold start** — the local cache/evidence/
+  budget-ledger SQLite database is not persistent across cold starts under Vercel. This is an
+  accepted limitation, not a bug: the real budget backstop is the LLMod.ai account balance itself,
+  not this local ledger.
+
+**To deploy:** connect this GitHub repo to a Vercel project (vercel.com → Add New Project → import
+the repo) and set these environment variables in the Vercel dashboard (secrets — never commit
+them): `LLMOD_API_KEY`, `LLMOD_MODEL`. Everything else needed is already in `vercel.json`. Once
+deployed, replace the Vercel URL placeholder in the Course Submission Checklist above, and keep the
+Vercel account active until the project is graded (per the spec).
+
+**Not yet verified**: FastAPI's `lifespan` startup/shutdown events (used here to open the SQLite
+connection and build the orchestrator once) are a relatively recent Vercel Python runtime addition.
+This should work, but — unlike everything else in this README — it genuinely cannot be confirmed
+without an actual live deploy; treat the first real deploy as a verification step, not a formality.
+
+Before deployment, run the offline suite normally. An explicitly opt-in live SLA check exercises
+three representative prompts and targets an observed p95 below 240 seconds:
 
 Before deployment, run the offline suite normally. An explicitly opt-in live SLA check exercises
 three representative prompts and targets an observed p95 below 240 seconds:
