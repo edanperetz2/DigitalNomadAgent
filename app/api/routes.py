@@ -3,7 +3,7 @@ must never be renamed or restructured."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import FileResponse
 
 from app.api.agent_info_content import DESCRIPTION, PROMPT_EXAMPLES, PROMPT_TEMPLATE, PURPOSE
@@ -18,6 +18,7 @@ from app.api.schemas import (
 )
 from app.core.config import REPO_ROOT
 from app.core.exceptions import PlaceMatchError
+from app.evidence.saved_searches import SavedSearchStore
 
 router = APIRouter()
 
@@ -44,7 +45,7 @@ async def get_model_architecture() -> FileResponse:
 
 
 @router.post("/api/execute", response_model=ExecuteResponse)
-async def execute(payload: ExecuteRequest, request: Request) -> ExecuteResponse:
+async def execute(payload: ExecuteRequest, request: Request, response: Response) -> ExecuteResponse:
     prompt = payload.prompt.strip()
     settings = request.app.state.settings
 
@@ -55,10 +56,23 @@ async def execute(payload: ExecuteRequest, request: Request) -> ExecuteResponse:
 
     orchestrator = request.app.state.orchestrator
     result = await orchestrator.run(prompt)
+    steps = [LLMStep.model_validate(s) for s in result.steps]
+
+    if result.status == "ok" and result.response:
+        session = await SavedSearchStore(request.app.state.db).save_session(
+            prompt=prompt,
+            result_data={
+                "status": result.status,
+                "error": result.error,
+                "response": result.response,
+                "steps": [step.model_dump(mode="json") for step in steps],
+            },
+        )
+        response.headers["X-PlaceMatch-Session-Id"] = session["id"]
 
     return ExecuteResponse(
         status=result.status,
         error=result.error,
         response=result.response,
-        steps=[LLMStep.model_validate(s) for s in result.steps],
+        steps=steps,
     )

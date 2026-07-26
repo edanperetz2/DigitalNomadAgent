@@ -53,6 +53,25 @@ CREATE TABLE IF NOT EXISTS llm_usage (
   remaining_budget_usd REAL NOT NULL,
   success INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS saved_search_sessions (
+  id TEXT PRIMARY KEY,
+  request_hash TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  original_request TEXT NOT NULL,
+  response_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_saved_search_sessions_updated_at
+  ON saved_search_sessions(updated_at DESC);
+"""
+
+LEGACY_HISTORY_SQL = """
+DROP TABLE IF EXISTS recommendation_results;
+DROP TABLE IF EXISTS conversation_messages;
+DROP TABLE IF EXISTS conversations;
 """
 
 
@@ -68,6 +87,7 @@ class Database:
         self._conn = await aiosqlite.connect(self.path)
         await self._conn.execute("PRAGMA journal_mode=WAL;")
         await self._conn.executescript(SCHEMA_SQL)
+        await self._conn.executescript(LEGACY_HISTORY_SQL)
         await self._conn.commit()
 
     async def close(self) -> None:

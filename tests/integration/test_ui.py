@@ -12,11 +12,12 @@ def test_index_contains_prompt_input_and_submit(client):
     assert 'for="prompt-input"' in html
 
 
-def test_index_contains_example_prompt_buttons(client):
+def test_index_starts_without_legacy_prompt_buttons(client):
     html = client.get("/").text
-    assert 'data-example="remote_work"' in html
-    assert 'data-example="study"' in html
-    assert 'data-example="vacation"' in html
+    assert 'id="history-list"' in html
+    assert 'class="conversation-card example-btn"' not in html
+    assert 'data-example="' not in html
+    assert '<script id="saved-search-sessions" type="application/json">[]</script>' in html
 
 
 def test_index_links_to_architecture_and_agent_info(client):

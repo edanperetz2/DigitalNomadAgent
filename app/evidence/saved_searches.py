@@ -1,0 +1,112 @@
+"""Persistence for complete saved search sessions."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import UTC, datetime
+from typing import Any
+from uuid import uuid4
+
+from app.evidence.database import Database
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _request_hash(prompt: str) -> str:
+    normalized = " ".join(prompt.split())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _title(prompt: str, max_length: int = 76) -> str:
+    normalized = " ".join(prompt.split())
+    if len(normalized) <= max_length:
+        return normalized
+    return f"{normalized[: max_length - 3].rstrip()}..."
+
+
+class SavedSearchStore:
+    """Store and load complete recommendation responses by stable session id."""
+
+    def __init__(self, db: Database):
+        self._db = db
+
+    async def list_sessions(self) -> list[dict[str, Any]]:
+        cursor = await self._db.conn.execute(
+            """
+            SELECT id, title, original_request, response_json, created_at, updated_at
+            FROM saved_search_sessions
+            ORDER BY updated_at DESC
+            """
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_session(row) for row in rows]
+
+    async def save_session(self, *, prompt: str, result_data: dict[str, Any]) -> dict[str, Any]:
+        now = _now_iso()
+        normalized_prompt = " ".join(prompt.split())
+        request_hash = _request_hash(normalized_prompt)
+        response_json = json.dumps(result_data, ensure_ascii=False, separators=(",", ":"))
+
+        cursor = await self._db.conn.execute(
+            "SELECT id, created_at FROM saved_search_sessions WHERE request_hash = ?",
+            (request_hash,),
+        )
+        existing = await cursor.fetchone()
+
+        if existing:
+            session_id = existing[0]
+            await self._db.conn.execute(
+                """
+                UPDATE saved_search_sessions
+                SET title = ?, original_request = ?, response_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (_title(normalized_prompt), normalized_prompt, response_json, now, session_id),
+            )
+        else:
+            session_id = str(uuid4())
+            await self._db.conn.execute(
+                """
+                INSERT INTO saved_search_sessions
+                  (id, request_hash, title, original_request, response_json, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (session_id, request_hash, _title(normalized_prompt), normalized_prompt, response_json, now, now),
+            )
+
+        await self._db.conn.commit()
+        session = await self.get_session(session_id)
+        if session is None:
+            raise RuntimeError("Saved search session was not persisted.")
+        return session
+
+    async def get_session(self, session_id: str) -> dict[str, Any] | None:
+        cursor = await self._db.conn.execute(
+            """
+            SELECT id, title, original_request, response_json, created_at, updated_at
+            FROM saved_search_sessions
+            WHERE id = ?
+            """,
+            (session_id,),
+        )
+        row = await cursor.fetchone()
+        return self._row_to_session(row) if row else None
+
+    def _row_to_session(self, row) -> dict[str, Any]:
+        result_data = json.loads(row[3])
+        return {
+            "id": row[0],
+            "title": row[1],
+            "original_request": row[2],
+            "prompt": row[2],
+            "result": result_data,
+            "response": result_data.get("response"),
+            "steps": result_data.get("steps", []),
+            "created_at": row[4],
+            "updated_at": row[5],
+            "createdAt": row[4],
+            "updatedAt": row[5],
+        }
