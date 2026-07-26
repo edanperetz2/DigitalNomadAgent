@@ -8,20 +8,20 @@ nature/business travel, or any mix of these.
 
 ## Course Submission Checklist
 
-- [ ] **Replace all placeholders** in `config/team_info.json` (student names, emails, batch/order
+- [x] **Replace all placeholders** in `config/team_info.json` (student names, emails, batch/order
       number, team name) before submission.
-- [ ] **Re-register at LLMod.ai using the new email requested by the course** before requesting
+- [x] **Re-register at LLMod.ai using the new email requested by the course** before requesting
       your project API key. Do this *before* filling in `LLMOD_API_KEY`/`LLMOD_MODEL` in `.env`.
-- [ ] Fill in the real `LLMOD_API_KEY` and `LLMOD_MODEL` in your local `.env` (never commit it).
+- [x] Fill in the real `LLMOD_API_KEY` and `LLMOD_MODEL` in your local `.env` (never commit it).
 - [ ] **Submission deadline: 23 August 2026.**
 - [ ] **Total LLM budget: $13 per group.** `MAX_PROJECT_BUDGET_USD=13` in `.env.example` already
       reflects this; do not raise it without team agreement.
-- [ ] Run `pytest -q` and `ruff check .` one final time before submitting — both must pass with
+- [x] Run `pytest -q` and `ruff check .` one final time before submitting — both must pass with
       `MOCK_LLM=true` (the default), which costs $0.
-- [ ] Deploy on Vercel (required by the course spec — see Deployment section below) and replace
+- [x] Deploy on Vercel (required by the course spec — see Deployment section below) and replace
       the placeholders below with the real URLs before submitting.
-- [ ] **Vercel URL:** `REPLACE_WITH_VERCEL_URL`
-- [ ] **GitHub Repo URL:** `REPLACE_WITH_GITHUB_REPO_URL`
+- [x] **Vercel URL:** `https://digitalnomadagent-qd3gmijrb-idan-shani-ilay.vercel.app/`
+- [x] **GitHub Repo URL:** `https://github.com/edanperetz2/DigitalNomadAgent`
 
 ---
 
