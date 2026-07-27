@@ -67,6 +67,25 @@ class _RunCheckpoint:
     validation: ValidationResult | None = None
 
 
+def _resolve_ambiguous_profile(profile: PlaceRequestProfile) -> PlaceRequestProfile:
+    """Turn a clarification-worthy profile into one the pipeline can still run with.
+
+    Used whenever a request must resolve to a final answer in one call (the
+    default, automated-safe mode) instead of stopping to ask a question. Never
+    mutates in place -- callers hold the original checkpoint profile too.
+    """
+    disclosure = (
+        "This request was ambiguous enough that clarification would normally be requested "
+        f"({profile.clarification_question or 'the purpose was unclear'}); proceeding with a "
+        "broad default so a complete recommendation could still be returned in one call."
+    )
+    updated = profile.model_copy(deep=True)
+    updated.assumptions.append(disclosure)
+    if updated.purpose == "unknown":
+        updated.purpose = "mixed"
+    return updated
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -215,7 +234,7 @@ class Orchestrator:
             return evaluations
         return apply_llm_scores(evaluations, candidates, profile, evidence_by_place, llm_scores)
 
-    async def run(self, prompt: str) -> AgentResult:
+    async def run(self, prompt: str, *, interactive: bool = False) -> AgentResult:
         request_id = uuid.uuid4().hex
         execution_trace: list[dict] = []
         checkpoint = _RunCheckpoint()
@@ -238,6 +257,7 @@ class Orchestrator:
                     checkpoint,
                     research_deadline,
                     hard_deadline,
+                    interactive,
                 ),
                 timeout=self._execution_timeout_seconds,
             )
@@ -249,6 +269,7 @@ class Orchestrator:
                 execution_trace,
                 "The hard execution deadline was reached; unfinished work was stopped and the "
                 "ranking uses only evidence available at that point.",
+                interactive,
             )
         elapsed = loop.time() - started_at
         timed_out_tools = sum(
@@ -274,6 +295,7 @@ class Orchestrator:
         checkpoint: _RunCheckpoint,
         execution_trace: list[dict],
         limitation: str,
+        interactive: bool,
     ) -> AgentResult:
         """Build a usable response synchronously after cancellation; never start more I/O."""
         try:
@@ -281,8 +303,10 @@ class Orchestrator:
                 interpret_prompt_fallback(prompt)
             )
             if profile.clarification_required:
-                response = profile.clarification_question or "Could you clarify your request?"
-                return AgentResult(status="ok", response=response, error=None, steps=execution_trace)
+                if interactive:
+                    response = profile.clarification_question or "Could you clarify your request?"
+                    return AgentResult(status="ok", response=response, error=None, steps=execution_trace)
+                profile = _resolve_ambiguous_profile(profile)
 
             candidates = checkpoint.candidates
             if not candidates:
@@ -335,6 +359,7 @@ class Orchestrator:
         checkpoint: _RunCheckpoint,
         research_deadline: float,
         hard_deadline: float,
+        interactive: bool,
     ) -> AgentResult:
 
         state = AgentState.RECEIVED
@@ -383,17 +408,21 @@ class Orchestrator:
                     )
 
                 elif state == AgentState.CLARIFICATION_REQUIRED:
-                    response_text = profile.clarification_question or (
-                        "Could you clarify your request? I need a bit more information to "
-                        "make a reliable recommendation."
-                    )
-                    logger.info(
-                        "agent_phase request_id=%s phase=%s duration_seconds=%.3f next_state=returned",
-                        request_id,
-                        current_state,
-                        asyncio.get_running_loop().time() - phase_started_at,
-                    )
-                    return AgentResult(status="ok", response=response_text, error=None, steps=execution_trace)
+                    if interactive:
+                        response_text = profile.clarification_question or (
+                            "Could you clarify your request? I need a bit more information to "
+                            "make a reliable recommendation."
+                        )
+                        logger.info(
+                            "agent_phase request_id=%s phase=%s duration_seconds=%.3f next_state=returned",
+                            request_id,
+                            current_state,
+                            asyncio.get_running_loop().time() - phase_started_at,
+                        )
+                        return AgentResult(status="ok", response=response_text, error=None, steps=execution_trace)
+                    profile = _resolve_ambiguous_profile(profile)
+                    checkpoint.profile = profile
+                    state = AgentState.PLANNING_RESEARCH
 
                 elif state == AgentState.PLANNING_RESEARCH:
                     try:

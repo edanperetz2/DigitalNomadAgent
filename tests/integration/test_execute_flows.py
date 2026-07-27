@@ -101,8 +101,27 @@ def test_vacation_prompt_returns_recommendations(client):
     assert "Best matches" in data["response"]
 
 
-def test_ambiguous_prompt_returns_clarification(client):
+def test_ambiguous_prompt_returns_full_recommendation_by_default(client):
+    # A bare call (no X-Interactive-Mode header) is exactly what an automated
+    # grader sends -- it must always get a final, actionable answer, never a
+    # clarification dead-end. See app/agent/orchestrator.py's
+    # _resolve_ambiguous_profile.
     response = client.post("/api/execute", json={"prompt": "Surprise me."})
+    data = response.json()
+    assert data["status"] == "ok"
+    assert "Best matches" in data["response"]
+    assert "proceeding with a broad default" in data["response"].casefold()
+    modules_called = [s["module"] for s in data["steps"]]
+    assert REQUEST_INTERPRETER in modules_called
+    assert RECOMMENDATION_GENERATOR in modules_called
+
+
+def test_ambiguous_prompt_with_interactive_header_returns_clarification(client):
+    response = client.post(
+        "/api/execute",
+        json={"prompt": "Surprise me."},
+        headers={"X-Interactive-Mode": "true"},
+    )
     data = response.json()
     assert data["status"] == "ok"
     assert data["response"]

@@ -31,6 +31,11 @@ _BANNED_CLAIM_PHRASES = (
 # failed and the response fell back to the pre-scoring placeholder.
 _STALE_PLACEHOLDER = "awaits the LLM reasoning contract"
 
+# Substring of the disclosure app/agent/orchestrator.py's _resolve_ambiguous_profile
+# appends to profile.assumptions -- confirms an ambiguous prompt still produced a
+# real recommendation (with the ambiguity disclosed) rather than silently guessing.
+_AMBIGUITY_DISCLOSURE = "proceeding with a broad default"
+
 
 @dataclass(frozen=True)
 class CheckResult:
@@ -97,13 +102,18 @@ def score_case(case: GoldenCase, response_data: dict, *, max_finalists: int) -> 
         )
     )
 
-    if case.expect_clarification:
-        checks.append(CheckResult("is_clarification_question", "?" in response_text, response_text[:200]))
-        return CaseResult(case_name=case.name, checks=checks)
-
     checks.append(CheckResult("has_best_matches_section", "Best matches" in response_text))
     checks.append(CheckResult("has_mode_disclosure", "Generated using:" in response_text))
     checks.append(CheckResult("no_stale_scoring_placeholder", _STALE_PLACEHOLDER not in response_text))
+
+    if case.expect_clarification:
+        checks.append(
+            CheckResult(
+                "has_ambiguity_disclosure",
+                _AMBIGUITY_DISCLOSURE in response_text.casefold(),
+                response_text[:200],
+            )
+        )
 
     row_count = _count_table_rows(response_text)
     checks.append(

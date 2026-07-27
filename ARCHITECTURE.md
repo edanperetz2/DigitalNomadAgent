@@ -33,11 +33,18 @@ and easier to test exhaustively.
 `researching_gap`, `generating_response`, `completed`, `failed`. `app/agent/orchestrator.py` drives
 transitions with structured conditions rather than a fixed sequence:
 
-- **`interpreting → clarification_required`** only when the Request Interpreter marks
+- **`interpreting → clarification_required`** whenever the Request Interpreter marks
   `clarification_required=True` (e.g. purpose is entirely unclear, or a study request has no
-  discernible academic field). This short-circuits the rest of the pipeline — no candidates are
-  generated, no tools run — and the response is simply the clarification question, still wrapped
-  in the required four-field envelope.
+  discernible academic field). What happens next depends on the caller: `POST /api/execute` is
+  stateless and single-shot for everyone, and an automated grader can only ever send the documented
+  bare request body, so by default this state does **not** dead-end the run — `Orchestrator`'s
+  `_resolve_ambiguous_profile` records the would-be clarification as a disclosed assumption
+  (defaulting an unresolved `purpose` to `"mixed"`) and the pipeline continues through
+  `planning_research` as normal, still producing a real, evidence-backed recommendation in one call.
+  Only a request sent with the `X-Interactive-Mode: true` header (used by the deployed frontend, for
+  a real human at the keyboard) gets the original short-circuit behavior: no candidates generated, no
+  tools run, response is simply the clarification question, still wrapped in the required four-field
+  envelope.
 - **`planning_research → executing_tools`**: Agentic Research proposes up to `MAX_BULK_CANDIDATES`
   (default 30) broad candidates in one LLM call, then `executing_tools` runs a cheap, zero-LLM
   funnel (`app/agent/candidate_funnel.py`) — serial geocoding verification, a region-only

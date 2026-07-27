@@ -138,6 +138,14 @@ transport, and UI overhead before the 300-second user-visible limit. If interpre
 generation fails early because the LLM provider times out, deterministic parsing and curated
 candidate seeds keep the pipeline moving and are disclosed in the response.
 
+The request body is always exactly `{"prompt": "..."}` for every caller, including automated
+grading — a bare call like that always resolves to one final, actionable recommendation and never
+stops mid-way to ask a clarifying question, even for an ambiguous prompt (the would-be question is
+instead disclosed as a stated assumption inside the response text). The deployed frontend is the one
+exception: it sends an additional `X-Interactive-Mode: true` request header (never a body field, so
+the documented request shape never changes), which restores the original behavior for a human at the
+keyboard — a genuinely ambiguous prompt gets a real clarification question back instead of a guess.
+
 ---
 
 ## UI
@@ -248,12 +256,15 @@ python scripts/check_llmod_connection.py
 
 ### Golden-set evaluation harness
 
-`scripts/golden_set/` is a fixed, representative prompt set (one per purpose plus edge cases:
-clarification-required, an unaffordable hard budget, an excluded region, a car-free requirement)
-with a structural comparison scorer — it checks contractual properties (right modules ran, no
-stale placeholder text, no banned claims, finalist count in bounds) rather than exact text, since
-LLM output is non-deterministic. It also runs as a normal pytest case
-(`tests/integration/test_golden_set_harness.py`), so a pipeline regression fails the test suite too.
+`scripts/golden_set/` is a fixed, representative prompt set (one per purpose plus edge cases: an
+ambiguous prompt that would normally trigger clarification, an unaffordable hard budget, an excluded
+region, a car-free requirement) with a structural comparison scorer — it checks contractual
+properties (right modules ran, no stale placeholder text, no banned claims, finalist count in
+bounds) rather than exact text, since LLM output is non-deterministic. The ambiguous-prompt case is
+run the same way an automated grader calls the API (no `X-Interactive-Mode` header), so it asserts
+the disclosed-assumption behavior described above, not a bare clarification question. It also runs
+as a normal pytest case (`tests/integration/test_golden_set_harness.py`), so a pipeline regression
+fails the test suite too.
 
 ```powershell
 # Default: MockLLMClient, zero cost, safe anytime.

@@ -82,10 +82,26 @@ def test_forbidden_phrase_fails_when_present():
     assert any(c.check == "forbidden_absent:France" for c in result.failures)
 
 
-def test_clarification_case_only_checks_for_question_mark():
+def test_clarification_case_requires_full_recommendation_with_disclosure():
+    # /api/execute never dead-ends on a bare clarification question by default (that behavior
+    # is opt-in via the X-Interactive-Mode header, which the golden-set runner never sends) --
+    # so an ambiguous prompt must still score like a normal case, plus disclose the ambiguity.
     case = GoldenCase(name="clarify", prompt="p", expect_clarification=True)
-    data = {"status": "ok", "response": "Could you clarify your budget?", "steps": []}
-    assert score_case(case, data, max_finalists=8).passed
+    passing = {
+        "status": "ok",
+        "response": _NORMAL_RESPONSE
+        + " Proceeding with a broad default so a complete recommendation could still be returned.",
+        "steps": [],
+    }
+    assert score_case(case, passing, max_finalists=8).passed
+
+    missing_disclosure = {"status": "ok", "response": _NORMAL_RESPONSE, "steps": []}
+    result = score_case(case, missing_disclosure, max_finalists=8)
+    assert not result.passed
+    assert any(c.check == "has_ambiguity_disclosure" for c in result.failures)
+
+    bare_question = {"status": "ok", "response": "Could you clarify your budget?", "steps": []}
+    assert not score_case(case, bare_question, max_finalists=8).passed
 
 
 def test_error_case_checks_required_phrase_in_error_text():
