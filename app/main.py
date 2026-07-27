@@ -38,7 +38,6 @@ from app.tools.geocoding import GeocodingTool
 from app.tools.http_client import JsonHttpClient
 from app.tools.local_mobility import LocalMobilityTool
 from app.tools.mediawiki_client import WIKIVOYAGE_API, MediaWikiClient
-from app.tools.official_sources import OfficialSourceTool
 from app.tools.origin_resolution import OriginResolver
 from app.tools.overpass_client import OverpassClient
 from app.tools.place_context import PlaceContextTool
@@ -130,7 +129,6 @@ def _build_tool_registry(
             http=http,
             wikivoyage=wikivoyage_sections,
         ),
-        "OfficialSourceTool": OfficialSourceTool(),
     }
     return ToolRegistry(
         tools,
@@ -172,14 +170,15 @@ async def lifespan(app: FastAPI):
         llm_client,
         budget_manager,
         max_output_tokens=settings.llm_max_output_tokens,
-        max_candidates=settings.max_candidates,
+        max_bulk_candidates=settings.max_bulk_candidates,
+        max_finalists=settings.max_finalists,
         max_final_recommendations=settings.max_final_recommendations,
         max_prompt_length=settings.max_prompt_length,
         execution_timeout_seconds=settings.agent_execution_timeout_seconds,
         recommendation_reserve_seconds=settings.recommendation_reserve_seconds,
     )
 
-    logger.info("PlaceMatch started (mock_llm=%s)", settings.mock_llm)
+    logger.info("DigitalNomadAgent started (mock_llm=%s)", settings.mock_llm)
     yield
     await db.close()
 
@@ -187,7 +186,7 @@ async def lifespan(app: FastAPI):
 def create_app(*, tool_registry_override=None, llm_client_override=None) -> FastAPI:
     """Build the FastAPI app. Test code may inject a fake tool registry and/or
     LLM client so `pytest` never makes real network or paid LLM calls."""
-    app = FastAPI(title="PlaceMatch", lifespan=lifespan)
+    app = FastAPI(title="DigitalNomadAgent", lifespan=lifespan)
     app.state.tool_registry_override = tool_registry_override
     app.state.llm_client_override = llm_client_override
 
@@ -197,7 +196,15 @@ def create_app(*, tool_registry_override=None, llm_client_override=None) -> Fast
     app.add_exception_handler(Exception, unhandled_exception_handler)
 
     app.include_router(router)
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    if STATIC_DIR.is_dir():
+        app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    else:
+        # StaticFiles(directory=...) validates existence immediately and raises at import
+        # time (this function runs at module load via `app = create_app()` below) --
+        # some serverless bundlers don't reliably include non-Python-imported asset
+        # directories, so degrade to a missing /static mount rather than crash the
+        # whole app over CSS/JS.
+        logger.warning("Static directory %s not found; /static will 404.", STATIC_DIR)
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:

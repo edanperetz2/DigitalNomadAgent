@@ -13,8 +13,9 @@ import uuid
 from dataclasses import dataclass, field
 
 from app.agent.agentic_research import generate_candidates, select_tools
-from app.agent.dynamic_evaluation import evaluate_candidates
-from app.agent.models import CandidatePlace, PlaceRequestProfile, ValidationResult
+from app.agent.candidate_funnel import select_finalists
+from app.agent.dynamic_evaluation import apply_llm_scores, evaluate_candidates, score_unresolved_criteria
+from app.agent.models import CandidateEvaluation, CandidatePlace, PlaceRequestProfile, ValidationResult
 from app.agent.recommendation_generator import generate_recommendation, render_recommendation_fallback
 from app.agent.recommendation_validator import validate_recommendations
 from app.agent.request_interpreter import interpret_request
@@ -66,6 +67,25 @@ class _RunCheckpoint:
     validation: ValidationResult | None = None
 
 
+def _resolve_ambiguous_profile(profile: PlaceRequestProfile) -> PlaceRequestProfile:
+    """Turn a clarification-worthy profile into one the pipeline can still run with.
+
+    Used whenever a request must resolve to a final answer in one call (the
+    default, automated-safe mode) instead of stopping to ask a question. Never
+    mutates in place -- callers hold the original checkpoint profile too.
+    """
+    disclosure = (
+        "This request was ambiguous enough that clarification would normally be requested "
+        f"({profile.clarification_question or 'the purpose was unclear'}); proceeding with a "
+        "broad default so a complete recommendation could still be returned in one call."
+    )
+    updated = profile.model_copy(deep=True)
+    updated.assumptions.append(disclosure)
+    if updated.purpose == "unknown":
+        updated.purpose = "mixed"
+    return updated
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -75,7 +95,8 @@ class Orchestrator:
         budget: BudgetManager,
         *,
         max_output_tokens: int,
-        max_candidates: int,
+        max_bulk_candidates: int,
+        max_finalists: int,
         max_final_recommendations: int,
         max_prompt_length: int,
         execution_timeout_seconds: float,
@@ -86,7 +107,8 @@ class Orchestrator:
         self._llm = llm_client
         self._budget = budget
         self._max_output_tokens = max_output_tokens
-        self._max_candidates = max_candidates
+        self._max_bulk_candidates = max_bulk_candidates
+        self._max_finalists = max_finalists
         self._max_final_recommendations = max_final_recommendations
         self._max_prompt_length = max_prompt_length
         self._execution_timeout_seconds = execution_timeout_seconds
@@ -180,7 +202,39 @@ class Orchestrator:
                 priorities[tool_name] = max(priorities[tool_name], 2.0)
         return priorities
 
-    async def run(self, prompt: str) -> AgentResult:
+    async def _score_unresolved_criteria(
+        self,
+        evaluations: list[CandidateEvaluation],
+        candidates: list[CandidatePlace],
+        profile: PlaceRequestProfile,
+        evidence_by_place: dict[str, list[ToolResult]],
+        request_id: str,
+        execution_trace: list[dict],
+    ) -> list[CandidateEvaluation]:
+        """The single Dynamic Evaluation LLM call, fired exactly once per request
+        from VALIDATING's approved branch -- after any gap-research round, so it
+        never runs twice even if RESEARCHING_GAP looped. On failure, evaluations
+        are returned unchanged (cost/transportation/accessibility/activities stay
+        in unscored_evidence) rather than aborting the whole request.
+        """
+        try:
+            llm_scores = await score_unresolved_criteria(
+                evaluations,
+                profile,
+                evidence_by_place,
+                client=self._llm,
+                budget=self._budget,
+                request_id=request_id,
+                execution_trace=execution_trace,
+                max_output_tokens=self._max_output_tokens,
+            )
+        except (BudgetExceededError, LLMOutputError):
+            return evaluations
+        if not llm_scores:
+            return evaluations
+        return apply_llm_scores(evaluations, candidates, profile, evidence_by_place, llm_scores)
+
+    async def run(self, prompt: str, *, interactive: bool = False) -> AgentResult:
         request_id = uuid.uuid4().hex
         execution_trace: list[dict] = []
         checkpoint = _RunCheckpoint()
@@ -203,6 +257,7 @@ class Orchestrator:
                     checkpoint,
                     research_deadline,
                     hard_deadline,
+                    interactive,
                 ),
                 timeout=self._execution_timeout_seconds,
             )
@@ -214,6 +269,7 @@ class Orchestrator:
                 execution_trace,
                 "The hard execution deadline was reached; unfinished work was stopped and the "
                 "ranking uses only evidence available at that point.",
+                interactive,
             )
         elapsed = loop.time() - started_at
         timed_out_tools = sum(
@@ -239,6 +295,7 @@ class Orchestrator:
         checkpoint: _RunCheckpoint,
         execution_trace: list[dict],
         limitation: str,
+        interactive: bool,
     ) -> AgentResult:
         """Build a usable response synchronously after cancellation; never start more I/O."""
         try:
@@ -246,15 +303,17 @@ class Orchestrator:
                 interpret_prompt_fallback(prompt)
             )
             if profile.clarification_required:
-                response = profile.clarification_question or "Could you clarify your request?"
-                return AgentResult(status="ok", response=response, error=None, steps=execution_trace)
+                if interactive:
+                    response = profile.clarification_question or "Could you clarify your request?"
+                    return AgentResult(status="ok", response=response, error=None, steps=execution_trace)
+                profile = _resolve_ambiguous_profile(profile)
 
             candidates = checkpoint.candidates
             if not candidates:
                 candidates = [
                     CandidatePlace.model_validate(candidate)
                     for candidate in generate_fallback_candidates(profile.model_dump(mode="json"))[
-                        : self._max_candidates
+                        : self._max_finalists
                     ]
                 ]
 
@@ -267,6 +326,7 @@ class Orchestrator:
                 evaluations,
                 profile,
                 gap_iteration_used=True,
+                max_final_recommendations=self._max_final_recommendations,
             )
             validation = validation.model_copy(deep=True)
             validation.approved = True
@@ -281,7 +341,7 @@ class Orchestrator:
                 self._collect_sources(checkpoint.evidence_by_place),
                 max_final_recommendations=self._max_final_recommendations,
             )
-            response += "\n\n*(Timing note: incomplete research was cancelled so this response could arrive on time.)*"
+            response += "\n\n**Timing note:** incomplete research was cancelled so this response could arrive on time."
             return AgentResult(status="ok", response=response, error=None, steps=execution_trace)
         except Exception as exc:  # noqa: BLE001 - final no-I/O fallback must preserve the API contract
             return AgentResult(
@@ -299,6 +359,7 @@ class Orchestrator:
         checkpoint: _RunCheckpoint,
         research_deadline: float,
         hard_deadline: float,
+        interactive: bool,
     ) -> AgentResult:
 
         state = AgentState.RECEIVED
@@ -347,17 +408,21 @@ class Orchestrator:
                     )
 
                 elif state == AgentState.CLARIFICATION_REQUIRED:
-                    response_text = profile.clarification_question or (
-                        "Could you clarify your request? I need a bit more information to "
-                        "make a reliable recommendation."
-                    )
-                    logger.info(
-                        "agent_phase request_id=%s phase=%s duration_seconds=%.3f next_state=returned",
-                        request_id,
-                        current_state,
-                        asyncio.get_running_loop().time() - phase_started_at,
-                    )
-                    return AgentResult(status="ok", response=response_text, error=None, steps=execution_trace)
+                    if interactive:
+                        response_text = profile.clarification_question or (
+                            "Could you clarify your request? I need a bit more information to "
+                            "make a reliable recommendation."
+                        )
+                        logger.info(
+                            "agent_phase request_id=%s phase=%s duration_seconds=%.3f next_state=returned",
+                            request_id,
+                            current_state,
+                            asyncio.get_running_loop().time() - phase_started_at,
+                        )
+                        return AgentResult(status="ok", response=response_text, error=None, steps=execution_trace)
+                    profile = _resolve_ambiguous_profile(profile)
+                    checkpoint.profile = profile
+                    state = AgentState.PLANNING_RESEARCH
 
                 elif state == AgentState.PLANNING_RESEARCH:
                     try:
@@ -368,13 +433,13 @@ class Orchestrator:
                             request_id=request_id,
                             execution_trace=execution_trace,
                             max_output_tokens=self._max_output_tokens,
-                            max_candidates=self._max_candidates,
+                            max_bulk_candidates=self._max_bulk_candidates,
                         )
                     except (BudgetExceededError, LLMOutputError):
                         candidates = [
                             CandidatePlace.model_validate(candidate)
                             for candidate in generate_fallback_candidates(profile.model_dump(mode="json"))[
-                                : self._max_candidates
+                                : self._max_bulk_candidates
                             ]
                         ]
                         profile.assumptions.append(
@@ -405,11 +470,38 @@ class Orchestrator:
                     else:
                         candidates = verified
                         checkpoint.candidates = list(candidates)
-                    tool_names = select_tools(profile)
+
+                    # Stage 2 of the candidate-discovery funnel: a cheap, zero-LLM filter/rank
+                    # over all geocoded survivors (up to max_bulk_candidates), narrowing down to
+                    # max_finalists before the expensive full tool suite (Stage 3) ever runs.
+                    remaining_research = max(0.0, research_deadline - asyncio.get_running_loop().time())
+                    budget_grouped = await self._tools.run_tools(
+                        {"BudgetFitTool"},
+                        candidates,
+                        profile,
+                        timeout_seconds=remaining_research,
+                        request_id=request_id,
+                    )
+                    finalists = select_finalists(
+                        candidates, profile, budget_grouped, max_finalists=self._max_finalists
+                    )
+                    if not finalists:
+                        raise PlaceMatchError(
+                            "All candidate destinations were eliminated by region constraints "
+                            "before research began."
+                        )
+                    candidates = finalists
+                    checkpoint.candidates = list(candidates)
+                    finalist_names = {c.place_name for c in candidates}
+
+                    tool_names = select_tools(profile) - {"BudgetFitTool"}
                     tool_priorities = self._tool_priorities(profile, tool_names)
                     evidence_by_place = {}
                     for result in geocoding_results:
-                        evidence_by_place.setdefault(result.place, []).append(result)
+                        if result.place in finalist_names:
+                            evidence_by_place.setdefault(result.place, []).append(result)
+                    for place in finalist_names:
+                        evidence_by_place.setdefault(place, []).extend(budget_grouped.get(place, []))
                     checkpoint.evidence_by_place = evidence_by_place
 
                     remaining_research = max(0.0, research_deadline - asyncio.get_running_loop().time())
@@ -438,16 +530,28 @@ class Orchestrator:
                     state = AgentState.VALIDATING
 
                 elif state == AgentState.VALIDATING:
-                    validation = validate_recommendations(evaluations, profile, gap_iteration_used)
+                    validation = validate_recommendations(
+                        evaluations, profile, gap_iteration_used, self._max_final_recommendations
+                    )
                     research_time_exhausted = asyncio.get_running_loop().time() >= research_deadline
                     if validation.should_research_again and not gap_iteration_used and not research_time_exhausted:
                         state = AgentState.RESEARCHING_GAP
                     else:
                         if validation.should_research_again:
                             gap_iteration_used = True
-                            validation = validate_recommendations(evaluations, profile, gap_iteration_used)
+                            validation = validate_recommendations(
+                                evaluations, profile, gap_iteration_used, self._max_final_recommendations
+                            )
                             validation.issues.append(
                                 "The optional gap-research round was skipped because the research time budget expired."
+                            )
+                        evaluations = await self._score_unresolved_criteria(
+                            evaluations, candidates, profile, evidence_by_place, request_id, execution_trace
+                        )
+                        checkpoint.evaluations = list(evaluations)
+                        if all(e.eliminated for e in evaluations):
+                            raise PlaceMatchError(
+                                "All candidate destinations were eliminated by hard constraints."
                             )
                         checkpoint.validation = validation
                         state = AgentState.GENERATING_RESPONSE

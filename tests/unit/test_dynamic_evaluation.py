@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.agent.dynamic_evaluation import evaluate_candidates
+from app.agent.dynamic_evaluation import check_geocoded_constraints, evaluate_candidates
 from app.agent.models import Budget, CandidatePlace, PlaceRequestProfile
 from app.evidence.models import ToolResult
 
@@ -597,3 +597,139 @@ def test_place_context_excerpt_is_not_treated_as_an_advantage():
 
     assert all(excerpt[:30] not in advantage for advantage in evaluation.advantages)
     assert evaluation.criterion_scores == {}
+
+
+def _geocoded_candidate(name: str, country: str, country_code: str) -> CandidatePlace:
+    return CandidatePlace(
+        place_name=name,
+        country=country,
+        reason_for_inclusion="test",
+        verified=True,
+        country_code=country_code,
+    )
+
+
+def test_check_geocoded_constraints_eliminates_excluded_region():
+    profile = PlaceRequestProfile(purpose="vacation", excluded_regions=["France"])
+    candidate = _geocoded_candidate("Nice", "France", "FR")
+    eliminated, reason = check_geocoded_constraints(profile, candidate)
+    assert eliminated is True
+    assert "excluded" in reason.lower()
+
+
+def test_check_geocoded_constraints_matches_by_country_code_too():
+    profile = PlaceRequestProfile(purpose="vacation", excluded_regions=["FR"])
+    candidate = _geocoded_candidate("Nice", "France", "FR")
+    eliminated, _ = check_geocoded_constraints(profile, candidate)
+    assert eliminated is True
+
+
+def test_check_geocoded_constraints_eliminates_outside_preferred_region():
+    profile = PlaceRequestProfile(purpose="vacation", preferred_regions=["Spain"])
+    candidate = _geocoded_candidate("Nice", "France", "FR")
+    eliminated, reason = check_geocoded_constraints(profile, candidate)
+    assert eliminated is True
+    assert "preferred" in reason.lower()
+
+
+def test_check_geocoded_constraints_passes_matching_preferred_region():
+    profile = PlaceRequestProfile(purpose="vacation", preferred_regions=["France"])
+    candidate = _geocoded_candidate("Nice", "France", "FR")
+    eliminated, reason = check_geocoded_constraints(profile, candidate)
+    assert eliminated is False
+    assert reason is None
+
+
+def test_check_geocoded_constraints_fails_open_without_country_identity():
+    profile = PlaceRequestProfile(purpose="vacation", excluded_regions=["France"])
+    candidate = CandidatePlace(place_name="Unknown", country="", reason_for_inclusion="test")
+    eliminated, reason = check_geocoded_constraints(profile, candidate)
+    assert eliminated is False
+    assert reason is None
+
+
+def test_budget_hard_constraint_eliminates_after_llm_scoring():
+    from app.agent.dynamic_evaluation import apply_llm_scores
+
+    profile = PlaceRequestProfile(
+        purpose="remote_work",
+        relevant_criteria=["cost"],
+        hard_constraints=["must stay within budget"],
+        budget=Budget(amount=500.0, period="monthly"),
+    )
+    expensive = _candidate("ExpensiveCity")
+    evidence = {
+        "ExpensiveCity": [
+            _tool_result(
+                "BudgetFitTool",
+                "ExpensiveCity",
+                {
+                    "evidence_level": "city",
+                    "price_basket": [{"item": "1-bedroom apartment, center", "price_usd": 3000.0}],
+                    "fixed_cost_scenarios": {
+                        "center": {"monthly_total_usd": 3500.0, "local_currency": "USD"}
+                    },
+                    "scoring_status": "unresolved_pending_llm",
+                },
+            )
+        ]
+    }
+    evaluations = evaluate_candidates([expensive], profile, evidence)
+    llm_scores = {"ExpensiveCity": {"cost": (0.05, "Far over the stated budget.")}}
+
+    updated = apply_llm_scores(evaluations, [expensive], profile, evidence, llm_scores)
+
+    assert updated[0].eliminated is True
+    assert "cost" in updated[0].elimination_reason
+    assert updated[0].criterion_scores["cost"] == 0.05
+    assert "cost" not in updated[0].unscored_evidence
+
+
+def test_llm_scoring_does_not_eliminate_when_score_is_affordable():
+    from app.agent.dynamic_evaluation import apply_llm_scores
+
+    profile = PlaceRequestProfile(
+        purpose="remote_work",
+        relevant_criteria=["cost"],
+        hard_constraints=["must stay within budget"],
+        budget=Budget(amount=500.0, period="monthly"),
+    )
+    cheap = _candidate("CheapCity")
+    evidence = {
+        "CheapCity": [
+            _tool_result(
+                "BudgetFitTool",
+                "CheapCity",
+                {
+                    "evidence_level": "city",
+                    "fixed_cost_scenarios": {
+                        "center": {"monthly_total_usd": 400.0, "local_currency": "USD"}
+                    },
+                    "scoring_status": "unresolved_pending_llm",
+                },
+            )
+        ]
+    }
+    evaluations = evaluate_candidates([cheap], profile, evidence)
+    llm_scores = {"CheapCity": {"cost": (0.8, "Comfortably within budget.")}}
+
+    updated = apply_llm_scores(evaluations, [cheap], profile, evidence, llm_scores)
+
+    assert updated[0].eliminated is False
+    assert updated[0].criterion_scores["cost"] == 0.8
+    assert updated[0].total_score > 0
+
+
+def test_apply_llm_scores_leaves_already_eliminated_candidates_untouched():
+    from app.agent.dynamic_evaluation import apply_llm_scores
+
+    profile = PlaceRequestProfile(purpose="vacation", excluded_regions=["France"])
+    candidate = _geocoded_candidate("Nice", "France", "FR")
+    evaluations = evaluate_candidates([candidate], profile, {})
+    assert evaluations[0].eliminated is True
+
+    updated = apply_llm_scores(
+        evaluations, [candidate], profile, {}, {"Nice": {"cost": (0.9, "irrelevant")}}
+    )
+    assert updated[0].eliminated is True
+    assert updated[0].criterion_scores == {}

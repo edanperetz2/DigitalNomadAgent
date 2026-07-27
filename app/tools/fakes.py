@@ -62,6 +62,7 @@ class FakeGeocodingTool:
                 "lon": lon,
                 "canonical_name": f"{candidate.place_name}, {candidate.country}",
                 "country_code": cc,
+                "importance": 0.7,
             },
             source_name="OpenStreetMap Nominatim (fake)",
             source_url="https://nominatim.openstreetmap.org/",
@@ -614,25 +615,6 @@ class FakeActivitiesTool:
         )
 
 
-class FakeOfficialSourceTool:
-    name = "OfficialSourceTool"
-
-    async def run(self, candidate: CandidatePlace, profile: PlaceRequestProfile) -> ToolResult:
-        return ToolResult(
-            tool_name=self.name,
-            place=candidate.place_name,
-            normalized_data={
-                "official_links": [
-                    {"type": "tourism", "name": f"{candidate.country} Tourism Board (fake)", "url": "https://example.gov"}
-                ]
-            },
-            source_name="Curated official sources (fake)",
-            source_url="https://example.gov",
-            retrieved_at=datetime.now(UTC),
-            confidence="medium",
-        )
-
-
 class FakeSafetyTool:
     name = "SafetyTool"
 
@@ -708,5 +690,4 @@ def build_fake_tool_registry_dict() -> dict[str, object]:
         "LocalMobilityTool": FakeLocalMobilityTool(),
         "ActivitiesTool": FakeActivitiesTool(),
         "SafetyTool": FakeSafetyTool(),
-        "OfficialSourceTool": FakeOfficialSourceTool(),
     }

@@ -23,6 +23,23 @@
   const allConversationsList = document.getElementById("all-conversations-list");
   const viewAllConversationsBtn = document.getElementById("view-all-conversations");
   const themeToggle = document.getElementById("theme-toggle");
+  const exampleRemoteWorkBtn = document.getElementById("example-remote-work");
+  const exampleStudyBtn = document.getElementById("example-study");
+  const exampleVacationBtn = document.getElementById("example-vacation");
+
+  // Kept in sync with app/api/agent_info_content.py's _EXAMPLES_SOURCE so the
+  // home-page buttons and /api/agent_info's illustrative examples agree.
+  const EXAMPLE_PROMPTS = {
+    remoteWork:
+      "I want to spend three months somewhere in Europe where I can work remotely, " +
+      "live without a car, and stay within €1,800 per month.",
+    study:
+      "Recommend a city for a one-semester computer-science exchange. I care about " +
+      "student life, public transportation, safety, and affordable housing.",
+    vacation:
+      "Find a quiet beach destination for two weeks in October, with warm but not " +
+      "extremely hot weather and good hiking nearby.",
+  };
 
   // Simulated stage labels shown while waiting for /api/execute. These mirror
   // the agent's real state-machine order but are not driven by live backend
@@ -1004,6 +1021,14 @@
     setTheme(current === "dark" ? "light" : "dark");
   });
 
+  function fillExamplePrompt(text) {
+    promptInput.value = text;
+    promptInput.focus();
+  }
+  exampleRemoteWorkBtn.addEventListener("click", () => fillExamplePrompt(EXAMPLE_PROMPTS.remoteWork));
+  exampleStudyBtn.addEventListener("click", () => fillExamplePrompt(EXAMPLE_PROMPTS.study));
+  exampleVacationBtn.addEventListener("click", () => fillExamplePrompt(EXAMPLE_PROMPTS.vacation));
+
   window.addEventListener("popstate", () => {
     if (window.location.hash === "#conversations") {
       showConversations(false);
@@ -1029,7 +1054,7 @@
     try {
       const response = await fetch("/api/execute", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Interactive-Mode": "true" },
         body: JSON.stringify({ prompt }),
         signal: controller.signal,
       });

@@ -32,7 +32,6 @@ TOOL_TTL_HOURS: dict[str, int] = {
     "TransportAccessTool": 24 * 14,
     "ActivitiesTool": 24 * 14,
     "SafetyTool": 24,
-    "OfficialSourceTool": 24 * 7,
 }
 
 

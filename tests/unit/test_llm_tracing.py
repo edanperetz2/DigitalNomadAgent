@@ -59,6 +59,9 @@ async def test_traced_call_appends_one_step_on_success():
     assert len(trace) == 1
     assert set(trace[0].keys()) == {"module", "prompt", "response"}
     assert trace[0]["module"] == "Request Interpreter"
+    # Course spec's required step schema uses these exact key names -- do not
+    # rename to snake_case, even though the rest of the codebase uses it.
+    assert set(trace[0]["prompt"].keys()) == {"System_prompt", "User_prompt"}
 
 
 @pytest.mark.asyncio

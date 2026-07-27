@@ -1,6 +1,6 @@
-# PlaceMatch Tool Completion Master Plan
+# DigitalNomadAgent Tool Completion Master Plan
 
-This document is the canonical scope and status tracker for completing the PlaceMatch tools without invoking a real LLM. Any scope or ordering change requires user approval before implementation.
+This document is the canonical scope and status tracker for completing the DigitalNomadAgent tools without invoking a real LLM. Any scope or ordering change requires user approval before implementation.
 
 ## Non-negotiable end-to-end runtime requirement
 
@@ -9,7 +9,7 @@ This document is the canonical scope and status tracker for completing the Place
 - The deadline covers the whole state machine and is never reset by a new state, retry, fallback endpoint, candidate, tool, or gap-research round. At the research cutoff, completed results are retained and pending calls are cancelled. A recommendation is then generated from partial evidence with explicit low-confidence/timing disclosures; if its LLM is slow, the deterministic renderer is used. The 285-second hard cutoff repeats this no-I/O best-effort fallback rather than discarding the recommendation.
 - LLM timeout/failure before research must not consume the run: interpretation falls back to the deterministic parser and candidate generation falls back to the curated purpose-specific seed set, with both substitutions disclosed in the response assumptions.
 - Every unit proposal and review must account for worst-case external-call count, per-call timeout, retry/failover behavior, rate-limit waits, candidate count, concurrency, caching, and gap-research duplication. A change that could violate the 285-second backend budget must be redesigned, bounded more tightly, or rejected.
-- Shared defaults remain the first line of control: at most five candidates, bounded provider retries, 10-second HTTP timeouts unless a smaller tool-specific value is justified, deterministic tool selection, cache-first access, and at most one gap-research round. All independent tool/candidate jobs are scheduled together with an application-wide concurrency cap of 10; provider-specific rules remain stricter where needed (Nominatim serial, Overpass at most two). The hard deadline remains the final safety net.
+- Shared defaults remain the first line of control: at most 30 bulk candidates narrowed to at most 8 finalists via the zero-LLM candidate funnel (`app/agent/candidate_funnel.py`), bounded provider retries, 10-second HTTP timeouts unless a smaller tool-specific value is justified, deterministic tool selection, cache-first access, and at most one gap-research round. All independent tool/candidate jobs are scheduled together with an application-wide concurrency cap of 10; provider-specific rules remain stricter where needed (Nominatim serial, Overpass at most two). The hard deadline remains the final safety net.
 - Every tool/candidate invocation has a 50-second default execution budget covering its internal retries and failover. Work is scheduled deterministically by hard-constraint relevance, then inferred criterion weight, and applied across candidates before lower-priority tools so timeout degradation preserves the most important evidence.
 
 ## Workflow and commit discipline
@@ -52,7 +52,7 @@ Planned commit: `chore(tools): add shared tool infrastructure and master plan`
 - Version cache keys so incompatible cached response contracts are not reused.
 - Add reusable JSON HTTP, MediaWiki, Overpass, rate-limit, response-parsing, and test-injection helpers.
 - Serialize Nominatim candidate requests at one request per second in accordance with its usage policy.
-- Configure the shared Overpass client for at most two application-side concurrent requests and endpoint failover. This is a conservative PlaceMatch default, not a provider-mandated limit.
+- Configure the shared Overpass client for at most two application-side concurrent requests and endpoint failover. This is a conservative DigitalNomadAgent default, not a provider-mandated limit.
 - Keep all shared clients, retry waits, semaphores, and persistence operations cancellable under the single 285-second agent deadline; no helper may create a detached request that outlives cancellation.
 - Mark the two production-data tests skipped only when their files are absent. The separate live SLA test is also skipped unless explicitly enabled, yielding three expected skips in a normal offline run until those datasets arrive.
 
@@ -62,7 +62,7 @@ Planned commit: `feat(tools): harden destination geocoding`
 
 - Request multiple Nominatim matches, require country agreement, reject ambiguity, and return canonical name, coordinates, country code, OSM identity, and confidence.
 - Cache for 30 days, process candidates serially, and persist geocoding evidence rather than discarding it.
-- Keep verification bounded by `MAX_CANDIDATES`; serial Nominatim rate-limit waits and bounded retries count against the same 285-second request deadline.
+- Keep verification bounded by `MAX_BULK_CANDIDATES`; serial Nominatim rate-limit waits and bounded retries count against the same 285-second request deadline.
 - Test ambiguity, country mismatch, low importance, rate limiting, cache fallback, and malformed responses.
 
 ### 2. PlaceContextTool — DEFERRED
@@ -187,7 +187,7 @@ Planned commit: `Education options tool: remove redundant study matching`
 - Treat nearby study infrastructure as AmenitiesTool's responsibility: study requests already select independent university and library counts and score student life from those supported categories.
 - Route both `education` and `student_life` research concerns to AmenitiesTool. Do not introduce Wikidata, university-site, or Wikivoyage `Learn` calls for a second overlapping education tool.
 - Remove `study_field` from PlaceRequestProfile, the real interpreter contract, the deterministic mock, agent-info examples, and tests. Do not extract, store, or use an academic field for candidate generation or tool selection.
-- Study-purpose requests must not ask a blocking clarification about an academic field. PlaceMatch will recommend destinations from general study infrastructure and the user's ordinary constraints and preferences, not specialize recommendations by discipline.
+- Study-purpose requests must not ask a blocking clarification about an academic field. DigitalNomadAgent will recommend destinations from general study infrastructure and the user's ordinary constraints and preferences, not specialize recommendations by discipline.
 - Make no claims about current programs, admissions, academic eligibility, or field availability from university/library proximity counts.
 - Remove the obsolete five-city curated university directory and its deterministic `0.8`/`0.4` match heuristic.
 - Test study selection without EducationOptionsTool, AmenitiesTool routing for education and student-life concerns, study requests without field clarification, profile-schema removal, registry/fake removal, unchanged public endpoint shapes, and the absence of education-program claims.
@@ -221,7 +221,7 @@ Planned commit: `Budget fit tool: replace local estimates with live cost context
 - Cap WhereNext city evidence at medium confidence because it is a third-party researched/modelled dataset with detailed coverage for only 57 cities; cap the country fallback at low. Do not use Numbeo scraping or its paid/keyed API, and do not substitute a broad purchasing-power score for direct city prices.
 - Test city identity and aliases, coverage-index reuse, every returned category, missing items, fixed-cost scenario composition, country fallback labelling, dataset metadata and attribution, FX coalescing/conversion/failure, cache/stale fallback, partial failures, timeouts, source persistence, unresolved scoring, hard-budget behavior, fakes, registry wiring, and removal of the local-data skip.
 
-### 13. OfficialSourceTool — DROPPED
+### 13. OfficialSourceTool — DROPPED (removal landed)
 
 Planned commit: `Official source tool: remove unused curated link lookup`
 
@@ -234,8 +234,7 @@ Planned commit: `Official source tool: remove unused curated link lookup`
 ## Per-commit verification
 
 - Focused unit/contract tests use recorded or injected responses and never access the network.
-- Full `pytest -q` remains green. Until the OfficialSourceTool removal lands, its obsolete
-  production-data check and the explicitly opt-in live SLA check remain skipped. The final steady
+- Full `pytest -q` remains green. The OfficialSourceTool removal has landed; the final steady
   state has only the live SLA check skipped by default.
 - `ruff check .` passes.
 - Applicable live smoke checks run serially against known destinations and use only free APIs.
@@ -259,3 +258,16 @@ Planned commit: `Official source tool: remove unused curated link lookup`
 - For a tool whose criterion has a directly relevant Wikivoyage section, return its structured evidence plus a revision-pinned short preview, heading-aware reasoning chunks, and explicit coverage/truncation metadata as separately attributable evidence. Preserve up to 20,000 cleaned characters per section and distribute a truncated budget across subsections instead of keeping only the beginning. Evidence tools do not translate community-written prose into scores. The future reasoning agent will compare the sources and explain its aggregate judgment; until that backbone exists, the contextual evidence remains visible but numerically unresolved and cannot cause hard elimination.
 - Change the order only through an approved master-plan revision.
 - Each tool is implemented in one commit; the shared foundation and the explicitly approved shared Wikivoyage context-coverage follow-up are the only approved non-tool commits.
+
+## Status: tool-implementation phase complete
+
+Every unit above has landed (including OfficialSourceTool's removal). This document's own scope
+boundary above ("Do not invoke a real LLM or LLMod during this sequence") and line 258's "until
+that backbone exists, the contextual evidence remains visible but numerically unresolved" are now
+intentionally superseded, not violated: the tool-implementation phase this document governs is
+finished, and a new phase has begun implementing exactly the "future reasoning agent" this document
+anticipated -- a single batched Dynamic Evaluation LLM call that scores cost/transportation/
+accessibility/activities for every finalist and can now produce real hard-constraint eliminations.
+See `ARCHITECTURE.md` §1/§4 and `app/agent/dynamic_evaluation.py` for the current, load-bearing
+description of that phase; this document remains the historical record of how the tool suite itself
+was built and verified, not a live description of current scoring behavior.

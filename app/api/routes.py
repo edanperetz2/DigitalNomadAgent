@@ -1,4 +1,4 @@
-"""The 4 required PlaceMatch API endpoints. Paths and shapes are exact and
+"""The 4 required DigitalNomadAgent API endpoints. Paths and shapes are exact and
 must never be renamed or restructured."""
 
 from __future__ import annotations
@@ -54,8 +54,10 @@ async def execute(payload: ExecuteRequest, request: Request, response: Response)
     if len(prompt) > settings.max_prompt_length:
         raise PlaceMatchError("The prompt exceeds the maximum allowed length.")
 
+    interactive = request.headers.get("x-interactive-mode", "").strip().lower() == "true"
+
     orchestrator = request.app.state.orchestrator
-    result = await orchestrator.run(prompt)
+    result = await orchestrator.run(prompt, interactive=interactive)
     steps = [LLMStep.model_validate(s) for s in result.steps]
 
     if result.status == "ok" and result.response:

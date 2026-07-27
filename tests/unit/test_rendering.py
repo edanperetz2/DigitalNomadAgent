@@ -55,3 +55,26 @@ def test_markdown_handles_no_sources_gracefully():
     payload = {"purpose_summary": "a study request", "candidates": []}
     markdown = render_recommendation_markdown(payload)
     assert "No external sources" in markdown
+
+
+def test_markdown_renders_more_than_three_candidates():
+    candidates = [
+        {
+            "place": f"City{i}",
+            "country": "Testland",
+            "total_score": 1.0 - i * 0.01,
+            "confidence_score": 0.6,
+            "advantages": ["Good fit"],
+            "drawbacks": ["Minor drawback"],
+            "missing_evidence": [],
+        }
+        for i in range(8)
+    ]
+    payload = {"purpose_summary": "a vacation request", "candidates": candidates}
+    markdown = render_recommendation_markdown(payload)
+
+    table_rows = [line for line in markdown.splitlines() if line.startswith("| ") and "City" in line]
+    assert len(table_rows) == 8
+    for i in range(1, 9):
+        assert f"City{i - 1}" in markdown
+        assert f"### {i}. City{i - 1}" in markdown

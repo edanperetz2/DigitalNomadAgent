@@ -1,0 +1,20 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "main.py": {
+      "maxDuration": 300,
+      "includeFiles": "**"
+    }
+  },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/main.py" }
+  ],
+  "env": {
+    "MOCK_LLM": "true",
+    "SQLITE_PATH": "/tmp/digitalnomadagent.db",
+    "AGENT_EXECUTION_TIMEOUT_SECONDS": "285",
+    "RECOMMENDATION_RESERVE_SECONDS": "60",
+    "TOOL_EXECUTION_TIMEOUT_SECONDS": "50",
+    "MAX_CONCURRENT_TOOL_REQUESTS": "10"
+  }
+}

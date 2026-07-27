@@ -99,7 +99,7 @@ def validate_outbound_url(url: str, *, extra_allowed_domains: set[str] | None = 
     return url
 
 
-DEFAULT_USER_AGENT = "PlaceMatch/0.1 (academic course project; contact: edanperetz2@gmail.com)"
+DEFAULT_USER_AGENT = "DigitalNomadAgent/0.1 (academic course project; contact: edanperetz2@gmail.com)"
 
 
 async def safe_get(

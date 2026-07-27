@@ -20,7 +20,7 @@ def test_offline_representative_requests_finish_with_large_sla_margin(client):
 
 
 def test_runtime_telemetry_records_tool_phase_and_total_durations(client, caplog):
-    caplog.set_level(logging.INFO, logger="placematch")
+    caplog.set_level(logging.INFO, logger="digitalnomadagent")
 
     response = client.post("/api/execute", json={"prompt": REPRESENTATIVE_PROMPTS[0]})
 

@@ -116,3 +116,28 @@ def test_missing_drawbacks_flagged():
     evaluations = [_evaluation("A", 0.9, drawbacks=[])]
     result = validate_recommendations(evaluations, profile, gap_iteration_used=False)
     assert any("no recorded drawbacks" in issue for issue in result.issues)
+
+
+def test_fewer_than_max_final_recommendations_flagged_with_custom_n():
+    profile = PlaceRequestProfile(purpose="vacation")
+    evaluations = [
+        _evaluation(str(i), 0.9 - i * 0.01, eliminated=(i >= 5)) for i in range(8)
+    ]
+    result = validate_recommendations(
+        evaluations, profile, gap_iteration_used=False, max_final_recommendations=8
+    )
+    assert any("Fewer than 8 viable" in issue for issue in result.issues)
+
+
+def test_top_candidates_slice_respects_custom_max_final_recommendations():
+    profile = PlaceRequestProfile(purpose="vacation", inferred_weights={"climate": 0.9})
+    evaluations = [
+        _evaluation(str(i), 0.9 - i * 0.01, missing_evidence=["climate"] if i == 5 else None)
+        for i in range(8)
+    ]
+    result_default = validate_recommendations(evaluations, profile, gap_iteration_used=False)
+    result_wide = validate_recommendations(
+        evaluations, profile, gap_iteration_used=False, max_final_recommendations=8
+    )
+    assert result_default.should_research_again is False
+    assert result_wide.should_research_again is True

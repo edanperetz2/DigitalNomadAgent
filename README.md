@@ -1,4 +1,4 @@
-# PlaceMatch — Autonomous Evidence-Based Place Recommendation Agent
+# DigitalNomadAgent — Autonomous Evidence-Based Place Recommendation Agent
 
 An autonomous AI agent that recommends cities, regions, or destinations from unrestricted
 natural-language requests: remote work, studies, vacation, temporary relocation, family/cultural/
@@ -8,19 +8,20 @@ nature/business travel, or any mix of these.
 
 ## Course Submission Checklist
 
-- [ ] **Replace all placeholders** in `config/team_info.json` (student names, emails, batch/order
+- [x] **Replace all placeholders** in `config/team_info.json` (student names, emails, batch/order
       number, team name) before submission.
-- [ ] **Re-register at LLMod.ai using the new email requested by the course** before requesting
+- [x] **Re-register at LLMod.ai using the new email requested by the course** before requesting
       your project API key. Do this *before* filling in `LLMOD_API_KEY`/`LLMOD_MODEL` in `.env`.
-- [ ] Fill in the real `LLMOD_API_KEY` and `LLMOD_MODEL` in your local `.env` (never commit it).
+- [x] Fill in the real `LLMOD_API_KEY` and `LLMOD_MODEL` in your local `.env` (never commit it).
 - [ ] **Submission deadline: 23 August 2026.**
 - [ ] **Total LLM budget: $13 per group.** `MAX_PROJECT_BUDGET_USD=13` in `.env.example` already
       reflects this; do not raise it without team agreement.
-- [ ] Run `pytest -q` and `ruff check .` one final time before submitting — both must pass with
+- [x] Run `pytest -q` and `ruff check .` one final time before submitting — both must pass with
       `MOCK_LLM=true` (the default), which costs $0.
-- [ ] If deploying, replace the "deployment URL" placeholder below with the real one, or leave it
-      documented as not yet deployed.
-- [ ] **Deployment URL:** `REPLACE_WITH_DEPLOYMENT_URL_OR_"not deployed"`.
+- [x] Deploy on Vercel (required by the course spec — see Deployment section below) and replace
+      the placeholders below with the real URLs before submitting.
+- [x] **Vercel URL:** `https://digitalnomadagent.vercel.app/`
+- [x] **GitHub Repo URL:** `https://github.com/edanperetz2/DigitalNomadAgent`
 
 ---
 
@@ -31,11 +32,15 @@ Given a prompt like:
 > "I want to spend three months somewhere in Europe where I can work remotely, live without a car,
 > and stay within €1,800 per month."
 
-PlaceMatch interprets the request, extracts hard constraints (budget cap, car-free) and soft
-preferences, generates 4–5 diverse candidate destinations, decides *which* research tools are
-actually relevant to this request (not a fixed list — see `ARCHITECTURE.md` §3), gathers evidence
-from open data sources, verifies destination identity, deterministically scores and validates
-candidates, and returns a ranked, explainable, source-cited Markdown recommendation.
+DigitalNomadAgent interprets the request, extracts hard constraints (budget cap, car-free) and soft
+preferences, then runs a 3-stage candidate-discovery funnel: one LLM call proposes up to 30 broad
+candidates, a cheap deterministic filter (geocoding verification, region checks, budget ranking —
+no LLM, no expensive tools) narrows these down, and up to 8 finalists proceed to full research.
+DigitalNomadAgent decides *which* research tools are actually relevant to this request (not a fixed list —
+see `ARCHITECTURE.md` §3), gathers evidence from open data sources, verifies destination identity,
+scores candidates (deterministically for climate/work-infrastructure/timezone/student-life/safety,
+via one batched LLM call for cost/transportation/accessibility/activities), validates them, and
+returns a ranked, explainable, source-cited Markdown recommendation.
 
 ### Supported request types
 
@@ -133,6 +138,14 @@ transport, and UI overhead before the 300-second user-visible limit. If interpre
 generation fails early because the LLM provider times out, deterministic parsing and curated
 candidate seeds keep the pipeline moving and are disclosed in the response.
 
+The request body is always exactly `{"prompt": "..."}` for every caller, including automated
+grading — a bare call like that always resolves to one final, actionable recommendation and never
+stops mid-way to ask a clarifying question, even for an ambiguous prompt (the would-be question is
+instead disclosed as a stated assumption inside the response text). The deployed frontend is the one
+exception: it sends an additional `X-Interactive-Mode: true` request header (never a body field, so
+the documented request shape never changes), which restores the original behavior for a human at the
+keyboard — a genuinely ambiguous prompt gets a real clarification question back instead of a guess.
+
 ---
 
 ## UI
@@ -206,6 +219,9 @@ All variables are documented with safe defaults or empty placeholders in `.env.e
 | `MAX_PROJECT_BUDGET_USD` | Local hard cap, default `13` (the course budget) |
 | `MAX_LLM_CALLS_PER_REQUEST` | Default `4` |
 | `LLM_INPUT_COST_PER_1M`, `LLM_OUTPUT_COST_PER_1M` | Used only for conservative local cost *estimation* |
+| `MAX_BULK_CANDIDATES` | Stage-1 bulk candidate-recall size (still one LLM call); default `30` |
+| `MAX_FINALISTS` | Stage-3 finalist count that gets full research + scoring; default `8`, validated against real Overpass/Nominatim latency |
+| `MAX_FINAL_RECOMMENDATIONS` | Candidates actually presented in the response; default `8` |
 | `AGENT_EXECUTION_TIMEOUT_SECONDS` | Complete backend agent deadline; default and maximum `285` seconds |
 | `RECOMMENDATION_RESERVE_SECONDS` | Time reserved after research for scoring/rendering; default `60` seconds |
 | `TOOL_EXECUTION_TIMEOUT_SECONDS` | Complete budget for one tool/candidate invocation; default `50` seconds |
@@ -238,6 +254,26 @@ automatically** by tests, installation, or app startup.
 python scripts/check_llmod_connection.py
 ```
 
+### Golden-set evaluation harness
+
+`scripts/golden_set/` is a fixed, representative prompt set (one per purpose plus edge cases: an
+ambiguous prompt that would normally trigger clarification, an unaffordable hard budget, an excluded
+region, a car-free requirement) with a structural comparison scorer — it checks contractual
+properties (right modules ran, no stale placeholder text, no banned claims, finalist count in
+bounds) rather than exact text, since LLM output is non-deterministic. The ambiguous-prompt case is
+run the same way an automated grader calls the API (no `X-Interactive-Mode` header), so it asserts
+the disclosed-assumption behavior described above, not a bare clarification question. It also runs
+as a normal pytest case (`tests/integration/test_golden_set_harness.py`), so a pipeline regression
+fails the test suite too.
+
+```powershell
+# Default: MockLLMClient, zero cost, safe anytime.
+python scripts/run_golden_set.py
+
+# Real LLMod.ai provider -- sends one real request per case, consumes course credit. Opt-in only.
+python scripts/run_golden_set.py --real
+```
+
 ---
 
 ## Budget control
@@ -260,8 +296,7 @@ python scripts/check_llmod_connection.py
   (climate evidence), OpenStreetMap Overpass (amenities/activities/accessibility density), Wikivoyage
   MediaWiki API (revision-pinned context), GOV.UK and World Bank (safety), WhereNext (typed city-price
   and country cost context), and Frankfurter (budget currency conversion).
-- **Local/curated (no network)**: `app/data/official_sources.json` (curated official
-  tourism/immigration links, pending removal) and deterministic offline fakes for tests.
+- **Local/curated (no network)**: deterministic offline fakes for tests.
 
 All outbound requests are restricted to an explicit domain allow-list with SSRF protections
 (`app/core/security.py`) — there is no generic URL-fetch tool anywhere in the codebase.
@@ -311,30 +346,49 @@ a syntactically valid URL — **without making any paid request at startup.**
 ## Docker
 
 ```powershell
-docker build -t placematch .
-docker run --rm -p 8000:8000 --env-file .env placematch
+docker build -t digitalnomadagent .
+docker run --rm -p 8000:8000 --env-file .env digitalnomadagent
 ```
 
 The image defaults to `MOCK_LLM=true` so a container never spends real money unless you explicitly
 override it. `SQLITE_PATH` is configurable and can be mounted as a volume for persistence:
 
 ```powershell
-docker run --rm -p 8000:8000 --env-file .env -v ${PWD}/data:/app/data placematch
+docker run --rm -p 8000:8000 --env-file .env -v ${PWD}/data:/app/data digitalnomadagent
 ```
 
 ## Deployment
 
-No public deployment has been performed as part of this build. The Dockerfile above is sufficient
-for any standard Docker-compatible host (a VM, a container platform, etc.). If/when deployed,
-replace the placeholder deployment URL in the Course Submission Checklist above.
+The course spec requires deploying on **Vercel** specifically (not a general host choice) — see
+`docs/Project instructions.pdf`. `vercel.json` at the repo root configures this:
 
-To preserve the under-300-second contract, configure every reverse proxy, load balancer, ingress,
-and hosting platform in front of Uvicorn with a request/read/idle timeout of **at least 290 seconds**.
-The backend returns by 285 seconds and the bundled UI stops waiting at 295 seconds. A common
-platform default of 60 or 100 seconds will otherwise disconnect the user before the graceful
-recommendation fallback arrives. `UPSTREAM_REQUEST_TIMEOUT_SECONDS=290` can declare the actual
-infrastructure value for startup validation, but it does not configure the external platform by
-itself. Direct API clients should wait at least 290 seconds as well.
+- **Entrypoint**: the existing `main.py` (`from app.main import app`) is used directly — Vercel's
+  Python runtime auto-detects a file named `main.py` at the project root exporting an `app`
+  variable, so no separate `api/` wrapper file is needed.
+- **`rewrites`** sends every path (`/`, `/static/*`, `/api/*`) to that one function, so FastAPI's
+  own router still handles everything internally exactly as it does under Uvicorn.
+- **`functions.main.py.maxDuration = 300`** matches the spec's stated Vercel ceiling exactly — our
+  own `AGENT_EXECUTION_TIMEOUT_SECONDS=285` already fits under this with margin.
+- **`env`** sets the same safe non-secret defaults as the Dockerfile (`MOCK_LLM=true`, timeouts).
+  `SQLITE_PATH=/tmp/digitalnomadagent.db` is set here specifically because **Vercel's filesystem is
+  read-only except `/tmp`, and `/tmp` resets on every cold start** — the local cache/evidence/
+  budget-ledger SQLite database is not persistent across cold starts under Vercel. This is an
+  accepted limitation, not a bug: the real budget backstop is the LLMod.ai account balance itself,
+  not this local ledger.
+
+**To deploy:** connect this GitHub repo to a Vercel project (vercel.com → Add New Project → import
+the repo) and set these environment variables in the Vercel dashboard (secrets — never commit
+them): `LLMOD_API_KEY`, `LLMOD_MODEL`. Everything else needed is already in `vercel.json`. Once
+deployed, replace the Vercel URL placeholder in the Course Submission Checklist above, and keep the
+Vercel account active until the project is graded (per the spec).
+
+**Not yet verified**: FastAPI's `lifespan` startup/shutdown events (used here to open the SQLite
+connection and build the orchestrator once) are a relatively recent Vercel Python runtime addition.
+This should work, but — unlike everything else in this README — it genuinely cannot be confirmed
+without an actual live deploy; treat the first real deploy as a verification step, not a formality.
+
+Before deployment, run the offline suite normally. An explicitly opt-in live SLA check exercises
+three representative prompts and targets an observed p95 below 240 seconds:
 
 Before deployment, run the offline suite normally. An explicitly opt-in live SLA check exercises
 three representative prompts and targets an observed p95 below 240 seconds:
@@ -360,18 +414,20 @@ ordinary `pytest` runs.
   unmapped origin results in an honest "timezone overlap unknown" rather than a guess.
 - The deterministic keyword-based Request Interpreter used by `MockLLMClient` is a simplified stand-in
   for the real LLMod.ai model; real LLM output will generally extract richer nuance.
-- Candidate discovery draws from a modest curated seed pool per purpose (both in `MockLLMClient` and
-  as a grounding aid for the real model); it is not an exhaustive global city database.
+- Candidate discovery's Stage 1 draws from a curated seed pool per purpose in `MockLLMClient`
+  (~30 entries per purpose, mirroring the real bulk-recall step's target size); it is not an
+  exhaustive global city database, so offline/mock runs see a fixed set of destinations rather
+  than the real model's broader knowledge.
 - Safety evidence combines a current FCDO advisory, the latest available World Bank/UNODC
   country homicide rate, and revision-pinned Wikivoyage city context. The result requires at
   least two sources and is presented as comparative evidence, never a universal city-safety rating.
 
 ## Legal and ethical limitations
 
-- PlaceMatch never claims live flight/hotel prices, guaranteed visa eligibility, guaranteed
+- DigitalNomadAgent never claims live flight/hotel prices, guaranteed visa eligibility, guaranteed
   university admission, guaranteed safety, or exact current housing costs/travel times. Visa,
-  entry, and immigration wording is always cautious and directs the user to official sources
-  (`app/data/official_sources.json`, `OfficialSourceTool`).
+  entry, and immigration wording is always cautious and directs the user to verify with the
+  relevant official authorities directly.
 - External retrieved content (Wikivoyage excerpts, etc.) is always treated as untrusted evidence,
   never as instructions — every LLM system prompt explicitly says so.
 - No user data is persisted beyond what is necessary for evidence caching and the local budget

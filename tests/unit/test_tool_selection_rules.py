@@ -124,17 +124,19 @@ def test_arrival_and_remoteness_concerns_select_transport_access():
         assert "TransportAccessTool" in select_tools(_profile(relevant_criteria=[criterion]))
 
 
-def test_official_source_included_when_nationality_present():
+def test_nationality_present_does_not_select_removed_official_source_tool():
     profile = _profile(purpose="vacation", nationality="Israeli")
     tools = select_tools(profile)
-    assert "OfficialSourceTool" in tools
+    assert "OfficialSourceTool" not in tools
 
 
 def test_tool_sets_differ_across_purposes():
     remote_tools = select_tools(_profile(purpose="remote_work"))
     study_tools = select_tools(_profile(purpose="study"))
     vacation_tools = select_tools(_profile(purpose="vacation"))
-    assert remote_tools != study_tools
+    # remote_work and study select an identical base set (Amenities + BudgetFit) now that
+    # OfficialSourceTool -- their one distinguishing tool -- has been removed.
+    assert remote_tools == study_tools
     assert study_tools != vacation_tools
     assert remote_tools != vacation_tools
 

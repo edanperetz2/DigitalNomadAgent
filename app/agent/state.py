@@ -1,4 +1,4 @@
-"""The PlaceMatch agent state machine states, exactly per the course spec."""
+"""The DigitalNomadAgent agent state machine states, exactly per the course spec."""
 
 from __future__ import annotations
 

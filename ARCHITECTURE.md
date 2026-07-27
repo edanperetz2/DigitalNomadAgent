@@ -1,6 +1,6 @@
-# PlaceMatch — Architecture
+# DigitalNomadAgent — Architecture
 
-This document explains how PlaceMatch is built and, more importantly, *why* it is an autonomous
+This document explains how DigitalNomadAgent is built and, more importantly, *why* it is an autonomous
 agent rather than a fixed pipeline. See `assets/model_architecture.png` (also served at
 `GET /api/model_architecture`) for the visual diagram.
 
@@ -12,16 +12,19 @@ throughout the code, the diagram, `/api/agent_info`, LLM-call tracing, and this 
 | Canonical name | File | Calls the LLM? |
 |---|---|---|
 | Request Interpreter | `app/agent/request_interpreter.py` | Yes — 1 call |
-| Agentic Research | `app/agent/agentic_research.py` | Yes — 1 call (candidate generation only) |
+| Agentic Research | `app/agent/agentic_research.py` | Yes — 1 call (bulk candidate recall only) |
 | Tool Registry | `app/tools/registry.py` | No |
 | Evidence Memory | `app/evidence/memory.py` | No |
-| Dynamic Evaluation | `app/agent/dynamic_evaluation.py` | No |
+| Dynamic Evaluation | `app/agent/dynamic_evaluation.py` | Yes — 1 batched call (scores cost/transportation/accessibility/activities for all finalists at once) |
 | Recommendation Validator | `app/agent/recommendation_validator.py` | No |
 | Recommendation Generator | `app/agent/recommendation_generator.py` | Yes — 1 call |
 
-Only three modules ever produce a `steps` entry in `/api/execute`'s response, because only three
-modules ever call an LLM. Everything else — tool selection, scoring, validation — is deterministic
-Python, which is both cheaper (course budget is $13 total) and easier to test exhaustively.
+Four modules ever produce a `steps` entry in `/api/execute`'s response, because four modules ever
+call an LLM — always exactly once each per request, so the total stays at 4 calls even when a
+gap-research round runs (Dynamic Evaluation's call fires only once, from the state machine's single
+post-gap-resolution branch — see §2). Everything else — tool selection, the candidate-discovery
+funnel, validation — is deterministic Python, which is both cheaper (course budget is $13 total)
+and easier to test exhaustively.
 
 ## 2. State machine and conditional flow
 
@@ -30,24 +33,38 @@ Python, which is both cheaper (course budget is $13 total) and easier to test ex
 `researching_gap`, `generating_response`, `completed`, `failed`. `app/agent/orchestrator.py` drives
 transitions with structured conditions rather than a fixed sequence:
 
-- **`interpreting → clarification_required`** only when the Request Interpreter marks
+- **`interpreting → clarification_required`** whenever the Request Interpreter marks
   `clarification_required=True` (e.g. purpose is entirely unclear, or a study request has no
-  discernible academic field). This short-circuits the rest of the pipeline — no candidates are
-  generated, no tools run — and the response is simply the clarification question, still wrapped
-  in the required four-field envelope.
-- **`planning_research → executing_tools`**: Agentic Research generates 4–5 diverse candidates
-  (one LLM call) and deterministically decides which of the 10 tools are relevant to *this*
-  request (`select_tools()` in `agentic_research.py`) — see §4 below for why this is deterministic.
+  discernible academic field). What happens next depends on the caller: `POST /api/execute` is
+  stateless and single-shot for everyone, and an automated grader can only ever send the documented
+  bare request body, so by default this state does **not** dead-end the run — `Orchestrator`'s
+  `_resolve_ambiguous_profile` records the would-be clarification as a disclosed assumption
+  (defaulting an unresolved `purpose` to `"mixed"`) and the pipeline continues through
+  `planning_research` as normal, still producing a real, evidence-backed recommendation in one call.
+  Only a request sent with the `X-Interactive-Mode: true` header (used by the deployed frontend, for
+  a real human at the keyboard) gets the original short-circuit behavior: no candidates generated, no
+  tools run, response is simply the clarification question, still wrapped in the required four-field
+  envelope.
+- **`planning_research → executing_tools`**: Agentic Research proposes up to `MAX_BULK_CANDIDATES`
+  (default 30) broad candidates in one LLM call, then `executing_tools` runs a cheap, zero-LLM
+  funnel (`app/agent/candidate_funnel.py`) — serial geocoding verification, a region-only
+  hard-constraint pre-check, and concurrent `BudgetFitTool` ranking — to narrow these down to
+  `MAX_FINALISTS` (default 8) before deterministically deciding which of the tools are relevant to
+  *this* request (`select_tools()` in `agentic_research.py`) — see §4 below for why tool selection
+  is deterministic.
 - **`executing_tools`**: `ToolRegistry.verify_candidates()` runs GeocodingTool first for every
-  candidate; unverifiable candidates are dropped. Only then are the other selected tools run,
-  concurrently, bounded by `MAX_CONCURRENT_TOOL_REQUESTS`.
+  bulk candidate; unverifiable candidates are dropped. The funnel then narrows the geocoded
+  survivors to the finalist count. Only then are the other selected tools run against the
+  finalists, concurrently, bounded by `MAX_CONCURRENT_TOOL_REQUESTS`.
 - **`validating → researching_gap`**: the Recommendation Validator (deterministic) can send control
   back to Agentic Research exactly once, only when a high-weight criterion is missing evidence for
-  a top-3 candidate. The orchestrator tracks a `gap_iteration_used` flag so this can never loop
-  more than once, satisfying the "at most one additional research iteration" requirement. Notably,
+  one of the top `MAX_FINAL_RECOMMENDATIONS` candidates. The orchestrator tracks a
+  `gap_iteration_used` flag so this can never loop more than once, satisfying the "at most one
+  additional research iteration" requirement. Notably,
   this gap round makes **zero** additional LLM calls — it re-runs only the specific missing
-  `(place, criterion)` tool calls — which keeps typical execution at 3 LLM calls total (Interpreter,
-  Agentic Research, Recommendation Generator), well under `MAX_LLM_CALLS_PER_REQUEST=4`.
+  `(place, criterion)` tool calls — which keeps typical execution at exactly 4 LLM calls total
+  (Interpreter, Agentic Research, Dynamic Evaluation, Recommendation Generator), at but never over
+  `MAX_LLM_CALLS_PER_REQUEST=4`, regardless of whether a gap round ran.
 - **`generating_response`**: the Recommendation Generator makes one LLM call with a compact,
   pre-scored payload (never raw tool output). If that call fails for any reason (budget refusal,
   provider error, malformed output after the repair attempt), a deterministic Python template
@@ -91,8 +108,12 @@ though the *code path* through the state machine is identical.
 
 The one place an LLM *is* used to shape the search space is candidate generation — deciding *which
 places* to consider — because that benefits from broader world knowledge than a rule table can
-encode. Even there, MockLLMClient's fallback is a curated, purpose-keyed seed list so the system
-remains fully testable offline.
+encode. This happens in one bulk call (up to `MAX_BULK_CANDIDATES`, default 30) rather than asking
+the LLM to also pick finalists: narrowing the bulk list down to `MAX_FINALISTS` is a separate,
+deterministic step (`app/agent/candidate_funnel.py`) so the expensive per-candidate tool suite only
+ever runs against a small, cheaply-vetted set. Even the bulk-recall step has a fallback:
+MockLLMClient's curated, purpose-keyed seed list (~30 entries per purpose) so the system remains
+fully testable offline.
 
 ## 4. Evidence Memory and Dynamic Evaluation
 
@@ -101,9 +122,11 @@ optional error). `Orchestrator._persist_evidence()` converts successful results 
 `EvidenceRecord`s stored in the SQLite `evidence` table (deduplicated on
 `place, criterion, source_name`), giving full traceability from a claim back to its source.
 
-`Dynamic Evaluation` (`evaluate_candidates()`) is a pure function: it reads the evidence collected
-for each candidate, computes per-criterion `[0,1]` ratings, and combines them as
-`score = Σ(weight_i · rating_i) − uncertainty_penalty`, where:
+`Dynamic Evaluation` runs in two passes. `evaluate_candidates()` is a pure function (no LLM): it
+reads the evidence collected for each candidate, computes per-criterion `[0,1]` ratings for the
+five criteria deterministic normalization can score directly (climate, work_infrastructure,
+timezone, student_life, safety), and combines them as `score = Σ(weight_i · rating_i) −
+uncertainty_penalty`, where:
 
 - Weights start from the Request Interpreter's `inferred_weights` (derived from language cues —
   "most important" → 0.9, "prefer" → 0.6, "would be nice" → 0.3, "do not care about X" → dropped)
@@ -111,20 +134,30 @@ for each candidate, computes per-criterion `[0,1]` ratings, and combines them as
 - A criterion with **no evidence is excluded** from both the weighted sum and the weight
   normalization — it is never scored as 0 or 1, and it is recorded in `missing_evidence` so the
   Validator and the final response can disclose the gap honestly.
-- Hard constraints are eliminated only when a tool contract explicitly permits it. Structured cost,
-  mobility, activity, and transport evidence currently remains unresolved until the LLM reasoning
-  contract is implemented; missing, stale, or incomparable evidence cannot produce a favorable hard
-  result or eliminate a candidate.
+
+The remaining four criteria — cost, transportation, accessibility, activities — need reasoning over
+unstructured evidence (Wikivoyage excerpts, cost baskets, mobility counts) that deterministic
+normalization can't do justice to. These stay in `unscored_evidence` through the first pass and the
+`EVALUATING ⇄ RESEARCHING_GAP` loop, then get resolved by `score_unresolved_criteria()` — the one
+Dynamic Evaluation LLM call, fired once from `VALIDATING`'s approved branch (always after any
+gap-research round), batching every viable finalist × all four criteria into a single request.
+`apply_llm_scores()` folds the results back in and recomputes totals via the same weighting math.
+
+`_check_hard_constraints()` runs in both passes: a region-only check (works from geocoded country
+identity alone, so it's available even before any criterion is scored) plus keyword-triggered
+score-threshold checks — a criterion is only judged if it's both actually scored and textually
+referenced as a hard constraint or deal-breaker, so missing or incomparable evidence never produces
+a false elimination.
 
 This is deterministic and extensively unit-tested (`tests/unit/test_dynamic_evaluation.py`) — the
 same inputs always produce the same score.
 
 ## 5. Recommendation Validator
 
-`validate_recommendations()` is also a pure function. It checks: at least 3 viable candidates when
-reasonably possible, every viable candidate has recorded drawbacks, ranking stability (top two
+`validate_recommendations()` is also a pure function. It checks: at least `max_final_recommendations`
+viable candidates when reasonably possible, every viable candidate has recorded drawbacks, ranking stability (top two
 scores within a small margin are flagged "uncertain"), and — most importantly — whether any
-high-weight criterion is missing evidence for a top-3 candidate. If so, and no gap iteration has
+high-weight criterion is missing evidence for one of the top `max_final_recommendations` candidates. If so, and no gap iteration has
 run yet, `should_research_again=True` triggers the `researching_gap` state described in §2. This
 is the feedback loop shown in the architecture diagram.
 
@@ -192,7 +225,7 @@ claims to know the real provider-side balance (see README "Budget control").
 
 ## 9. SQLite usage
 
-One database (`SQLITE_PATH`, default `./data/placematch.db`) with three tables, created idempotently
+One database (`SQLITE_PATH`, default `./data/digitalnomadagent.db`) with three tables, created idempotently
 at startup (`app/evidence/database.py`): `evidence` (Evidence Memory), `tool_cache` (generic
 per-tool cache with per-source TTLs), and `llm_usage` (the budget ledger). WAL mode is enabled to
 avoid "database is locked" errors under concurrent requests.

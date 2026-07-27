@@ -457,6 +457,31 @@ textarea::placeholder {
   box-shadow: 0 20px 48px rgba(17, 104, 245, 0.22);
 }
 
+.example-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.example-prompt-btn {
+  padding: 8px 18px;
+  border: 1.5px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--surface);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.example-prompt-btn:hover,
+.example-prompt-btn:focus-visible {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
 #submit-btn {
   position: absolute;
   right: 20px;
