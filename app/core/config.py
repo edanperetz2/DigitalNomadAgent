@@ -32,12 +32,17 @@ class Settings(BaseSettings):
     max_project_budget_usd: float = 13.0
     max_llm_calls_per_request: int = 4
     llm_max_input_tokens: int = 4000
-    llm_max_output_tokens: int = 1500
+    llm_max_output_tokens: int = 4000
     llm_input_cost_per_1m: float = 0.0
     llm_output_cost_per_1m: float = 0.0
 
     # --- Networking ---------------------------------------------------------------
+    # Research-tool HTTP calls (Nominatim/Overpass/etc.) are fast REST lookups and
+    # should fail fast; real LLM completions take proportionally longer to generate
+    # as llm_max_output_tokens grows, so they get their own, longer timeout instead
+    # of sharing this one.
     http_timeout_seconds: float = 10.0
+    llm_http_timeout_seconds: float = 60.0
     agent_execution_timeout_seconds: float = Field(
         default=MAX_AGENT_EXECUTION_TIMEOUT_SECONDS,
         gt=0,

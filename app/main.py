@@ -76,7 +76,7 @@ def _build_llm_client(settings) -> BaseLLMClient:
         model=settings.llmod_model,
         auth_header=settings.llmod_auth_header,
         auth_scheme=settings.llmod_auth_scheme,
-        timeout_seconds=settings.http_timeout_seconds,
+        timeout_seconds=settings.llm_http_timeout_seconds,
     )
 
 
