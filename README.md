@@ -20,7 +20,7 @@ nature/business travel, or any mix of these.
       `MOCK_LLM=true` (the default), which costs $0.
 - [x] Deploy on Vercel (required by the course spec — see Deployment section below) and replace
       the placeholders below with the real URLs before submitting.
-- [x] **Vercel URL:** `https://digitalnomadagent-qd3gmijrb-idan-shani-ilay.vercel.app/`
+- [x] **Vercel URL:** `https://digitalnomadagent.vercel.app/`
 - [x] **GitHub Repo URL:** `https://github.com/edanperetz2/DigitalNomadAgent`
 
 ---
