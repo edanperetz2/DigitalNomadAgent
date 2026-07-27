@@ -146,6 +146,13 @@ exception: it sends an additional `X-Interactive-Mode: true` request header (nev
 the documented request shape never changes), which restores the original behavior for a human at the
 keyboard — a genuinely ambiguous prompt gets a real clarification question back instead of a guess.
 
+### Additive, non-required endpoints
+
+`DELETE /api/history` and `POST /api/history/delete` back the sidebar's clear-history controls
+(clear all / clear selected conversations). Neither is one of the 4 required course-spec endpoints
+above, and neither is used by the agent pipeline itself — purely UI convenience, safe to ignore for
+grading purposes.
+
 ---
 
 ## UI
@@ -155,7 +162,22 @@ service) with a prompt field, example buttons for remote work/study/vacation, lo
 states, rendered recommendations, and an expandable "Execution steps" section showing every LLM
 call's module/prompt/response. It calls `POST /api/execute` only — no agent logic is duplicated in
 the frontend. The browser also aborts after 295 seconds as a final client-side guard; the backend's
-285-second deadline should normally return a structured error first.
+285-second deadline should normally return a structured error first. Real requests commonly take
+40-110+ seconds (serial geocoding plus external tool calls); the loading state shows a live elapsed
+timer plus a "still thinking" note after 15 seconds so this doesn't read as a hung page.
+
+If the interactive path (the deployed frontend always sends `X-Interactive-Mode: true`, see
+"Required API endpoints" below) hits a clarification question, the results view shows an inline
+reply box instead of a dead end — the extra detail you type gets appended to the original prompt
+and resubmitted automatically.
+
+The sidebar's conversation history can be filtered (All / LLM / Fallback, based on each response's
+`**Generated using:**` disclosure line — a real LLM call counts as "LLM", both mock and the
+deterministic fallback template count as "Fallback"), multi-selected and cleared individually, or
+cleared entirely, via two additive endpoints (`DELETE /api/history`, `POST /api/history/delete`) that
+sit alongside but are not part of the 4 required course-spec endpoints. The sidebar itself can be
+collapsed to a narrow icon rail or resized by dragging its edge (260-480px); both preferences persist
+across reloads via `localStorage`.
 
 ---
 

@@ -168,3 +168,29 @@ def test_successful_geocoding_evidence_is_persisted(client):
 
     assert rows
     assert all(source_name == "OpenStreetMap Nominatim (fake)" for _, source_name in rows)
+
+
+def test_clear_history_deletes_saved_sessions(client):
+    response = client.post(
+        "/api/execute",
+        json={
+            "prompt": (
+                "Find a quiet beach destination for two weeks in October, with warm but not "
+                "extremely hot weather and good hiking nearby."
+            )
+        },
+    )
+    assert response.json()["status"] == "ok"
+    assert response.headers.get("X-DigitalNomadAgent-Session-Id")
+
+    with sqlite3.connect(client.app.state.db.path) as connection:
+        before = connection.execute("SELECT COUNT(*) FROM saved_search_sessions").fetchone()[0]
+    assert before > 0
+
+    clear_response = client.delete("/api/history")
+    assert clear_response.status_code == 200
+    assert clear_response.json() == {"status": "ok"}
+
+    with sqlite3.connect(client.app.state.db.path) as connection:
+        after = connection.execute("SELECT COUNT(*) FROM saved_search_sessions").fetchone()[0]
+    assert after == 0

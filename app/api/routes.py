@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, ConfigDict
 
 from app.api.agent_info_content import DESCRIPTION, PROMPT_EXAMPLES, PROMPT_TEMPLATE, PURPOSE
 from app.api.schemas import (
@@ -78,3 +79,25 @@ async def execute(payload: ExecuteRequest, request: Request, response: Response)
         response=result.response,
         steps=steps,
     )
+
+
+# Not one of the 4 required course-spec endpoints above -- purely additive, for the
+# "Clear history" sidebar button. Safe to add: doesn't touch the pinned paths/shapes.
+@router.delete("/api/history")
+async def clear_history(request: Request) -> dict:
+    await SavedSearchStore(request.app.state.db).clear_all()
+    return {"status": "ok"}
+
+
+class DeleteHistorySessionsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[str]
+
+
+# Also additive, for the "clear selected" sidebar action -- deletes only the
+# checked conversations rather than all of history.
+@router.post("/api/history/delete")
+async def delete_history_sessions(payload: DeleteHistorySessionsRequest, request: Request) -> dict:
+    await SavedSearchStore(request.app.state.db).delete_sessions(payload.ids)
+    return {"status": "ok"}

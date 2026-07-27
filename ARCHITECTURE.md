@@ -233,10 +233,13 @@ avoid "database is locked" errors under concurrent requests.
 ## 10. UI → API flow
 
 The UI (`app/templates/index.html` + `app/static/app.js`) is a static page served by the same
-FastAPI app. It only ever calls `POST /api/execute` — it holds no agent logic of its own. Markdown
-from the response is rendered client-side through a small, whitelist-only transform
-(`safeMarkdownToHtml` in `app.js`) that HTML-escapes all text *before* applying any structural
-formatting, so raw LLM output is never inserted as live HTML.
+FastAPI app. For agent behavior it only ever calls `POST /api/execute` (always with an
+`X-Interactive-Mode: true` header) — it holds no agent logic of its own. Two additional, non-agent
+endpoints (`DELETE /api/history`, `POST /api/history/delete`) back the sidebar's clear-history
+controls; neither is part of the 4 required course-spec endpoints. Markdown from the response is
+rendered client-side through a small, whitelist-only transform (`safeMarkdownToHtml` in `app.js`)
+that HTML-escapes all text *before* applying any structural formatting, so raw LLM output is never
+inserted as live HTML.
 
 ## 11. Why this is autonomous, not a fixed pipeline
 

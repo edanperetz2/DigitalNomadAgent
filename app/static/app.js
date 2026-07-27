@@ -3,6 +3,11 @@
 
   const LEGACY_HISTORY_KEY = "digitalnomadagent.recentConversations.v1";
   const THEME_KEY = "digitalnomadagent.theme";
+  const SIDEBAR_COLLAPSED_KEY = "digitalnomadagent.sidebarCollapsed";
+  const SIDEBAR_WIDTH_KEY = "digitalnomadagent.sidebarWidth";
+  const SIDEBAR_DEFAULT_WIDTH = 350;
+  const SIDEBAR_MIN_WIDTH = 260;
+  const SIDEBAR_MAX_WIDTH = 480;
 
   const shell = document.querySelector(".app-shell");
   const homeView = document.getElementById("home-view");
@@ -12,12 +17,25 @@
   const loadingIndicator = document.getElementById("loading-indicator");
   const loadingStage = document.getElementById("loading-stage");
   const loadingNote = document.getElementById("loading-note");
+  const loadingTimerValue = document.getElementById("loading-timer-value");
   const errorDisplay = document.getElementById("error-display");
   const resultsSection = document.getElementById("results");
   const resultsContent = document.getElementById("results-content");
   const userRequestDisplay = document.getElementById("user-request-display");
   const stepsContent = document.getElementById("steps-content");
   const historyList = document.getElementById("history-list");
+  const clearHistoryBtn = document.getElementById("clear-history-btn");
+  const historyToolbar = document.getElementById("history-toolbar");
+  // Scoped by container, not just the shared .history-filter-btn class -- the
+  // sidebar stays visible on every view, so an unscoped query would also catch
+  // the "All Conversations" page's filter buttons and cross-wire their clicks.
+  const historyFilterButtons = Array.from(document.querySelectorAll("#history-toolbar .history-filter-btn"));
+  const clearSelectedBtn = document.getElementById("clear-selected-btn");
+  const allConversationsFilterButtons = Array.from(
+    document.querySelectorAll("#conversations-view .history-filter-btn")
+  );
+  const sidebarToggleBtn = document.getElementById("sidebar-toggle");
+  const sidebarResizeHandle = document.getElementById("sidebar-resize-handle");
   const backToChatBtn = document.getElementById("back-to-chat");
   const conversationsBackBtn = document.getElementById("conversations-back");
   const conversationsView = document.getElementById("conversations-view");
@@ -63,7 +81,11 @@
   const EXECUTE_TIMEOUT_MS = 295000;
   let loadingStageTimer = null;
   let loadingNoteTimer = null;
+  let loadingElapsedTimer = null;
   let savedSearchSessions = [];
+  let historyFilter = "all";
+  let selectedHistoryIds = new Set();
+  let allConversationsFilter = "all";
   let currentPrompt = "";
 
   function getStoredTheme() {
@@ -100,6 +122,49 @@
   function initializeTheme() {
     const storedTheme = getStoredTheme();
     setTheme(storedTheme || "light");
+  }
+
+  function setSidebarCollapsed(collapsed) {
+    shell.classList.toggle("sidebar-collapsed", collapsed);
+    sidebarToggleBtn.setAttribute("aria-pressed", String(collapsed));
+    sidebarToggleBtn.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
+    } catch (_err) {
+      // Ignore storage errors; the sidebar still toggles for this page load.
+    }
+  }
+
+  function initializeSidebar() {
+    let collapsed = false;
+    try {
+      collapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+    } catch (_err) {
+      collapsed = false;
+    }
+    setSidebarCollapsed(collapsed);
+  }
+
+  function setSidebarWidth(width) {
+    const clamped = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)));
+    document.documentElement.style.setProperty("--sidebar-width", `${clamped}px`);
+    try {
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, String(clamped));
+    } catch (_err) {
+      // Ignore storage errors; the sidebar still resizes for this page load.
+    }
+    return clamped;
+  }
+
+  function initializeSidebarWidth() {
+    let width = SIDEBAR_DEFAULT_WIDTH;
+    try {
+      const stored = parseInt(localStorage.getItem(SIDEBAR_WIDTH_KEY), 10);
+      if (Number.isFinite(stored)) width = stored;
+    } catch (_err) {
+      width = SIDEBAR_DEFAULT_WIDTH;
+    }
+    setSidebarWidth(width);
   }
 
   function escapeHtml(text) {
@@ -729,8 +794,9 @@
     }
 
     return `
-      <div class="recommendation-board recommendation-details-only">
+      <div class="recommendation-board">
         ${renderDetails(items)}
+        ${renderInfoPanels(parsed)}
       </div>
     `;
   }
@@ -792,6 +858,13 @@
     stepsContent.innerHTML = parts.join("\n");
   }
 
+  function formatElapsed(ms) {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  }
+
   function setLoading(isLoading) {
     submitBtn.disabled = isLoading;
     loadingIndicator.hidden = !isLoading;
@@ -803,6 +876,10 @@
     if (loadingNoteTimer) {
       clearTimeout(loadingNoteTimer);
       loadingNoteTimer = null;
+    }
+    if (loadingElapsedTimer) {
+      clearInterval(loadingElapsedTimer);
+      loadingElapsedTimer = null;
     }
     loadingNote.hidden = true;
 
@@ -823,6 +900,12 @@
     loadingNoteTimer = setTimeout(() => {
       loadingNote.hidden = false;
     }, LOADING_NOTE_DELAY_MS);
+
+    const startedAt = Date.now();
+    loadingTimerValue.textContent = "0:00";
+    loadingElapsedTimer = setInterval(() => {
+      loadingTimerValue.textContent = formatElapsed(Date.now() - startedAt);
+    }, 1000);
   }
 
   function showError(message) {
@@ -952,46 +1035,106 @@
     renderHistory();
   }
 
+  // Derived from the disclosure line app/agent/recommendation_generator.py's
+  // _mode_disclosure_line()/render_recommendation_fallback() always appends to a
+  // successful response's markdown -- the only 3 possible strings it can contain.
+  function sessionMode(item) {
+    const text = item.response || "";
+    if (text.includes("a real LLM provider")) return "llm";
+    // Catches both "a deterministic fallback template" and "mock deterministic
+    // mode" -- per explicit instruction, mock counts as fallback here, not LLM.
+    if (text.includes("deterministic")) return "fallback";
+    return "unknown";
+  }
+
+  function pruneSelectedHistoryIds() {
+    const validIds = new Set(savedSearchSessions.map((item) => item.id));
+    selectedHistoryIds.forEach((id) => {
+      if (!validIds.has(id)) selectedHistoryIds.delete(id);
+    });
+  }
+
+  function updateClearSelectedButton() {
+    const count = selectedHistoryIds.size;
+    clearSelectedBtn.disabled = count === 0;
+    clearSelectedBtn.textContent = count ? `Clear selected (${count})` : "Clear selected";
+  }
+
   function renderHistory() {
+    pruneSelectedHistoryIds();
+    clearHistoryBtn.hidden = !savedSearchSessions.length;
+    historyToolbar.hidden = !savedSearchSessions.length;
+    updateClearSelectedButton();
+
     if (!savedSearchSessions.length) {
       historyList.hidden = true;
       historyList.innerHTML = "";
       return;
     }
 
+    const filtered = savedSearchSessions.filter(
+      (item) => historyFilter === "all" || sessionMode(item) === historyFilter
+    );
+
+    if (!filtered.length) {
+      historyList.hidden = true;
+      historyList.innerHTML = "";
+      historyToolbar.insertAdjacentHTML(
+        "afterend",
+        '<p class="history-empty-note" id="history-empty-note">No conversations match this filter.</p>'
+      );
+      return;
+    }
+
+    const existingNote = document.getElementById("history-empty-note");
+    if (existingNote) existingNote.remove();
+
     historyList.hidden = false;
-    historyList.innerHTML = savedSearchSessions
+    historyList.innerHTML = filtered
       .map(
         (item) => `
-          <button type="button" class="conversation-card history-card" data-history-id="${escapeHtml(item.id)}">
-            <span class="conversation-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" focusable="false">
-                <path d="M21 11.5a7.5 7.5 0 0 1-8 7.5 8.7 8.7 0 0 1-3.5-.8L4 20l1.8-5.1A7.5 7.5 0 1 1 21 11.5Z" />
-              </svg>
-            </span>
-            <span class="conversation-text">${escapeHtml(shortTitle(item.title || item.prompt))}</span>
-            <span class="conversation-time">${escapeHtml(formatTimeLabel(item.updatedAt))}</span>
-          </button>
+          <div class="conversation-card history-card" data-history-id="${escapeHtml(item.id)}">
+            <input
+              type="checkbox"
+              class="history-checkbox"
+              data-history-id="${escapeHtml(item.id)}"
+              aria-label="Select conversation: ${escapeHtml(shortTitle(item.title || item.prompt))}"
+              ${selectedHistoryIds.has(item.id) ? "checked" : ""}
+            />
+            <button type="button" class="conversation-open" data-history-id="${escapeHtml(item.id)}">
+              <span class="conversation-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M21 11.5a7.5 7.5 0 0 1-8 7.5 8.7 8.7 0 0 1-3.5-.8L4 20l1.8-5.1A7.5 7.5 0 1 1 21 11.5Z" />
+                </svg>
+              </span>
+              <span class="conversation-text">${escapeHtml(shortTitle(item.title || item.prompt))}</span>
+              <span class="conversation-time">${escapeHtml(formatTimeLabel(item.updatedAt))}</span>
+            </button>
+          </div>
         `
       )
       .join("");
   }
 
   function allConversationItems() {
-    return savedSearchSessions.map((item) => ({
-      type: "history",
-      id: item.id,
-      title: item.title || shortTitle(item.prompt),
-      prompt: item.prompt,
-      updatedAt: item.updatedAt,
-    }));
+    return savedSearchSessions
+      .filter((item) => allConversationsFilter === "all" || sessionMode(item) === allConversationsFilter)
+      .map((item) => ({
+        type: "history",
+        id: item.id,
+        title: item.title || shortTitle(item.prompt),
+        prompt: item.prompt,
+        updatedAt: item.updatedAt,
+      }));
   }
 
   function renderAllConversations() {
     const items = allConversationItems();
     if (!items.length) {
-      allConversationsList.innerHTML =
-        '<div class="empty-conversations"><p>No conversations are available yet.</p></div>';
+      const message = savedSearchSessions.length
+        ? "No conversations match this filter."
+        : "No conversations are available yet.";
+      allConversationsList.innerHTML = `<div class="empty-conversations"><p>${escapeHtml(message)}</p></div>`;
       return;
     }
 
@@ -1040,15 +1183,92 @@
   }
 
   historyList.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-history-id]");
+    if (event.target.closest(".history-checkbox")) return;
+    const button = event.target.closest(".conversation-open");
     if (!button) return;
     const item = savedSearchSessions.find((historyItem) => historyItem.id === button.getAttribute("data-history-id"));
     if (item) {
       promptInput.value = item.prompt;
-      setActiveConversation(button);
+      setActiveConversation(button.closest(".conversation-card"));
       showResults(item.prompt, item.response || "", item.steps || []);
     } else {
       showResultNotFound();
+    }
+  });
+
+  historyList.addEventListener("change", (event) => {
+    const checkbox = event.target.closest(".history-checkbox");
+    if (!checkbox) return;
+    const id = checkbox.getAttribute("data-history-id");
+    if (checkbox.checked) {
+      selectedHistoryIds.add(id);
+    } else {
+      selectedHistoryIds.delete(id);
+    }
+    updateClearSelectedButton();
+  });
+
+  historyFilterButtons.forEach((filterBtn) => {
+    filterBtn.addEventListener("click", () => {
+      historyFilter = filterBtn.getAttribute("data-filter");
+      historyFilterButtons.forEach((btn) => btn.classList.toggle("active", btn === filterBtn));
+      renderHistory();
+    });
+  });
+
+  allConversationsFilterButtons.forEach((filterBtn) => {
+    filterBtn.addEventListener("click", () => {
+      allConversationsFilter = filterBtn.getAttribute("data-filter");
+      allConversationsFilterButtons.forEach((btn) => btn.classList.toggle("active", btn === filterBtn));
+      renderAllConversations();
+    });
+  });
+
+  clearHistoryBtn.addEventListener("click", async () => {
+    if (!savedSearchSessions.length) return;
+    const confirmed = window.confirm("Clear all conversation history? This cannot be undone.");
+    if (!confirmed) return;
+    clearHistoryBtn.disabled = true;
+    try {
+      const response = await fetch("/api/history", { method: "DELETE" });
+      if (!response.ok) throw new Error(`Unexpected status ${response.status}`);
+      savedSearchSessions = [];
+      selectedHistoryIds.clear();
+      renderHistory();
+      renderAllConversations();
+      setActiveConversation(null);
+    } catch (_err) {
+      showError("Could not clear history -- a network error occurred.");
+    } finally {
+      clearHistoryBtn.disabled = false;
+    }
+  });
+
+  clearSelectedBtn.addEventListener("click", async () => {
+    if (!selectedHistoryIds.size) return;
+    const count = selectedHistoryIds.size;
+    const confirmed = window.confirm(
+      `Clear ${count} selected conversation${count === 1 ? "" : "s"}? This cannot be undone.`
+    );
+    if (!confirmed) return;
+    clearSelectedBtn.disabled = true;
+    try {
+      const ids = Array.from(selectedHistoryIds);
+      const response = await fetch("/api/history/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!response.ok) throw new Error(`Unexpected status ${response.status}`);
+      savedSearchSessions = savedSearchSessions.filter((item) => !selectedHistoryIds.has(item.id));
+      selectedHistoryIds.clear();
+      renderHistory();
+      renderAllConversations();
+      setActiveConversation(null);
+    } catch (_err) {
+      showError("Could not clear the selected conversations -- a network error occurred.");
+    } finally {
+      updateClearSelectedButton();
     }
   });
 
@@ -1071,6 +1291,47 @@
   themeToggle.addEventListener("click", () => {
     const current = document.documentElement.getAttribute("data-theme");
     setTheme(current === "dark" ? "light" : "dark");
+  });
+
+  sidebarToggleBtn.addEventListener("click", () => {
+    setSidebarCollapsed(!shell.classList.contains("sidebar-collapsed"));
+  });
+
+  let isResizingSidebar = false;
+
+  sidebarResizeHandle.addEventListener("mousedown", (event) => {
+    if (shell.classList.contains("sidebar-collapsed")) return;
+    event.preventDefault();
+    isResizingSidebar = true;
+    sidebarResizeHandle.classList.add("resizing");
+    shell.classList.add("sidebar-resizing");
+    document.body.style.userSelect = "none";
+  });
+
+  document.addEventListener("mousemove", (event) => {
+    if (!isResizingSidebar) return;
+    setSidebarWidth(event.clientX);
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (!isResizingSidebar) return;
+    isResizingSidebar = false;
+    sidebarResizeHandle.classList.remove("resizing");
+    shell.classList.remove("sidebar-resizing");
+    document.body.style.userSelect = "";
+  });
+
+  sidebarResizeHandle.addEventListener("keydown", (event) => {
+    const current =
+      parseInt(getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width"), 10) ||
+      SIDEBAR_DEFAULT_WIDTH;
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      setSidebarWidth(current - 12);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      setSidebarWidth(current + 12);
+    }
   });
 
   function fillExamplePrompt(text) {
@@ -1155,6 +1416,8 @@
   });
 
   initializeTheme();
+  initializeSidebar();
+  initializeSidebarWidth();
   clearLegacyHistory();
   savedSearchSessions = readBootstrappedSessions();
   renderHistory();

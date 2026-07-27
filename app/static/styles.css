@@ -131,7 +131,9 @@ svg {
 .sidebar {
   width: var(--sidebar-width);
   flex: 0 0 var(--sidebar-width);
-  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
   padding: 29px 28px;
   background: var(--surface-soft);
   border-right: 1px solid var(--border);
@@ -140,6 +142,60 @@ svg {
   top: 0;
   align-self: flex-start;
   z-index: 5;
+  transition: width 0.2s ease, flex-basis 0.2s ease, padding 0.2s ease;
+}
+
+.app-shell.sidebar-collapsed .sidebar {
+  width: 76px;
+  flex: 0 0 76px;
+  padding: 24px 12px;
+}
+
+.app-shell.sidebar-collapsed .brand-row {
+  flex-direction: column;
+  gap: 12px;
+}
+
+.app-shell.sidebar-collapsed .brand-label,
+.app-shell.sidebar-collapsed .sidebar-section {
+  display: none;
+}
+
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  border-radius: 3px;
+  cursor: col-resize;
+  z-index: 6;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle.resizing {
+  background: var(--blue-soft);
+}
+
+.sidebar-resize-handle:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+
+.app-shell.sidebar-collapsed .sidebar-resize-handle {
+  display: none;
+}
+
+.app-shell.sidebar-resizing .sidebar {
+  transition: none;
+}
+
+.sidebar-toggle-btn svg {
+  transition: transform 0.2s ease;
+}
+
+.app-shell.sidebar-collapsed .sidebar-toggle-btn svg {
+  transform: rotate(180deg);
 }
 
 .brand-row {
@@ -204,11 +260,16 @@ svg {
 }
 
 .sidebar-section {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   margin-top: 48px;
 }
 
 .sidebar-section h2 {
   margin: 0 0 15px;
+  flex: 0 0 auto;
   font-size: 16px;
   line-height: 1.35;
   font-weight: 800;
@@ -219,11 +280,114 @@ svg {
   gap: 11px;
 }
 
-.conversation-card {
-  display: grid;
-  grid-template-columns: 29px minmax(0, 1fr) auto;
-  gap: 12px;
+.dynamic-history {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-right: -4px;
+}
+
+.history-header {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex: 0 0 auto;
+  margin: 0 0 15px;
+}
+
+.history-header h2 {
+  margin: 0;
+}
+
+.clear-history-btn {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.clear-history-btn:hover {
+  color: var(--blue);
+}
+
+.view-all-btn {
+  flex: 0 0 auto;
+}
+
+.history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: 0 0 auto;
+  margin-bottom: 11px;
+}
+
+.history-filter-group {
+  display: flex;
+  gap: 4px;
+}
+
+.history-filter-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.history-filter-btn:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.history-filter-btn.active {
+  border-color: var(--blue);
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.clear-selected-btn {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.clear-selected-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.clear-selected-btn:not(:disabled):hover {
+  color: var(--blue);
+}
+
+.history-empty-note {
+  margin: 0 0 11px;
+  color: var(--faint);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.conversation-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
   min-height: 71px;
   padding: 12px 14px;
@@ -232,9 +396,32 @@ svg {
   color: var(--text);
   background: var(--surface);
   box-shadow: var(--shadow-card);
-  cursor: pointer;
   text-align: left;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.history-checkbox {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--blue);
+  cursor: pointer;
+}
+
+.conversation-open {
+  display: grid;
+  grid-template-columns: 29px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
 }
 
 .dynamic-history:not([hidden]) {
@@ -244,7 +431,7 @@ svg {
 }
 
 .conversation-card:hover,
-.conversation-card:focus-visible,
+.conversation-card:has(.conversation-open:focus-visible),
 .conversation-card.active {
   border-color: var(--border-strong);
   background: linear-gradient(180deg, var(--surface) 0%, var(--bg-soft) 100%);
@@ -549,6 +736,36 @@ textarea::placeholder {
   font-size: 13px;
   font-weight: 600;
   color: var(--faint);
+}
+
+.loading-timer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.loading-timer-icon {
+  display: inline-flex;
+  color: var(--blue);
+  animation: hourglass-flip 3s ease-in-out infinite;
+}
+
+@keyframes hourglass-flip {
+  0%,
+  40% {
+    transform: rotate(0deg);
+  }
+  50%,
+  90% {
+    transform: rotate(180deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 .spinner {
@@ -1125,7 +1342,7 @@ textarea::placeholder {
   margin-top: 19px;
 }
 
-.recommendation-details-only .details-section {
+.recommendation-board > .details-section:first-child {
   margin-top: 0;
 }
 
@@ -1450,15 +1667,43 @@ textarea::placeholder {
 
   .sidebar {
     width: 100%;
-    min-height: auto;
+    height: auto;
+    display: block;
     padding: 18px 20px 17px;
     position: relative;
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }
 
+  .sidebar-toggle-btn,
+  .sidebar-resize-handle {
+    display: none;
+  }
+
+  /* Neutralize the desktop collapsed-sidebar state (higher-specificity selector
+     would otherwise win here too if the window is resized without a reload). */
+  .app-shell.sidebar-collapsed .sidebar {
+    width: 100%;
+    height: auto;
+    padding: 18px 20px 17px;
+  }
+
+  .app-shell.sidebar-collapsed .brand-row {
+    flex-direction: row;
+  }
+
+  .app-shell.sidebar-collapsed .brand-label,
+  .app-shell.sidebar-collapsed .sidebar-section {
+    display: revert;
+  }
+
   .sidebar-section {
+    display: block;
     margin-top: 18px;
+  }
+
+  .dynamic-history {
+    overflow-y: visible;
   }
 
   .conversation-list {

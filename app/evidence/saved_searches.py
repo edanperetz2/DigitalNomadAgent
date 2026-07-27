@@ -83,6 +83,20 @@ class SavedSearchStore:
             raise RuntimeError("Saved search session was not persisted.")
         return session
 
+    async def clear_all(self) -> None:
+        await self._db.conn.execute("DELETE FROM saved_search_sessions")
+        await self._db.conn.commit()
+
+    async def delete_sessions(self, session_ids: list[str]) -> None:
+        if not session_ids:
+            return
+        placeholders = ",".join("?" for _ in session_ids)
+        await self._db.conn.execute(
+            f"DELETE FROM saved_search_sessions WHERE id IN ({placeholders})",
+            session_ids,
+        )
+        await self._db.conn.commit()
+
     async def get_session(self, session_id: str) -> dict[str, Any] | None:
         cursor = await self._db.conn.execute(
             """
