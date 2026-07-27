@@ -531,6 +531,7 @@ textarea::placeholder {
 
 .loading:not([hidden]) {
   display: flex;
+  flex-wrap: wrap;
 }
 
 .loading p {
@@ -541,6 +542,13 @@ textarea::placeholder {
 
 .loading p.fade {
   opacity: 0;
+}
+
+.loading-note {
+  flex-basis: 100%;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--faint);
 }
 
 .spinner {
@@ -782,6 +790,94 @@ textarea::placeholder {
   border-radius: var(--radius);
   background: var(--surface-soft);
   box-shadow: var(--shadow);
+}
+
+.clarification-board {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.clarification-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+  box-shadow: var(--shadow-soft);
+}
+
+.clarification-callout p {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.clarification-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.clarification-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.clarification-reply-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.clarification-reply-form label {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.clarification-reply-form textarea {
+  height: auto;
+  min-height: 90px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: var(--surface-soft);
+  font-size: 15px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.clarification-reply-form textarea:focus {
+  outline: none;
+  border-color: var(--blue);
+}
+
+.clarification-reply-form button {
+  align-self: flex-start;
+  padding: 10px 22px;
+  border: 0;
+  border-radius: 999px;
+  color: #ffffff;
+  background: linear-gradient(180deg, #4496ff 0%, var(--blue) 100%);
+  box-shadow: 0 10px 22px rgba(17, 104, 245, 0.28);
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 .section-kicker {

@@ -11,6 +11,7 @@
   const submitBtn = document.getElementById("submit-btn");
   const loadingIndicator = document.getElementById("loading-indicator");
   const loadingStage = document.getElementById("loading-stage");
+  const loadingNote = document.getElementById("loading-note");
   const errorDisplay = document.getElementById("error-display");
   const resultsSection = document.getElementById("results");
   const resultsContent = document.getElementById("results-content");
@@ -58,9 +59,12 @@
     "Writing your recommendation...",
   ];
   const LOADING_STAGE_INTERVAL_MS = 1300;
+  const LOADING_NOTE_DELAY_MS = 15000;
   const EXECUTE_TIMEOUT_MS = 295000;
   let loadingStageTimer = null;
+  let loadingNoteTimer = null;
   let savedSearchSessions = [];
+  let currentPrompt = "";
 
   function getStoredTheme() {
     try {
@@ -731,6 +735,40 @@
     `;
   }
 
+  // The orchestrator's interactive-mode clarification dead-end is the only path
+  // that ever returns after exactly one Request Interpreter step -- a reliable
+  // signal to show a reply box instead of trying to parse the question as a
+  // recommendation table.
+  function isClarificationSteps(steps) {
+    return Array.isArray(steps) && steps.length === 1 && steps[0] && steps[0].module === "Request Interpreter";
+  }
+
+  function renderClarificationPrompt(question) {
+    return `
+      <div class="clarification-board">
+        <div class="clarification-callout">
+          <span class="clarification-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M12 3 5 6v5.8c0 4.3 2.8 7.8 7 9.2 4.2-1.4 7-4.9 7-9.2V6l-7-3Z" />
+              <path d="M12 8v5M12 17h.01" />
+            </svg>
+          </span>
+          <p>${escapeHtml(question)}</p>
+        </div>
+        <form id="clarification-reply-form" class="clarification-reply-form">
+          <label for="clarification-reply-input">Add the missing details and continue</label>
+          <textarea
+            id="clarification-reply-input"
+            rows="3"
+            placeholder="e.g. remote work, budget €1,500/month, about 2 months"
+            required
+          ></textarea>
+          <button type="submit">Continue</button>
+        </form>
+      </div>
+    `;
+  }
+
   function renderSteps(steps) {
     if (!steps || steps.length === 0) {
       stepsContent.innerHTML = "<p>No LLM calls were made for this request.</p>";
@@ -762,6 +800,11 @@
       clearInterval(loadingStageTimer);
       loadingStageTimer = null;
     }
+    if (loadingNoteTimer) {
+      clearTimeout(loadingNoteTimer);
+      loadingNoteTimer = null;
+    }
+    loadingNote.hidden = true;
 
     if (!isLoading) return;
 
@@ -774,6 +817,12 @@
       loadingStage.textContent = LOADING_STAGES[stageIndex];
       requestAnimationFrame(() => loadingStage.classList.remove("fade"));
     }, LOADING_STAGE_INTERVAL_MS);
+
+    // Real requests commonly take 40-110+ seconds (serial geocoding + external
+    // tool calls) -- without this, that silence reads as a hung/broken page.
+    loadingNoteTimer = setTimeout(() => {
+      loadingNote.hidden = false;
+    }, LOADING_NOTE_DELAY_MS);
   }
 
   function showError(message) {
@@ -809,11 +858,14 @@
   }
 
   function showResults(prompt, markdown, steps) {
+    currentPrompt = prompt || "";
     userRequestDisplay.textContent = prompt ? `Based on your request: "${prompt}"` : "";
     if (window.location.hash === "#conversations") {
       window.history.replaceState({}, "", window.location.pathname);
     }
-    resultsContent.innerHTML = renderStructuredRecommendation(markdown || "", prompt);
+    resultsContent.innerHTML = isClarificationSteps(steps)
+      ? renderClarificationPrompt(markdown || "")
+      : renderStructuredRecommendation(markdown || "", prompt);
     hydratePlaceImages();
     renderSteps(steps);
     homeView.hidden = true;
@@ -1037,16 +1089,20 @@
     }
   });
 
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    clearError();
-    resultsSection.hidden = true;
+  async function runExecute(promptText) {
+    // Always return to the home view first -- the loading indicator lives
+    // there. Without this, submitting from the results view (e.g. the
+    // clarification reply form) would set loadingIndicator.hidden = false
+    // while its container (homeView) stayed hidden, leaving the page blank.
+    showHome(false);
 
-    const prompt = promptInput.value.trim();
+    const prompt = String(promptText || "").trim();
     if (!prompt) {
       showError("Please enter a request before submitting.");
       return;
     }
+    currentPrompt = prompt;
+    promptInput.value = prompt;
 
     setLoading(true);
     const controller = new AbortController();
@@ -1077,6 +1133,25 @@
       clearTimeout(requestTimeout);
       setLoading(false);
     }
+  }
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    runExecute(promptInput.value);
+  });
+
+  // Event delegation: #clarification-reply-form is injected dynamically into
+  // resultsContent by renderClarificationPrompt, so it's never present at
+  // setup time -- a single listener on the persistent container catches every
+  // future instance via bubbling, rather than re-binding on each render.
+  resultsContent.addEventListener("submit", (event) => {
+    const replyForm = event.target.closest("#clarification-reply-form");
+    if (!replyForm) return;
+    event.preventDefault();
+    const input = replyForm.querySelector("#clarification-reply-input");
+    const detail = input ? input.value.trim() : "";
+    if (!detail) return;
+    runExecute(`${currentPrompt}\n\nAdditional details: ${detail}`);
   });
 
   initializeTheme();
