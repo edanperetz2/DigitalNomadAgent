@@ -17,3 +17,8 @@ venv/
 dist/
 build/
 .playwright-mcp/
+# Personal tool permissions; .claude/launch.json is shared deliberately.
+.claude/settings.local.json
+# Raw end-to-end capture artifacts (scripts/run_e2e_suite.py). Kept locally so
+# runs can be diffed over time; the written analysis lives in docs/VALIDATION.md.
+/validation_runs/
