@@ -47,6 +47,26 @@ def test_an_unrecognised_purpose_still_extracts_every_stated_constraint():
     assert "car-free" in profile["mobility_requirements"]
 
 
+def test_a_month_is_recognised_as_a_monthly_budget():
+    """The most natural phrasing of all was missing: the period patterns knew
+    "per month" and "monthly" but not "a month"."""
+    for phrasing in ("€1,200 a month", "1200 EUR each month", "€1,200 per month"):
+        budget = interpret_prompt(f"Six months of remote work on {phrasing} all-in.")["budget"]
+        assert budget["amount"] == 1200.0, phrasing
+        assert budget["period"] == "monthly", phrasing
+
+
+def test_an_unrelated_period_word_cannot_hijack_the_budget():
+    """"reliable internet for daily video calls" set the budget period to
+    daily -- a 30x error, because the period was searched across the whole
+    prompt rather than the sentence stating the amount."""
+    budget = interpret_prompt(
+        "My budget is €1,200 a month all-in. I need reliable internet for daily video calls."
+    )["budget"]
+
+    assert budget["period"] == "monthly"
+
+
 def test_a_named_destination_is_captured_separately_from_regions():
     """"Is Lisbon a good fit?" previously put the city in preferred_regions,
     which is only matched against a candidate's country -- so it matched

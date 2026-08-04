@@ -153,6 +153,16 @@ def _detect_purposes(text: str) -> set[str]:
     return found
 
 
+_BUDGET_PERIOD_PATTERNS: tuple[tuple[str, str], ...] = (
+    # "a month" and friends were missing entirely, so the most natural phrasing
+    # of all -- "EUR 1,200 a month" -- fell through to "unknown".
+    ("monthly", r"per month|/ ?month|a month|each month|every month|monthly|\bp/?m\b|\bpcm\b"),
+    ("weekly", r"per week|/ ?week|a week|each week|every week|weekly"),
+    ("daily", r"per day|/ ?day|a day|each day|every day|per night|a night|daily"),
+    ("total", r"\btotal\b|\ball[- ]?in\b|\baltogether\b|\bin total\b"),
+)
+
+
 def _extract_budget(text: str) -> dict:
     amount = None
     currency = None
@@ -167,21 +177,18 @@ def _extract_budget(text: str) -> dict:
             currency_word = match.group(2).lower()
             currency = {"euros": "EUR", "dollars": "USD"}.get(currency_word, currency_word.upper())
 
-    if re.search(r"per month|/month|monthly", text, re.IGNORECASE):
-        period = "monthly"
-        confidence = "high"
-    elif re.search(r"per week|/week|weekly", text, re.IGNORECASE):
-        period = "weekly"
-        confidence = "high"
-    elif re.search(r"per day|/day|daily", text, re.IGNORECASE):
-        period = "daily"
-        confidence = "high"
-    elif re.search(r"\btotal\b", text, re.IGNORECASE):
-        period = "total"
-        confidence = "high"
-    else:
-        period = "unknown"
-        confidence = "low"
+    # Scoped to the sentence stating the amount, not the whole prompt. Searching
+    # globally let an unrelated word set the budget period: "EUR 1,200 a month
+    # ... reliable internet for daily video calls" was read as a DAILY budget,
+    # a 30x error on the constraint the request hinges on.
+    scope = _sentence_around(text.lower(), match.start()) if match else ""
+    period = "unknown"
+    confidence = "low"
+    for candidate_period, pattern in _BUDGET_PERIOD_PATTERNS:
+        if re.search(pattern, scope, re.IGNORECASE):
+            period = candidate_period
+            confidence = "high"
+            break
 
     includes_accommodation = None
     if re.search(r"excluding accommodation|not including accommodation|excluding rent", text, re.IGNORECASE):
