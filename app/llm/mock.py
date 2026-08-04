@@ -456,6 +456,10 @@ def interpret_prompt(prompt: str) -> dict:
     hard_constraints = []
     for m in re.finditer(r"\b(must|required|non-negotiable)\b[^.]{0,60}", lowered):
         hard_constraints.append(m.group(0).strip())
+    # A stated coordination target ("four hours of overlap with US Eastern") is a
+    # hard requirement, and TimezoneFitTool reads the named timezone from it.
+    for m in re.finditer(r"\b(?:\w+[ -])?hours? of overlap with\b[^.]{0,60}", lowered):
+        hard_constraints.append(m.group(0).strip())
     deal_breakers = []
     for m in re.finditer(r"\b(avoid|never)\b[^.]{0,60}", lowered):
         deal_breakers.append(m.group(0).strip())

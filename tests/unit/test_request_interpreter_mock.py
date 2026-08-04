@@ -246,3 +246,11 @@ def test_avoid_phrasing_populates_excluded_regions():
 def test_excluding_accommodation_does_not_leak_into_excluded_regions():
     profile = interpret_prompt("I want a vacation with a budget of 1000 EUR per month, excluding accommodation.")
     assert profile["excluded_regions"] == []
+
+
+def test_timezone_overlap_requirement_becomes_a_hard_constraint():
+    profile = interpret_prompt(
+        "I work remotely and need a time zone giving me at least four hours of "
+        "overlap with US Eastern. Budget about $2,000 a month."
+    )
+    assert any("overlap with us eastern" in c for c in profile["hard_constraints"])
