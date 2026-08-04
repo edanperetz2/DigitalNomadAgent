@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from app.core.exceptions import BudgetExceededError
+from app.core.exceptions import BudgetExceededError, LLMOutputError
 from app.core.module_names import ALL_MODULES
 from app.llm.base import BaseLLMClient, LLMRawResponse
 from app.llm.traced_client import traced_llm_call
@@ -38,6 +38,59 @@ class _EchoClient(BaseLLMClient):
 
 class _Schema(BaseModel):
     value: int
+
+
+class _FailingClient(BaseLLMClient):
+    """A provider that refuses or errors before producing any text."""
+
+    def __init__(self, exc: Exception):
+        self._exc = exc
+
+    async def complete(self, messages, *, max_output_tokens, metadata=None):
+        raise self._exc
+
+
+@pytest.mark.asyncio
+async def test_a_failed_provider_call_still_appears_in_the_trace():
+    """Observed on a real run: the Request Interpreter call failed, the
+    deterministic parser took over, and the module vanished from `steps`
+    entirely -- the response looked like an ordinary complete run."""
+    trace: list[dict] = []
+    with pytest.raises(LLMOutputError):
+        await traced_llm_call(
+            module_name="Request Interpreter",
+            messages=[{"role": "system", "content": "s"}, {"role": "user", "content": "u"}],
+            execution_trace=trace,
+            client=_FailingClient(RuntimeError("provider exploded")),
+            budget=_FakeBudget(),
+            request_id="r1",
+            max_output_tokens=100,
+        )
+
+    assert [s["module"] for s in trace] == ["Request Interpreter"]
+    assert trace[0]["response"]["error"] == "provider_call_failed"
+    # Course spec: every step carries exactly these prompt keys.
+    assert set(trace[0]["prompt"]) == {"System_prompt", "User_prompt"}
+
+
+@pytest.mark.asyncio
+async def test_a_failed_call_does_not_leak_the_api_key_into_the_trace():
+    from app.core.logging import register_secret
+
+    register_secret("sk-trace-secret-value")
+    trace: list[dict] = []
+    with pytest.raises(LLMOutputError):
+        await traced_llm_call(
+            module_name="Agentic Research",
+            messages=[{"role": "system", "content": "s"}, {"role": "user", "content": "u"}],
+            execution_trace=trace,
+            client=_FailingClient(RuntimeError("401 for key sk-trace-secret-value")),
+            budget=_FakeBudget(),
+            request_id="r1",
+            max_output_tokens=100,
+        )
+
+    assert "sk-trace-secret-value" not in json.dumps(trace)
 
 
 @pytest.mark.asyncio

@@ -63,6 +63,34 @@ async def traced_llm_call(
     prompt_record = _sanitize_prompt(messages)
     est_input_tokens = _estimate_tokens(messages)
 
+    def record_failure(reason: str, detail: str) -> None:
+        """Keep a failed module visible in `steps`.
+
+        Parse and schema failures below already append a step, so the module
+        still shows up. A refused or failed *call* previously appended nothing
+        at all, so the module disappeared from the trace entirely -- observed on
+        a real run where the Request Interpreter failed, the deterministic
+        parser took over, and the response looked like an ordinary complete run.
+        That breaks the course contract (every module must be documented in
+        steps) and, worse, hides the degradation from the reader.
+        """
+        execution_trace.append(
+            {
+                "module": module_name,
+                "prompt": prompt_record,
+                "response": {
+                    "error": reason,
+                    "detail": redact(detail)[:300],
+                    "note": "No model response was produced; a deterministic fallback was used.",
+                },
+            }
+        )
+
+    # A budget refusal deliberately leaves the trace empty: no call is made, so
+    # there is no prompt/response interaction to document (see
+    # test_budget_refusal_prevents_call_and_leaves_trace_empty). That differs
+    # from the failure below, where the call *was* made and did produce a
+    # billable, recorded attempt.
     await budget.check_before_call(request_id, module_name, est_input_tokens, max_output_tokens)
 
     attempt_messages = list(messages)
@@ -78,6 +106,7 @@ async def traced_llm_call(
             await budget.record_call(
                 request_id, module_name, None, est_input_tokens, max_output_tokens, None, success=False
             )
+            record_failure("provider_call_failed", str(exc))
             raise LLMOutputError(f"The LLM call for {module_name} failed: {exc}") from exc
 
         await budget.record_call(
