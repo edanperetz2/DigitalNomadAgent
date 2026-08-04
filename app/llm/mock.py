@@ -25,18 +25,33 @@ from app.llm.base import BaseLLMClient, LLMRawResponse
 # Request Interpreter: deterministic keyword/regex-based parser
 # ---------------------------------------------------------------------------
 
-_STUDY_KEYWORDS = [
-    "study", "student", "exchange", "semester", "degree", "university",
-    "master's", "masters", "phd", "academic", "college",
-]
-_REMOTE_KEYWORDS = [
-    "remote work", "work remotely", "remote job", "digital nomad",
-    "working remotely", "overlap with", "working hours", "remote-friendly",
-]
-_VACATION_KEYWORDS = [
-    "vacation", "holiday", "trip", "sightseeing", "beach",
-    "two weeks", "getaway",
-]
+# Word-boundary regexes, not bare substrings. The previous list-of-substrings
+# form missed ordinary phrasings -- "cleared to work fully remote" matched none
+# of "remote work"/"work remotely"/"remote job" -- and a miss was catastrophic,
+# because interpret_prompt then returned early without extracting the budget,
+# region, duration or constraints the user had actually stated.
+_STUDY_PATTERN = re.compile(
+    r"\b(?:study|studies|studying|student|exchange|semester|degree|university|"
+    r"master'?s|phd|academic|college|undergrad(?:uate)?)\b"
+)
+_REMOTE_PATTERN = re.compile(
+    # "work ... remote(ly)" and "remote(ly) ... work" in either order, allowing
+    # a few words between ("work fully remote", "remote-first work").
+    r"\bwork\w*\b[^.]{0,24}\bremote\w*\b"
+    r"|\bremote\w*\b[^.]{0,24}\bwork\w*\b"
+    r"|\bdigital nomad\b"
+    r"|\bwork(?:ing)? from (?:home|anywhere)\b"
+    r"|\bwfh\b"
+    r"|\btelework\w*\b"
+    r"|\bremote[- ]friendly\b"
+    r"|\boverlap with\b"
+    r"|\bworking hours\b"
+)
+_VACATION_PATTERN = re.compile(
+    r"\b(?:vacation|holiday|trip|sightseeing|beach|beaches|getaway|"
+    r"travell?ing|travel|tourist)\b"
+    r"|\btwo weeks\b"
+)
 
 _CURRENCY_SYMBOLS = {"€": "EUR", "$": "USD", "£": "GBP"}
 
@@ -129,11 +144,11 @@ _NUMBER_WORDS = {
 
 def _detect_purposes(text: str) -> set[str]:
     found = set()
-    if any(kw in text for kw in _REMOTE_KEYWORDS):
+    if _REMOTE_PATTERN.search(text):
         found.add("remote_work")
-    if any(kw in text for kw in _STUDY_KEYWORDS):
+    if _STUDY_PATTERN.search(text):
         found.add("study")
-    if any(kw in text for kw in _VACATION_KEYWORDS):
+    if _VACATION_PATTERN.search(text):
         found.add("vacation")
     return found
 
@@ -202,6 +217,45 @@ _EXCLUDED_REGION_PATTERN = re.compile(
 )
 
 
+# Macro-regions a user is likely to name. Deliberately a fixed vocabulary: the
+# real interpreter reasons about geography properly, and a loose "capitalised
+# word after 'in'" heuristic would happily read "in October" as a region.
+_KNOWN_REGIONS = (
+    "western europe", "eastern europe", "northern europe", "southern europe",
+    "central europe", "scandinavia", "the balkans", "the mediterranean", "europe",
+    "southeast asia", "south east asia", "south asia", "east asia", "central asia",
+    "the middle east", "asia",
+    "north africa", "sub-saharan africa", "africa",
+    "central america", "south america", "latin america", "north america",
+    "the caribbean", "oceania",
+)
+_PREFERRED_REGION_PATTERN = re.compile(
+    r"\b(?:somewhere |anywhere )?(?:in|within|around|across)\s+(" + "|".join(_KNOWN_REGIONS) + r")\b",
+    re.IGNORECASE,
+)
+# "not in Europe", "avoid Southeast Asia" must never read as a preference.
+_NEGATED_REGION_PREFIX = re.compile(r"(?:avoid|not|except|outside|skip|excluding|no)\s+\w*\s*$", re.IGNORECASE)
+
+
+def _extract_preferred_regions(text: str) -> list[str]:
+    """Positive region preferences, e.g. "somewhere in Europe".
+
+    Previously hard-coded to [] -- so a stated region was silently ignored and
+    candidates could come from anywhere in the world.
+    """
+    regions: list[str] = []
+    for match in _PREFERRED_REGION_PATTERN.finditer(text):
+        if _NEGATED_REGION_PREFIX.search(text[max(0, match.start() - 24) : match.start()]):
+            continue
+        region = match.group(1).strip()
+        canonical = region.title() if not region.lower().startswith("the ") else region
+        if canonical not in regions:
+            regions.append(canonical)
+    # Keep only the most specific match when both "Europe" and "Southern Europe"
+    # were found, so the profile does not carry a redundant broader region.
+    return [r for r in regions if not any(r != other and r.lower() in other.lower() for other in regions)]
+
+
 def _extract_excluded_regions(text: str) -> list[str]:
     """Best-effort capitalized-phrase heuristic; the real LLM reasons about this properly."""
     regions: list[str] = []
@@ -248,27 +302,83 @@ def _extract_activity_preferences(text: str) -> list[str]:
     return preferences
 
 
+# Intensity phrases, strongest first. Matched in a window around each criterion
+# rather than across the whole prompt: the previous form tested the entire text,
+# so one "most important" anywhere set *every* criterion to 0.9 and the common
+# case set them all to a flat 0.5 -- ranking could not reflect priorities at all.
+_INTENSITY_PATTERNS: tuple[tuple[float, str], ...] = (
+    (1.0, r"top priority|matters most|most important|number one|single most|absolutely must|"
+          r"non-negotiable|deal ?breaker"),
+    (0.9, r"very important|really important|genuinely important|crucial|essential|vital|"
+          r"matters a lot|big constraint|\bmust\b|\brequired\b|\bneed\b"),
+    (0.6, r"\bprefer\b|would like|\bimportant\b|\bcare about\b|\bwant\b|\bideally\b"),
+    (0.3, r"would be nice|nice to have|\bbonus\b|not fussy|don'?t mind|if possible|\bslight"),
+)
+_RANKED_ORDER_PATTERN = re.compile(r"\bin order\b|\bin priority order\b|\bmatters,? (?:roughly )?in\b")
+_SENTENCE_BREAKS = ".;!?\n"
+
+
+def _sentence_around(lowered: str, position: int) -> str:
+    """The sentence containing `position`.
+
+    Scoped to a sentence rather than a fixed character window so intensity does
+    not bleed across clauses: in "Safety is my top priority. Mild weather would
+    be nice", a fixed window let "top priority" capture the climate criterion.
+    """
+    start = max((lowered.rfind(c, 0, position) for c in _SENTENCE_BREAKS), default=-1) + 1
+    ends = [e for e in (lowered.find(c, position) for c in _SENTENCE_BREAKS) if e != -1]
+    return lowered[start : min(ends, default=len(lowered))]
+
+
+def _weight_near(lowered: str, position: int, length: int) -> float:
+    """Weight for one criterion, from the strongest intensity phrase near it."""
+    del length
+    sentence = _sentence_around(lowered, position)
+    for weight, pattern in _INTENSITY_PATTERNS:
+        if re.search(pattern, sentence):
+            return weight
+    return 0.5
+
+
+def _apply_ranked_order(
+    lowered: str, relevant_criteria: list[str], inferred_weights: dict[str, float]
+) -> None:
+    """Honour an explicitly ranked list ("what matters, roughly in order: ...").
+
+    Criteria are re-weighted by the order they appear in the prompt, descending,
+    so an ordering the user spelled out is actually reflected in the ranking.
+    """
+    if not _RANKED_ORDER_PATTERN.search(lowered) or len(relevant_criteria) < 2:
+        return
+    ordered = sorted(
+        relevant_criteria,
+        key=lambda c: min(
+            (lowered.find(kw) for kw, crit in _CRITERIA_KEYWORD_MAP.items() if crit == c and kw in lowered),
+            default=len(lowered),
+        ),
+    )
+    for rank, criterion in enumerate(ordered):
+        inferred_weights[criterion] = round(max(0.4, 0.95 - 0.1 * rank), 2)
+
+
 def interpret_prompt(prompt: str) -> dict:
     """Deterministic, rule-based interpretation used by MockLLMClient."""
     text = prompt.strip()
     lowered = text.lower()
 
     purposes_found = _detect_purposes(lowered)
-    if not purposes_found:
-        return {
-            "purpose": "unknown",
-            "clarification_required": True,
-            "clarification_question": (
-                "Could you clarify the main purpose of this trip (remote work, study, "
-                "vacation, or something else), your approximate budget, and how long "
-                "you plan to stay?"
-            ),
-            "missing_information": ["purpose"],
-        }
-
-    if len(purposes_found) == 1:
+    secondary_purposes: list[str] = []
+    unknown_purpose = not purposes_found
+    if unknown_purpose:
+        # Deliberately falls through to the full extraction below rather than
+        # returning a stub. An unrecognised purpose says nothing about whether
+        # the user stated a budget, a region or a hard constraint, and returning
+        # early discarded all of them -- the request then ran with a completely
+        # empty profile and produced confident recommendations that ignored
+        # every stated requirement.
+        purpose = "unknown"
+    elif len(purposes_found) == 1:
         purpose = next(iter(purposes_found))
-        secondary_purposes: list[str] = []
     else:
         purpose = "mixed"
         secondary_purposes = sorted(purposes_found)
@@ -289,7 +399,12 @@ def interpret_prompt(prompt: str) -> dict:
     amenity_preferences = _extract_amenity_preferences(lowered)
 
     mobility_requirements = []
-    if re.search(r"without a car|car-free|no car|car free", lowered):
+    if re.search(
+        r"without a car|car-free|car free|no car|"
+        r"(?:won'?t|will not|do ?n'?t|do not) (?:have|need|be bringing) a car|"
+        r"(?:do ?n'?t|do not) drive",
+        lowered,
+    ):
         mobility_requirements.append("car-free")
     if "public transport" in lowered:
         mobility_requirements.append("public_transport_reliant")
@@ -309,24 +424,21 @@ def interpret_prompt(prompt: str) -> dict:
     deal_breakers = []
     for m in re.finditer(r"\b(avoid|never)\b[^.]{0,60}", lowered):
         deal_breakers.append(m.group(0).strip())
+    preferred_regions = _extract_preferred_regions(text)
     excluded_regions = _extract_excluded_regions(text)
     soft_preferences = []
     for m in re.finditer(r"\bprefer\b[^.]{0,60}", lowered):
         soft_preferences.append(m.group(0).strip())
 
-    relevant_criteria: list[str] = []
-    inferred_weights: dict[str, float] = {}
+    relevant_criteria = []
+    inferred_weights = {}
     for kw, criterion in _CRITERIA_KEYWORD_MAP.items():
-        if kw in lowered and criterion not in relevant_criteria:
-            relevant_criteria.append(criterion)
-            if "most important" in lowered:
-                inferred_weights[criterion] = 0.9
-            elif "prefer" in lowered:
-                inferred_weights[criterion] = 0.6
-            elif "would be nice" in lowered:
-                inferred_weights[criterion] = 0.3
-            else:
-                inferred_weights[criterion] = 0.5
+        position = lowered.find(kw)
+        if position == -1 or criterion in relevant_criteria:
+            continue
+        relevant_criteria.append(criterion)
+        inferred_weights[criterion] = _weight_near(lowered, position, len(kw))
+    _apply_ranked_order(lowered, relevant_criteria, inferred_weights)
     if re.search(r"do not care about (\w+)|don't care about (\w+)", lowered):
         for m in re.finditer(r"do not care about (\w+)|don't care about (\w+)", lowered):
             dropped = (m.group(1) or m.group(2))
@@ -337,6 +449,14 @@ def interpret_prompt(prompt: str) -> dict:
     missing_information: list[str] = []
     clarification_required = False
     clarification_question = None
+    if unknown_purpose:
+        clarification_required = True
+        clarification_question = (
+            "Could you clarify the main purpose of this trip (remote work, study, "
+            "vacation, or something else), your approximate budget, and how long "
+            "you plan to stay?"
+        )
+        missing_information.append("purpose")
     if "visa" in lowered and origin is None:
         missing_information.append("nationality (for visa considerations)")
 
@@ -347,7 +467,7 @@ def interpret_prompt(prompt: str) -> dict:
         "dates_or_season": None,
         "origin": origin,
         "nationality": None,
-        "preferred_regions": [],
+        "preferred_regions": preferred_regions,
         "excluded_regions": excluded_regions,
         "preferred_languages": [],
         "mobility_requirements": mobility_requirements,

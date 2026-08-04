@@ -15,6 +15,81 @@ def test_remote_work_prompt_detected():
     assert profile["clarification_required"] is False
 
 
+def test_ordinary_remote_phrasings_are_recognised():
+    """Purpose detection used bare substrings, so "work fully remote" matched
+    none of "remote work"/"work remotely"/"remote job" and the whole profile
+    was discarded."""
+    for phrasing in (
+        "I've been cleared to work fully remote for three months.",
+        "I want to work from home abroad for three months.",
+        "Looking for a remote-first work base for a few months.",
+        "I'm a digital nomad looking for a base.",
+    ):
+        assert interpret_prompt(phrasing)["purpose"] == "remote_work", phrasing
+
+
+def test_an_unrecognised_purpose_still_extracts_every_stated_constraint():
+    """The regression that made five of ten evaluation prompts return identical
+    output: an unmatched purpose returned a stub, throwing away the budget,
+    region and constraints the user had actually stated."""
+    profile = interpret_prompt(
+        "I'm looking for somewhere in Scandinavia for a month this winter. I don't want "
+        "to spend more than $400 per month including accommodation, and I won't have a "
+        "car, so everything needs to be walkable."
+    )
+
+    assert profile["purpose"] == "unknown"
+    assert profile["clarification_required"] is True
+    # ...but nothing the user said is lost.
+    assert profile["budget"]["amount"] == 400.0
+    assert profile["budget"]["period"] == "monthly"
+    assert profile["preferred_regions"] == ["Scandinavia"]
+    assert "car-free" in profile["mobility_requirements"]
+
+
+def test_positive_region_preferences_are_extracted():
+    """preferred_regions was hard-coded to [], so a stated region was ignored
+    entirely and candidates could come from anywhere."""
+    assert interpret_prompt("Three months somewhere in Europe.")["preferred_regions"] == ["Europe"]
+    assert interpret_prompt("A month in Southeast Asia.")["preferred_regions"] == ["Southeast Asia"]
+
+
+def test_a_negated_region_is_not_read_as_a_preference():
+    profile = interpret_prompt("A beach holiday, but not in Southeast Asia.")
+    assert profile["preferred_regions"] == []
+
+
+def test_weights_reflect_each_criterion_separately():
+    """Intensity was tested against the whole prompt, so one strong phrase set
+    every criterion to the same weight."""
+    profile = interpret_prompt(
+        "Safety is my top priority. Mild weather would be nice but I'm not fussy."
+    )
+
+    assert profile["inferred_weights"]["safety"] == 1.0
+    assert profile["inferred_weights"]["climate"] == 0.3
+
+
+def test_an_explicitly_ranked_list_produces_descending_weights():
+    profile = interpret_prompt(
+        "What matters, roughly in order: public transport, safety, and affordable housing."
+    )
+    weights = profile["inferred_weights"]
+
+    assert weights["transportation"] > weights["safety"] > weights["cost"]
+
+
+def test_do_not_care_removes_the_criterion_entirely():
+    """Documented in ARCHITECTURE.md but its only test was deleted in the
+    scoring-funnel redesign and never replaced."""
+    profile = interpret_prompt(
+        "A city with great nightlife nearby. Actually, I do not care about nightlife."
+    )
+
+    assert "nightlife" not in profile["inferred_weights"]
+    assert "nightlife" not in profile["relevant_criteria"]
+
+
 def test_study_prompt_does_not_extract_an_academic_field():
     profile = interpret_prompt(
         "Recommend a city for a one-semester computer-science exchange. I care about "
