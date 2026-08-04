@@ -269,6 +269,76 @@ async def test_missing_origin_returns_missing_overlap_without_network():
 
 
 @pytest.mark.asyncio
+async def test_named_reference_timezone_computes_overlap_without_origin_or_network():
+    tool, http, _ = _tool()
+    profile = PlaceRequestProfile(
+        purpose="remote_work",
+        target_months=[1],
+        hard_constraints=["at least four hours of overlap with US Eastern time"],
+    )
+
+    result = await tool.run(_candidate(), profile)
+
+    assert result.error is None
+    assert result.normalized_data["reference_timezone"] == "America/New_York"
+    assert result.normalized_data["reference_timezone_source"] == "stated_in_request"
+    # 2027-01-15: Lisbon UTC+0, New York UTC-5 -> 3h of a standard workday overlap.
+    assert result.normalized_data["estimated_workday_overlap_hours"] == 3.0
+    assert http.calls == []
+    assert any("stated in the request" in warning for warning in result.warnings)
+    assert [item.component for item in result.evidence_items] == ["workday_overlap"]
+
+
+@pytest.mark.asyncio
+async def test_named_reference_timezone_wins_over_stated_origin():
+    tool, http, _ = _tool()
+    profile = PlaceRequestProfile(
+        purpose="remote_work",
+        origin="Tel Aviv",
+        target_months=[1],
+        hard_constraints=["needs 4h overlap with US Eastern time for meetings"],
+    )
+
+    result = await tool.run(_candidate(), profile)
+
+    assert result.normalized_data["reference_timezone"] == "America/New_York"
+    assert "resolved_origin_name" not in result.normalized_data
+    assert http.calls == []
+
+
+@pytest.mark.asyncio
+async def test_short_timezone_tokens_do_not_match_inside_words():
+    tool, http, _ = _tool()
+    profile = PlaceRequestProfile(
+        purpose="remote_work",
+        target_months=[2],
+        hard_constraints=["the best coworking scene", "cstrict budgets"],
+    )
+
+    result = await tool.run(_candidate(), profile)
+
+    assert "reference_timezone" not in result.normalized_data
+    assert "estimated_workday_overlap_hours" not in result.normalized_data
+    assert http.calls == []
+
+
+@pytest.mark.asyncio
+async def test_central_european_time_resolves_to_cet_not_us_central():
+    tool, _, _ = _tool()
+    profile = PlaceRequestProfile(
+        purpose="remote_work",
+        target_months=[7],
+        soft_preferences=["keep central european time working hours"],
+    )
+
+    result = await tool.run(_candidate(), profile)
+
+    assert result.normalized_data["reference_timezone"] == "Europe/Berlin"
+    # 2026-07-15: Lisbon UTC+1 (WEST), Berlin UTC+2 (CEST) -> 7h overlap.
+    assert result.normalized_data["estimated_workday_overlap_hours"] == 7.0
+
+
+@pytest.mark.asyncio
 async def test_missing_destination_coordinates_is_an_error():
     tool, _, _ = _tool()
     candidate = CandidatePlace(place_name="Unverified", country="X", reason_for_inclusion="test")

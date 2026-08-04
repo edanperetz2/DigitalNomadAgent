@@ -1,7 +1,9 @@
-"""TimezoneFitTool -- estimated standard-workday overlap with an origin."""
+"""TimezoneFitTool -- estimated standard-workday overlap with an origin or a
+reference timezone the user named outright ("overlap with US Eastern")."""
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
@@ -19,9 +21,69 @@ from app.tools.origin_resolution import (
     valid_timezone,
 )
 
-__all__ = ["GEOCODING_PARAMS", "ORIGIN_CACHE_TOOL", "TimezoneFitTool"]
+__all__ = ["GEOCODING_PARAMS", "ORIGIN_CACHE_TOOL", "TimezoneFitTool", "named_reference_timezone"]
 
 STANDARD_WORKDAY_HOURS = 8
+
+# A request like "at least four hours of overlap with US Eastern time" names the
+# coordination target directly -- no origin is needed (or relevant) to score it.
+# Ordered: more specific phrases first, so "central european time" resolves to
+# CET before the bare US "central time" pattern can claim it.
+NAMED_REFERENCE_TIMEZONES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (
+        "US Eastern Time",
+        "America/New_York",
+        ("us eastern", "u.s. eastern", "eastern time", "eastern standard time",
+         "eastern daylight time", "us east coast", "new york time", "est", "edt"),
+    ),
+    (
+        "Central European Time",
+        "Europe/Berlin",
+        ("central european time", "central european", "cet", "cest"),
+    ),
+    (
+        "US Central Time",
+        "America/Chicago",
+        ("us central", "central time", "cst", "cdt"),
+    ),
+    (
+        "US Mountain Time",
+        "America/Denver",
+        ("us mountain", "mountain time"),
+    ),
+    (
+        "US Pacific Time",
+        "America/Los_Angeles",
+        ("us pacific", "pacific time", "pacific standard time", "pst", "pdt"),
+    ),
+    (
+        "UK Time",
+        "Europe/London",
+        ("uk time", "london time", "british time", "gmt", "bst"),
+    ),
+    ("UTC", "UTC", ("utc",)),
+    ("Japan Time", "Asia/Tokyo", ("japan time", "jst")),
+    ("Israel Time", "Asia/Jerusalem", ("israel time",)),
+    ("India Time", "Asia/Kolkata", ("india time",)),
+)
+
+
+def named_reference_timezone(profile: PlaceRequestProfile) -> tuple[str, str] | None:
+    """Return (label, IANA zone) when the request itself names the timezone to
+    coordinate with. Word-bounded matching so short tokens like "est" never fire
+    inside ordinary words."""
+    haystack = " ".join(
+        profile.hard_constraints
+        + profile.soft_preferences
+        + profile.relevant_criteria
+        + profile.deal_breakers
+    )
+    haystack = " ".join(haystack.casefold().replace("_", " ").replace("-", " ").split())
+    for label, zone, phrases in NAMED_REFERENCE_TIMEZONES:
+        for phrase in phrases:
+            if re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", haystack):
+                return label, zone
+    return None
 
 
 TimezoneAt = Callable[[float, float], str | None]
@@ -97,9 +159,12 @@ class TimezoneFitTool:
                 for key in (
                     "candidate_timezone",
                     "origin_timezone",
+                    "reference_timezone",
+                    "reference_timezone_label",
                     "representative_date",
                     "candidate_utc_offset_hours",
                     "origin_utc_offset_hours",
+                    "reference_utc_offset_hours",
                     "utc_offset_diff_hours",
                     "estimated_workday_overlap_hours",
                 )
@@ -138,6 +203,50 @@ class TimezoneFitTool:
             )
 
         representative_date, date_warning = _representative_date(profile.target_months, self._today())
+
+        named_reference = named_reference_timezone(profile)
+        if named_reference is not None:
+            # The stated timezone is the explicit requirement; it wins over the
+            # origin (a traveller from Tel Aviv can still need US Eastern hours),
+            # and it needs no network resolution at all.
+            reference_label, reference_zone = named_reference
+            candidate_offset = _utc_offset_hours(candidate_timezone, representative_date)
+            reference_offset = _utc_offset_hours(reference_zone, representative_date)
+            raw_difference, difference = _circular_offset_difference(candidate_offset, reference_offset)
+            overlap_hours = max(0.0, STANDARD_WORKDAY_HOURS - difference)
+            normalized_data = {
+                "reference_timezone": reference_zone,
+                "reference_timezone_label": reference_label,
+                "reference_timezone_source": "stated_in_request",
+                "candidate_timezone": candidate_timezone,
+                "representative_date": representative_date.isoformat(),
+                "candidate_utc_offset_hours": round(candidate_offset, 1),
+                "reference_utc_offset_hours": round(reference_offset, 1),
+                "raw_utc_offset_diff_hours": round(raw_difference, 1),
+                "utc_offset_diff_hours": round(difference, 1),
+                "estimated_workday_overlap_hours": round(overlap_hours, 1),
+            }
+            warnings = [
+                f"Overlap is measured against {reference_label} ({reference_zone}), "
+                "the reference timezone stated in the request.",
+            ]
+            if date_warning:
+                warnings.append(date_warning)
+            warnings.append("Overlap assumes standard 09:00-17:00 workdays in both locations.")
+            return ToolResult(
+                tool_name=self.name,
+                place=candidate.place_name,
+                normalized_data=normalized_data,
+                source_name="timezonefinder + IANA time zone database",
+                retrieved_at=now,
+                data_date=representative_date.isoformat(),
+                confidence="medium",
+                warnings=warnings,
+                evidence_items=[
+                    self._calculation_evidence(candidate_timezone, representative_date, now, normalized_data)
+                ],
+            )
+
         origin_input = (profile.origin or "").strip()
         if not origin_input:
             normalized_data = {
