@@ -91,6 +91,33 @@ def _resolve_ambiguous_profile(profile: PlaceRequestProfile) -> PlaceRequestProf
     return updated
 
 
+def _include_named_destinations(
+    profile: PlaceRequestProfile, candidates: list[CandidatePlace]
+) -> list[CandidatePlace]:
+    """Make sure a place the user named is actually among the candidates.
+
+    Candidate generation proposes places it considers a good fit, so a city the
+    user is *asking about* -- especially one the evidence may not support -- can
+    simply not appear. The user then gets a ranked list that never mentions the
+    place they asked about. Geocoding fills in the country and coordinates for
+    these the same way it does for any other candidate.
+    """
+    if not profile.named_destinations:
+        return candidates
+
+    present = {c.place_name.strip().casefold() for c in candidates}
+    added = [
+        CandidatePlace(
+            place_name=name.strip(),
+            country="",
+            reason_for_inclusion="Named by the user, who asked whether it is a good fit.",
+        )
+        for name in profile.named_destinations
+        if name.strip() and name.strip().casefold() not in present
+    ]
+    return added + candidates
+
+
 def _relax_unresolvable_preferred_regions(
     profile: PlaceRequestProfile, candidates: list[CandidatePlace]
 ) -> PlaceRequestProfile:
@@ -484,6 +511,7 @@ class Orchestrator:
                         profile.assumptions.append(
                             "The candidate-generation model was unavailable; a curated seed set was used."
                         )
+                    candidates = _include_named_destinations(profile, candidates)
                     if not candidates:
                         raise PlaceMatchError("No candidate destinations could be generated for this request.")
                     checkpoint.candidates = list(candidates)

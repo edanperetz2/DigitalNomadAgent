@@ -256,6 +256,34 @@ def _extract_preferred_regions(text: str) -> list[str]:
     return [r for r in regions if not any(r != other and r.lower() in other.lower() for other in regions)]
 
 
+# "I've settled on Lisbon", "thinking about Porto", "is Berlin a good fit"
+# Case-insensitivity is scoped to the trigger phrase only -- the place name
+# itself must stay capitalised, which is what distinguishes it from ordinary
+# prose ("thinking about the weather" must not yield a destination).
+_PLACE = r"([A-Z][\w'-]+(?:\s+[A-Z][\w'-]+)?)"
+_NAMED_DESTINATION_PATTERNS = (
+    re.compile(r"\b(?i:settled on|decided on|thinking about|considering|leaning towards?|set on)\s+" + _PLACE),
+    re.compile(r"\b(?i:is)\s+" + _PLACE + r"\s+(?i:actually\s+)?(?i:a good|the right|right|suitable)\b"),
+    re.compile(r"\b(?i:how|what)\s+(?i:about)\s+" + _PLACE),
+)
+
+
+def _extract_named_destinations(text: str) -> list[str]:
+    """Specific places the user named and wants judged.
+
+    Kept out of preferred_regions, which is only ever matched against a
+    candidate's country: a city placed there matches nothing, so the named
+    place was eliminated and the user's actual question went unanswered.
+    """
+    names: list[str] = []
+    for pattern in _NAMED_DESTINATION_PATTERNS:
+        for match in pattern.finditer(text):
+            name = match.group(1).strip()
+            if name and name not in names:
+                names.append(name)
+    return names
+
+
 def _extract_excluded_regions(text: str) -> list[str]:
     """Best-effort capitalized-phrase heuristic; the real LLM reasons about this properly."""
     regions: list[str] = []
@@ -425,6 +453,7 @@ def interpret_prompt(prompt: str) -> dict:
     for m in re.finditer(r"\b(avoid|never)\b[^.]{0,60}", lowered):
         deal_breakers.append(m.group(0).strip())
     preferred_regions = _extract_preferred_regions(text)
+    named_destinations = _extract_named_destinations(text)
     excluded_regions = _extract_excluded_regions(text)
     soft_preferences = []
     for m in re.finditer(r"\bprefer\b[^.]{0,60}", lowered):
@@ -469,6 +498,7 @@ def interpret_prompt(prompt: str) -> dict:
         "nationality": None,
         "preferred_regions": preferred_regions,
         "excluded_regions": excluded_regions,
+        "named_destinations": named_destinations,
         "preferred_languages": [],
         "mobility_requirements": mobility_requirements,
         "climate_preferences": climate_preferences,

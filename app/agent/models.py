@@ -34,6 +34,11 @@ class PlaceRequestProfile(BaseModel):
     nationality: str | None = None
     preferred_regions: list[str] = Field(default_factory=list)
     excluded_regions: list[str] = Field(default_factory=list)
+    # Specific places the user named and wants judged ("is Lisbon a good fit?").
+    # Separate from preferred_regions, which is only ever matched against a
+    # candidate's country -- a city put there matches nothing, so the named
+    # place was dropped and the question went unanswered.
+    named_destinations: list[str] = Field(default_factory=list)
     preferred_languages: list[str] = Field(default_factory=list)
     mobility_requirements: list[str] = Field(default_factory=list)
     climate_preferences: list[str] = Field(default_factory=list)

@@ -47,6 +47,32 @@ def test_an_unrecognised_purpose_still_extracts_every_stated_constraint():
     assert "car-free" in profile["mobility_requirements"]
 
 
+def test_a_named_destination_is_captured_separately_from_regions():
+    """"Is Lisbon a good fit?" previously put the city in preferred_regions,
+    which is only matched against a candidate's country -- so it matched
+    nothing, was dropped, and the answer never mentioned Lisbon."""
+    profile = interpret_prompt(
+        "I've more or less settled on Lisbon for six months of remote work. Is it a good fit?"
+    )
+
+    assert profile["named_destinations"] == ["Lisbon"]
+    assert "Lisbon" not in profile["preferred_regions"]
+
+
+def test_named_destination_phrasings():
+    for prompt, expected in (
+        ("Is Berlin actually a good fit for me?", ["Berlin"]),
+        ("How about Valencia?", ["Valencia"]),
+        ("Thinking about Porto for the winter.", ["Porto"]),
+    ):
+        assert interpret_prompt(prompt)["named_destinations"] == expected, prompt
+
+
+def test_ordinary_prose_is_not_read_as_a_named_destination():
+    assert interpret_prompt("I am thinking about the weather mostly.")["named_destinations"] == []
+    assert interpret_prompt("I want a warm beach somewhere.")["named_destinations"] == []
+
+
 def test_positive_region_preferences_are_extracted():
     """preferred_regions was hard-coded to [], so a stated region was ignored
     entirely and candidates could come from anywhere."""

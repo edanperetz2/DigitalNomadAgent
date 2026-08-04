@@ -74,7 +74,15 @@ def select_finalists(
     while affordability is a softer preference signal refined further by the
     full Dynamic Evaluation scoring in Stage 3.
     """
-    survivors = _rank_survivors(candidates, profile, budget_results)
+    # A place the user explicitly named must survive to the finalists, even if
+    # it ranks poorly -- they asked about it, and "no, and here is why" is a
+    # legitimate answer. Without this the user's own city was eliminated and the
+    # response silently answered a different question.
+    named = {n.strip().casefold() for n in profile.named_destinations if n.strip()}
+    pinned = [c for c in candidates if c.place_name.strip().casefold() in named]
+    rest = [c for c in candidates if c.place_name.strip().casefold() not in named]
+
+    survivors = _rank_survivors(rest, profile, budget_results)
 
     # check_geocoded_constraints can only compare *country* identity -- no
     # region-taxonomy dataset exists here to expand "Europe" into its member
@@ -91,10 +99,11 @@ def select_finalists(
     # identity, which it can actually resolve.
     if not survivors and profile.preferred_regions:
         relaxed = profile.model_copy(update={"preferred_regions": []})
-        survivors = _rank_survivors(candidates, relaxed, budget_results)
+        survivors = _rank_survivors(rest, relaxed, budget_results)
 
     survivors.sort(key=lambda pair: pair[0], reverse=True)
-    return [candidate for _, candidate in survivors[:max_finalists]]
+    ranked = [candidate for _, candidate in survivors]
+    return (pinned + ranked)[:max_finalists]
 
 
 def _rank_survivors(

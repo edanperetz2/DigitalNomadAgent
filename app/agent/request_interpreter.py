@@ -21,7 +21,8 @@ Extract a structured profile and respond with ONLY a single JSON object with exa
 fields: purpose (one of "remote_work", "study", "vacation", "mixed", "unknown"), \
 secondary_purposes (list of strings), duration (string or null), dates_or_season (string or \
 null), origin (string or null), nationality (string or null), preferred_regions (list), \
-excluded_regions (list), preferred_languages (list), mobility_requirements (list), \
+excluded_regions (list), named_destinations (list), preferred_languages (list), \
+mobility_requirements (list), \
 climate_preferences (list), activity_preferences (list), amenity_preferences (list), \
 budget (object: amount, currency, period one of \
 "total"/"monthly"/\
@@ -30,6 +31,12 @@ budget (object: amount, currency, period one of \
 relevant_criteria (list), inferred_weights (object of criterion->weight 0-1), \
 missing_information (list), assumptions (list), clarification_required (bool), \
 clarification_question (string or null).
+
+preferred_regions must contain ONLY geographic areas -- continents, sub-regions or countries \
+("Europe", "Southeast Asia", "Spain"). Never put a city, a city size, or any non-geographic \
+phrase there. If the user names a specific place they are considering and wants it judged \
+("I've settled on Lisbon -- is it a good fit?"), put that place in named_destinations instead, \
+and still propose alternatives.
 
 Interpret "must"/"required"/"non-negotiable" as hard constraints, "most important" as a very \
 high weight, "prefer" as a moderate weight, "would be nice" as a low weight, "do not care about \

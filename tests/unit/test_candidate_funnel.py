@@ -16,6 +16,47 @@ def _candidate(name, country="Spain", country_code="ES", importance=0.7):
     )
 
 
+def test_a_named_destination_survives_to_the_finalists():
+    """The user asked about this place, so "no, and here is why" is a valid
+    answer -- but it can only be given if the place is still in the running."""
+    profile = PlaceRequestProfile(purpose="remote_work", named_destinations=["Lisbon"])
+    candidates = [
+        _candidate("Lisbon", country="Portugal", country_code="PT", importance=0.1),
+        _candidate("Valencia", importance=0.9),
+        _candidate("Seville", importance=0.9),
+    ]
+
+    finalists = select_finalists(candidates, profile, {}, max_finalists=2)
+
+    # Ranked last on importance, but pinned because the user named it.
+    assert finalists[0].place_name == "Lisbon"
+    assert len(finalists) == 2
+
+
+def test_orchestrator_adds_a_named_destination_the_generator_left_out():
+    """Candidate generation proposes places it thinks fit, so the city the user
+    is asking about can simply be absent."""
+    from app.agent.orchestrator import _include_named_destinations
+
+    profile = PlaceRequestProfile(purpose="remote_work", named_destinations=["Lisbon"])
+    candidates = [_candidate("Valencia")]
+
+    result = _include_named_destinations(profile, candidates)
+
+    assert [c.place_name for c in result] == ["Lisbon", "Valencia"]
+
+
+def test_a_named_destination_already_present_is_not_duplicated():
+    from app.agent.orchestrator import _include_named_destinations
+
+    profile = PlaceRequestProfile(purpose="remote_work", named_destinations=["valencia"])
+    candidates = [_candidate("Valencia")]
+
+    result = _include_named_destinations(profile, candidates)
+
+    assert [c.place_name for c in result] == ["Valencia"]
+
+
 def test_orchestrator_relaxes_a_preferred_region_that_matches_nothing():
     """The pipeline-level fix. Relaxing only inside select_finalists is not
     enough: _check_hard_constraints re-runs the same region check during
