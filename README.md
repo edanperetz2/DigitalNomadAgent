@@ -343,8 +343,8 @@ ruff check .
 The entire offline test suite runs with `MockLLMClient` (zero LLM cost) plus deterministic fake
 tool implementations (zero network calls), with an autouse fixture
 that raises if any test ever attempts a real outbound HTTP request. Optional live tests (which
-would spend real LLMod.ai credit) are gated behind `RUN_LIVE_TESTS=1` and are **not** included in
-this repository by default — do not enable this flag casually.
+would spend real LLMod.ai credit) live in `tests/live/` and are **skipped** unless
+`RUN_LIVE_TESTS=1` and `MOCK_LLM=false` — do not enable those flags casually.
 
 Test layout: `tests/unit/` (schemas, state machine, tool selection, scoring, validator, budget,
 security, caching, evidence memory, tools with only local/no-network data) and
@@ -394,9 +394,18 @@ The course spec requires deploying on **Vercel** specifically (not a general hos
 - **`env`** sets the same safe non-secret defaults as the Dockerfile (`MOCK_LLM=true`, timeouts).
   `SQLITE_PATH=/tmp/digitalnomadagent.db` is set here specifically because **Vercel's filesystem is
   read-only except `/tmp`, and `/tmp` resets on every cold start** — the local cache/evidence/
-  budget-ledger SQLite database is not persistent across cold starts under Vercel. This is an
-  accepted limitation, not a bug: the real budget backstop is the LLMod.ai account balance itself,
-  not this local ledger.
+  budget-ledger SQLite database is not persistent across cold starts under Vercel.
+
+  **This matters more than it used to.** The claim that "the real budget backstop is the LLMod.ai
+  account balance itself" is **not true for the current project key**: `GET /key/info` reports
+  `max_budget: null`, `tpm_limit: null` and `rpm_limit: null`, so the provider imposes no ceiling
+  at all (verify with `python scripts/probe_llmod_account.py`, which is read-only and costs $0).
+  `MAX_PROJECT_BUDGET_USD` is therefore the only spend protection that exists — and because the
+  ledger it reads lives in `/tmp`, its running total resets on every cold start.
+
+  Before deploying with `MOCK_LLM=false`, set a `max_budget` on the LLMod.ai key. That is the only
+  backstop that survives a cold start, and without it every visitor to the public URL — including
+  crawlers — spends real credit at roughly $0.02 per request.
 
 **To deploy:** connect this GitHub repo to a Vercel project (vercel.com → Add New Project → import
 the repo) and set these environment variables in the Vercel dashboard (secrets — never commit

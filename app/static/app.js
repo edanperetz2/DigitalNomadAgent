@@ -60,23 +60,34 @@
       "extremely hot weather and good hiking nearby.",
   };
 
-  // Simulated stage labels shown while waiting for /api/execute. These mirror
-  // the agent's real state-machine order but are not driven by live backend
-  // events (the API is a single request/response call, not a stream).
+  // Indicative stage labels shown while waiting for /api/execute. /api/execute
+  // is a single request/response call, not a stream, so these cannot be driven
+  // by live backend events -- they follow the agent's real state-machine order
+  // and advance on a timer.
+  //
+  // They must still never claim something untrue. Previously they cycled with a
+  // modulo every ~14s, so a 100s request showed "Writing your recommendation..."
+  // and then went *back* to earlier stages; and one label named
+  // OfficialSourceTool, which no longer exists in the pipeline. The list now
+  // matches the real modules, and advances monotonically -- holding on the last
+  // stage rather than looping, which is what the elapsed timer and the
+  // "still thinking" note are there to cover.
   const LOADING_STAGES = [
     "Interpreting your request...",
     "Generating candidate destinations...",
     "Verifying candidates (geocoding)...",
     "Checking weather and climate fit...",
-    "Matching time zones...",
     "Running budget-fit tool...",
+    "Matching time zones...",
     "Checking amenities and walkability...",
-    "Gathering official sources...",
+    "Checking safety advisories...",
     "Scoring and ranking candidates...",
     "Validating recommendation quality...",
     "Writing your recommendation...",
   ];
-  const LOADING_STAGE_INTERVAL_MS = 1300;
+  // Paced against observed run times (roughly 40-250s), so the sequence tracks
+  // a real request instead of finishing in 14 seconds.
+  const LOADING_STAGE_INTERVAL_MS = 7000;
   const LOADING_NOTE_DELAY_MS = 15000;
   const EXECUTE_TIMEOUT_MS = 295000;
   let loadingStageTimer = null;
@@ -889,7 +900,14 @@
     loadingStage.textContent = LOADING_STAGES[stageIndex];
     loadingStage.classList.remove("fade");
     loadingStageTimer = setInterval(() => {
-      stageIndex = (stageIndex + 1) % LOADING_STAGES.length;
+      // Monotonic: hold on the final stage instead of wrapping back to the
+      // start, which made a long request look like it was going backwards.
+      if (stageIndex >= LOADING_STAGES.length - 1) {
+        clearInterval(loadingStageTimer);
+        loadingStageTimer = null;
+        return;
+      }
+      stageIndex += 1;
       loadingStage.classList.add("fade");
       loadingStage.textContent = LOADING_STAGES[stageIndex];
       requestAnimationFrame(() => loadingStage.classList.remove("fade"));
