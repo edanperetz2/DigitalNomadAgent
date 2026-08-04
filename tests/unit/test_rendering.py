@@ -51,6 +51,51 @@ def test_markdown_contains_required_sections():
     assert "visa" in markdown.lower() or "admission" in markdown.lower()
 
 
+def test_absent_evidence_is_not_reported_as_an_absent_drawback():
+    """A real run printed "No major drawback identified" for all eight
+    candidates while also reporting no verified data for the two criteria the
+    request hinged on. Silence is not reassurance."""
+    payload = {
+        "purpose_summary": "a remote work request",
+        "candidates": [
+            {
+                "place": "Bucharest",
+                "country": "Romania",
+                "confidence_score": 0.2,
+                "advantages": [],
+                "drawbacks": [],
+                "missing_evidence": ["work_infrastructure", "timezone"],
+            }
+        ],
+    }
+
+    markdown = render_recommendation_markdown(payload)
+
+    assert "No major drawback identified" not in markdown
+    assert "Not assessed: no verified data for work_infrastructure, timezone" in markdown
+    # The strength side must be equally honest.
+    assert "No specific strengths recorded" not in markdown
+    assert "Ranked on partial evidence" in markdown
+
+
+def test_no_major_drawback_is_still_used_when_evidence_is_complete():
+    payload = {
+        "purpose_summary": "a vacation request",
+        "candidates": [
+            {
+                "place": "Valencia",
+                "country": "Spain",
+                "confidence_score": 0.9,
+                "advantages": ["Great weather"],
+                "drawbacks": [],
+                "missing_evidence": [],
+            }
+        ],
+    }
+
+    assert "No major drawback identified" in render_recommendation_markdown(payload)
+
+
 def test_markdown_handles_no_sources_gracefully():
     payload = {"purpose_summary": "a study request", "candidates": []}
     markdown = render_recommendation_markdown(payload)

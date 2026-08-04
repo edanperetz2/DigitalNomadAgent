@@ -27,6 +27,34 @@ def render_recommendation_markdown(payload: dict[str, Any]) -> str:
     sources: list[dict] = payload.get("sources", [])
     purpose_summary: str = payload.get("purpose_summary", "your request")
 
+    def _missing(c: dict) -> str:
+        return ", ".join(c.get("missing_evidence") or [])
+
+    def _why_it_fits(c: dict) -> str:
+        advantages = c.get("advantages") or []
+        if advantages:
+            return advantages[0]
+        missing = _missing(c)
+        if missing:
+            return f"Ranked on partial evidence; {missing} could not be verified"
+        return "Provisional match based on limited evidence"
+
+    def _main_drawback(c: dict) -> str:
+        """Never report absent evidence as an absent drawback.
+
+        "No major drawback identified" was printed alongside "no verified data
+        for work_infrastructure, timezone" -- the two criteria the request
+        actually hinged on. Silence is not reassurance, and saying so turned a
+        gap into a false positive.
+        """
+        drawbacks = c.get("drawbacks") or []
+        if drawbacks:
+            return drawbacks[0]
+        missing = _missing(c)
+        if missing:
+            return f"Not assessed: no verified data for {missing}"
+        return "No major drawback identified"
+
     lines: list[str] = []
     lines.append(f"## Interpretation\n\nThis recommendation addresses {purpose_summary}.\n")
 
@@ -34,8 +62,8 @@ def render_recommendation_markdown(payload: dict[str, Any]) -> str:
     lines.append("| Rank | Place | Why it fits | Main drawback | Confidence |")
     lines.append("|---:|---|---|---|---|")
     for i, c in enumerate(candidates, start=1):
-        why = (c.get("advantages") or ["Provisional match based on limited evidence"])[0]
-        drawback = (c.get("drawbacks") or ["No major drawback identified"])[0]
+        why = _why_it_fits(c)
+        drawback = _main_drawback(c)
         label = _confidence_label(c.get("confidence_score", 0.0))
         lines.append(f"| {i} | {c.get('place', 'Unknown')} | {why} | {drawback} | {label} |")
     lines.append("")
@@ -43,9 +71,9 @@ def render_recommendation_markdown(payload: dict[str, Any]) -> str:
     for i, c in enumerate(candidates, start=1):
         lines.append(f"### {i}. {c.get('place', 'Unknown')}, {c.get('country', '')}".rstrip(", "))
         lines.append("")
-        for adv in c.get("advantages", []) or ["No specific strengths recorded."]:
+        for adv in c.get("advantages", []) or [_why_it_fits(c)]:
             lines.append(f"- Why it fits: {adv}")
-        for draw in c.get("drawbacks", []) or []:
+        for draw in c.get("drawbacks", []) or [_main_drawback(c)]:
             lines.append(f"- Main drawback: {draw}")
         if c.get("missing_evidence"):
             missing = ", ".join(c["missing_evidence"])
