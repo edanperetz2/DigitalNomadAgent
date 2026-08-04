@@ -52,7 +52,8 @@ def main() -> int:
                 model=settings.llmod_model,
                 auth_header=settings.llmod_auth_header,
                 auth_scheme=settings.llmod_auth_scheme,
-                timeout_seconds=settings.http_timeout_seconds,
+                timeout_seconds=settings.llm_http_timeout_seconds,
+                temperature=settings.llm_temperature,
             )
         except ConfigurationError as exc:
             print(f"Configuration error: {exc}")

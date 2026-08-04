@@ -21,6 +21,31 @@ from app.core.exceptions import ConfigurationError, LLMOutputError
 from app.core.logging import logger, redact, register_secret
 from app.llm.base import BaseLLMClient, LLMRawResponse
 
+# LiteLLM-family proxies (which LLMod.ai presents as, via its OpenAI-compatible
+# surface) report the authoritative per-request cost in this response *header*,
+# not in the JSON body. Without reading it, every ledger row records $0.00 and
+# the MAX_PROJECT_BUDGET_USD guard can never fire.
+COST_RESPONSE_HEADER = "x-litellm-response-cost"
+
+
+def _coerce_cost(value: object, *, source: str) -> float | None:
+    """Parse a provider-reported cost, tolerating strings and junk.
+
+    Returns None (meaning "unknown, fall back to a local estimate") rather than
+    raising: a malformed cost field must never fail an otherwise good response.
+    """
+    if value is None:
+        return None
+    try:
+        cost = float(value)
+    except (TypeError, ValueError):
+        logger.warning("Ignoring unparseable provider cost from %s: %r", source, value)
+        return None
+    if cost < 0:
+        logger.warning("Ignoring negative provider cost from %s: %r", source, value)
+        return None
+    return cost
+
 
 class LLModClient(BaseLLMClient):
     def __init__(
@@ -32,6 +57,7 @@ class LLModClient(BaseLLMClient):
         auth_header: str,
         auth_scheme: str,
         timeout_seconds: float,
+        temperature: float = 0.0,
     ):
         if not api_key:
             raise ConfigurationError(
@@ -55,6 +81,7 @@ class LLModClient(BaseLLMClient):
         self._auth_header = auth_header
         self._auth_scheme = auth_scheme
         self._timeout_seconds = timeout_seconds
+        self._temperature = temperature
 
     @retry(
         reraise=True,
@@ -85,6 +112,7 @@ class LLModClient(BaseLLMClient):
             "model": self._model,
             "messages": messages,
             "max_tokens": max_output_tokens,
+            "temperature": self._temperature,
         }
         try:
             response = await self._post(payload)
@@ -104,7 +132,7 @@ class LLModClient(BaseLLMClient):
             raise LLMOutputError("LLMod.ai returned an unexpected response shape.") from exc
 
         usage = body.get("usage") or {}
-        provider_cost = body.get("cost_usd") or body.get("cost")
+        provider_cost = self._extract_provider_cost(response, body)
 
         return LLMRawResponse(
             text=text,
@@ -113,3 +141,22 @@ class LLModClient(BaseLLMClient):
             provider_cost_usd=provider_cost,
             model=self._model,
         )
+
+    @staticmethod
+    def _extract_provider_cost(response: httpx.Response, body: dict) -> float | None:
+        """Authoritative per-request cost, preferring the proxy's cost header.
+
+        Falls back to body fields for providers that report cost inline. Each
+        candidate is checked for presence explicitly rather than truthiness, so
+        a genuine $0.00 is recorded as zero instead of being mistaken for
+        "unknown" and replaced by a local estimate.
+        """
+        header_cost = _coerce_cost(response.headers.get(COST_RESPONSE_HEADER), source="response header")
+        if header_cost is not None:
+            return header_cost
+        for field in ("cost_usd", "cost"):
+            if field in body:
+                body_cost = _coerce_cost(body[field], source=f"body field {field!r}")
+                if body_cost is not None:
+                    return body_cost
+        return None

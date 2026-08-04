@@ -69,6 +69,17 @@ def _load_team_info() -> TeamInfoResponse:
 def _build_llm_client(settings) -> BaseLLMClient:
     if settings.mock_llm:
         return MockLLMClient()
+    if settings.llm_input_cost_per_1m == 0 and settings.llm_output_cost_per_1m == 0:
+        # Not fatal: provider-reported costs still accumulate in the ledger, so
+        # MAX_PROJECT_BUDGET_USD still engages -- but only *after* the call that
+        # crosses it. Setting real pricing restores pre-emptive refusal.
+        logger.warning(
+            "Running against a real provider with LLM_INPUT_COST_PER_1M and "
+            "LLM_OUTPUT_COST_PER_1M both 0. The $%.2f budget cap cannot refuse a call "
+            "in advance and will only trigger after the total is already exceeded. "
+            "Set real per-1M pricing in .env to restore pre-emptive enforcement.",
+            settings.max_project_budget_usd,
+        )
     return LLModClient(
         api_key=settings.llmod_api_key,
         base_url=settings.llmod_base_url,
@@ -77,6 +88,7 @@ def _build_llm_client(settings) -> BaseLLMClient:
         auth_header=settings.llmod_auth_header,
         auth_scheme=settings.llmod_auth_scheme,
         timeout_seconds=settings.llm_http_timeout_seconds,
+        temperature=settings.llm_temperature,
     )
 
 

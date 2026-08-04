@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     llm_input_cost_per_1m: float = 0.0
     llm_output_cost_per_1m: float = 0.0
 
+    # Pinned so paid runs are reproducible: an identical prompt should not need
+    # re-spending to chase output variance. Raise it only for a deliberate
+    # experiment, never as an incidental change.
+    llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+
     # --- Networking ---------------------------------------------------------------
     # Research-tool HTTP calls (Nominatim/Overpass/etc.) are fast REST lookups and
     # should fail fast; real LLM completions take proportionally longer to generate

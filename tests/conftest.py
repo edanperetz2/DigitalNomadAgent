@@ -30,6 +30,23 @@ def _block_real_network(request, monkeypatch):
     monkeypatch.setattr(httpx.AsyncClient, "send", _blocked_send)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_database(tmp_path, monkeypatch):
+    """Point every test at a throwaway SQLite file.
+
+    Autouse deliberately: `app_instance` already isolated the tests that used
+    it, but any test building an app another way (notably the golden-set
+    harness, which calls create_app() through scripts/golden_set/runner.py)
+    fell through to the real ./data/digitalnomadagent.db and wrote mock LLM
+    usage, fake evidence, and phantom entries into the user's saved search
+    history. Isolation belongs to the whole suite, not to one fixture.
+    """
+    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "isolated_digitalnomadagent.db"))
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 @pytest.fixture
 def app_instance(tmp_path, monkeypatch):
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test_digitalnomadagent.db"))
