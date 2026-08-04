@@ -6,6 +6,123 @@ fixing. Two things are kept deliberately separate: **defects** (it does not work
 
 Last updated: **2026-08-04**.
 
+> **Reading order.** Section 0 is the current status and the handover for the next session.
+> Sections 2–9 are the original findings, written before the fixes landed — they still describe
+> several defects as open. Section 0 is authoritative on what is fixed; the detail below explains
+> *why* each one mattered and is worth keeping for that reason.
+
+---
+
+## 0. Current status and next steps
+
+### Defect status
+
+Every defect found is listed here with its state. Commits are on `main`.
+
+| ID | Defect | State | Commit |
+|---|---|---|---|
+| D0 | Per-request cost never read, so the $13 cap could never fire | **Fixed** | `0fcd28f` |
+| D1 | `do not care about X` had zero test coverage | **Fixed** | `b100775` |
+| D2 | README claimed live tests are not in the repo | **Fixed** | `14d582e` |
+| D3 | Paid scripts used the 10s research timeout for LLM calls | **Fixed** | `0fcd28f` |
+| D4 | `app/llm/llmod.py` had no tests | **Fixed** | `0fcd28f` |
+| D5 | Test suite wrote to the production database | **Fixed** | `0fcd28f` |
+| D6 | One missed keyword discarded every stated constraint | **Fixed** | `b100775` |
+| D7 | `preferred_regions` hard-coded empty | **Fixed** | `b100775` |
+| D8 | Every Overpass-backed tool timed out | **Fixed** | `054fc41` |
+| D9 | Five of ten prompts returned identical output | **Fixed** (via D6) | `b100775` |
+| D10 | All criterion weights were exactly 0.5 | **Fixed** | `b100775` |
+| D11 | "No major drawback identified" printed when evidence was absent | **Fixed** | `0c88ab9` |
+| D12 | Budget period misparsed ("a month" → daily) | **Fixed** | `0dcbfad` |
+| D13 | Landing page claims visa/real-time data the system has not got | **Open — deferred by the team** | — |
+| D14 | UI progress labels looped and named a removed module | **Fixed** | `14d582e` |
+| D15 | Pinning `temperature` broke every gpt-5 call | **Fixed** | `5e8623b` |
+| D16 | Continental region preference eliminated every candidate | **Fixed** | `5e8623b` |
+| D17 | A failed LLM module vanished from `steps` | **Fixed** | `df24a78` |
+| D18 | A named destination ("is Lisbon a good fit?") was dropped | **Fixed** | `2c5c9bf` |
+| D19 | No provider-side budget cap; README claimed otherwise | **Documented** | `14d582e` |
+
+Two deliberate non-changes, both flagged rather than decided unilaterally:
+
+- **Budget refusals still leave `steps` empty** (`df24a78`). A refused call never reaches the
+  provider, so there is no interaction to document, and
+  `test_budget_refusal_prevents_call_and_leaves_trace_empty` encodes that as intended. But the
+  orchestrator *does* fall back on `BudgetExceededError`, so the same hidden-degradation argument
+  as D17 applies. Worth a decision.
+- **D13** is copy-only and was deferred by the team on 2026-08-04. Raise it at submission prep.
+
+### What has NOT been done: the verification run
+
+**The fixes have not been re-validated end to end against the real provider.** Only fix A was
+confirmed live, incidentally: a mock-mode UI run after `054fc41` returned *"Activity counts (293),
+matching 2 requested preference(s)"* for Nice, where the original runs reported
+`Activity counts (0), matching 0` for almost every candidate.
+
+Everything needed to run it is in place. Estimated cost **~$0.25**, from a measured $0.022–0.029
+per prompt.
+
+```bash
+# 1. Offline gate first -- must be green before spending anything
+pytest -q && ruff check .
+
+# 2. Confirm the provider state, read-only, $0
+python scripts/probe_llmod_account.py
+
+# 3. Real mode: set MOCK_LLM=false in .env, then
+uvicorn app.main:app --port 8000
+
+# 4. In a second shell -- captures to validation_runs/, judges nothing
+python scripts/run_e2e_suite.py --label real-api-postfix
+
+# 5. Report spend, and reconcile against the provider
+python scripts/show_llm_usage.py --calls
+python scripts/probe_llmod_account.py
+
+# 6. Put MOCK_LLM back to true in .env when finished
+```
+
+### What to check in that run, per prompt
+
+The point is to confirm the fixes hold against real behaviour, so look for these specifically:
+
+| Prompt | What to verify |
+|---|---|
+| **P01** | Budget, car-free and region constraints all present in the profile; finalists European; no "eliminated by region constraints" error (D6, D7, D16) |
+| **P02** | `origin: "Tel Aviv"` extracted and the 5-hour flight cap applied |
+| **P03** | Ranked priorities produce *descending* weights, not a flat 0.5 (D10) |
+| **P05** | `timezone` now has evidence rather than "no verified data"; ranking should favour Guadalajara/Lima over Bucharest/Taipei (D8, D11) |
+| **P06** | Accessibility criteria evidenced rather than unverified (D8) |
+| **P08** | Fails or relaxes *explaining which constraint was impossible*, not a bare "eliminated by hard constraints" |
+| **P09** | **Lisbon appears in the finalists** with a direct verdict (D18) |
+| **P10** | All four modules present in `steps` even if the interpreter fails (D17) |
+| **All** | Overpass-backed criteria carry real counts; "Not assessed: no verified data" only where evidence is genuinely missing (D8, D11) |
+
+### Environment notes that will bite otherwise
+
+- **`LLMOD_MODEL` must be `MB5R2CF-azure/gpt-5.4-mini`.** The short form `azure/gpt-5.4-mini` does
+  not exist and every call 400s.
+- **Do not set `LLM_TEMPERATURE`.** gpt-5 deployments reject every value except 1.0 with a 400
+  `UnsupportedParamsError`. It is deliberately commented out in `.env.example`. Determinism is not
+  achievable with this model, so identical prompts will not reproduce.
+- **`.env` currently has `MOCK_LLM=true`** as a safety default; real runs override it at launch.
+- **Provider pricing is $0.75 / $4.50 per 1M** (input/output), from `/model/info` and confirmed
+  against a billed call — *not* the $0.1438 / $5.7205 in the course handout. `.env` deliberately
+  carries the higher of each figure so the pre-call guard cannot under-estimate.
+- **Spend so far: $0.3377 of $13.00** (provider-authoritative). About 45 more full suite runs fit
+  in the remaining budget.
+- **The ledger has a pre-existing baseline** of 62 mock rows at $0.00, plus 214 fake evidence rows
+  and some phantom search-history entries, all written by the test suite before D5 was fixed.
+  Harmless for cost reporting; the history entries are user-visible and can be cleared with
+  `DELETE /api/history`.
+
+### Follow-ups this report does not cover
+
+- Update this document after the verification run: fold the results into sections 6–7b and refresh
+  the cost log in section 9.
+- The enhancement backlog (section 8) is untouched. E1 (boilerplate justifications) and E3
+  (Wikivoyage prose collected then discarded) are the most valuable.
+- There is still **no CI**, no coverage measurement, and no frontend test tooling.
+
 ---
 
 ## 1. Method
@@ -505,23 +622,6 @@ python scripts/probe_llmod_account.py
 
 ## 11. Open items
 
-Ranked by what most changes a grader's or user's experience.
-
-1. **D8 — fix the Overpass timeouts.** Now demonstrably the highest-value work in the project. The
-   real LLM writes good analysis over whatever evidence it is given, and it is being starved: every
-   criterion except cost is unevidenced, so every real recommendation lands at **Low** confidence
-   and the ranking degenerates to cost. Fixing this lifts the ceiling on everything downstream.
-2. **D6 / D7 / D10 — the mock interpreter.** Mock is what `vercel.json` deploys, so this is what a
-   grader sees: five of ten prompts collapsing to the same eight cities. Confirmed mock-only, so
-   the fix is contained to `app/llm/mock.py`.
-3. **D17 — record a `steps` entry when an LLM module falls back.** A response that silently omits a
-   required module violates the course contract and hides degradation from the user.
-4. **D18 — decide what `preferred_regions` means.** It is currently receiving continents, cities and
-   non-geographic phrases while its only consumer understands countries.
-5. **D13 — landing-page copy.** Deferred by the team on 2026-08-04; revisit before submission.
-6. **Existing DB pollution** from the pre-D5-fix runs (62 mock ledger rows, 214 fake evidence rows,
-   phantom history entries) is still in `data/digitalnomadagent.db`. Harmless for cost reporting —
-   mock rows are $0.00 — but the history entries are user-visible and can be cleared via
-   `DELETE /api/history`.
-7. **Re-run the suite after fixing.** At ~$0.025/prompt there is budget for ~45 more full runs, so
-   validating a fix costs about $0.25.
+Superseded by **section 0**, which carries the current defect status and the handover for the next
+session. The items that were listed here — D8, D6/D7/D10, D17, D18 — have since been fixed; D13
+remains deferred, and the verification run remains outstanding.
