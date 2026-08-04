@@ -11,7 +11,8 @@ from app.evidence.cache import ToolCache
 from app.evidence.models import EvidenceItem, EvidenceSource, ToolResult
 from app.tools.http_client import JsonHttpClient
 from app.tools.mediawiki_client import WIKIVOYAGE_API, MediaWikiClient
-from app.tools.overpass_client import OverpassClient
+from app.tools.overpass_client import OverpassClient, build_counted_query
+from app.tools.overpass_client import parse_counts as parse_counted_sets
 from app.tools.wikivoyage_sections import (
     CONTEXT_CONTRACT_VERSION,
     WikivoyageSection,
@@ -92,12 +93,16 @@ def select_activity_categories(profile: PlaceRequestProfile) -> tuple[list[str],
 
 
 def build_query(categories: list[str], lat: float, lon: float) -> str:
-    clauses = "".join(
-        f"{selector}(around:{CATEGORY_RADII_M[category]},{lat},{lon});"
-        for category in categories
-        for selector in CATEGORY_SELECTORS[category]
+    """One counted set per category -- see overpass_client.build_counted_query."""
+    return build_counted_query(
+        [
+            [
+                f"{selector}(around:{CATEGORY_RADII_M[category]},{lat},{lon});"
+                for selector in CATEGORY_SELECTORS[category]
+            ]
+            for category in categories
+        ]
     )
-    return f"[out:json][timeout:15];({clauses});out tags;"
 
 
 def _matching_categories(tags: dict[str, Any]) -> set[str]:
@@ -120,38 +125,15 @@ def _matching_categories(tags: dict[str, Any]) -> set[str]:
 
 
 def parse_counts(data: dict, categories: list[str]) -> tuple[dict[str, int], int, int]:
-    elements = data.get("elements")
-    if not isinstance(elements, list):
-        raise ValueError("Overpass returned no usable elements list.")
+    """Map the per-set counts back onto their categories, in order.
 
-    requested = set(categories)
-    seen_by_category: dict[str, set[tuple[str, int]]] = {category: set() for category in categories}
-    valid_identities: set[tuple[str, int]] = set()
-    invalid_elements = 0
-    for element in elements:
-        if not isinstance(element, dict):
-            invalid_elements += 1
-            continue
-        element_type = element.get("type")
-        element_id = element.get("id")
-        tags = element.get("tags")
-        if (
-            element_type not in {"node", "way", "relation"}
-            or not isinstance(element_id, int)
-            or not isinstance(tags, dict)
-        ):
-            invalid_elements += 1
-            continue
-        identity = (element_type, element_id)
-        valid_identities.add(identity)
-        for category in _matching_categories(tags) & requested:
-            seen_by_category[category].add(identity)
-
-    return (
-        {category: len(seen_by_category[category]) for category in categories},
-        invalid_elements,
-        len(valid_identities),
-    )
+    `invalid_elements` stays in the signature for the caller's warning and
+    confidence logic but is now always 0: counting happens server-side, so no
+    per-element payload survives to be malformed.
+    """
+    counts_list = parse_counted_sets(data, len(categories))
+    counts = dict(zip(categories, counts_list, strict=True))
+    return counts, 0, sum(counts_list)
 
 
 def _mark_stale(result: ToolResult) -> ToolResult:

@@ -7,8 +7,7 @@ from datetime import UTC, datetime
 from app.agent.models import CandidatePlace, PlaceRequestProfile
 from app.evidence.cache import ToolCache
 from app.evidence.models import ToolResult
-from app.tools.http_client import JsonHttpClient
-from app.tools.overpass_client import OverpassClient
+from app.tools.overpass_client import OverpassClient, build_counted_query, parse_counts
 
 RADIUS_M = 3000
 OVERPASS_SOURCE_URL = "https://wiki.openstreetmap.org/wiki/Overpass_API"
@@ -87,43 +86,32 @@ def select_categories(profile: PlaceRequestProfile) -> tuple[list[str], list[str
 
 
 def build_query(categories: list[str], lat: float, lon: float) -> str:
-    clauses = "".join(
-        f'nwr["{key}"="{value}"](around:{RADIUS_M},{lat},{lon});'
-        for category in categories
-        for key, value in CATEGORY_TAGS[category]
+    """One counted set per category -- see overpass_client.build_counted_query."""
+    return build_counted_query(
+        [
+            [
+                f'nwr["{key}"="{value}"](around:{RADIUS_M},{lat},{lon});'
+                for key, value in CATEGORY_TAGS[category]
+            ]
+            for category in categories
+        ]
     )
-    return f"[out:json][timeout:15];({clauses});out tags;"
 
 
 def parse_category_counts(data: dict, categories: list[str]) -> tuple[dict[str, int], int, int]:
-    elements = data.get("elements")
-    if not isinstance(elements, list):
-        raise ValueError("Overpass returned no usable elements list.")
+    """Map the per-set counts back onto their categories, in order.
 
-    seen_by_category: dict[str, set[tuple[str, int]]] = {category: set() for category in categories}
-    valid_identities: set[tuple[str, int]] = set()
-    invalid_elements = 0
-    for element in elements:
-        if not isinstance(element, dict):
-            invalid_elements += 1
-            continue
-        element_type = element.get("type")
-        element_id = element.get("id")
-        tags = element.get("tags")
-        if element_type not in {"node", "way", "relation"} or not isinstance(element_id, int):
-            invalid_elements += 1
-            continue
-        if not isinstance(tags, dict):
-            invalid_elements += 1
-            continue
-        identity = (element_type, element_id)
-        valid_identities.add(identity)
-        for category in categories:
-            if any(tags.get(key) == value for key, value in CATEGORY_TAGS[category]):
-                seen_by_category[category].add(identity)
-
-    counts = {category: len(seen_by_category[category]) for category in categories}
-    return counts, invalid_elements, len(valid_identities)
+    `invalid_elements` is retained for the caller's warning/confidence logic but
+    is now always 0: counting happens server-side, so there are no per-element
+    payloads left to be malformed. A shape Overpass should never produce raises
+    instead, and the caller falls back to stale cache.
+    """
+    counts_list = parse_counts(data, len(categories))
+    counts = dict(zip(categories, counts_list, strict=True))
+    # Sum rather than a de-duplicated identity count: an element matching two
+    # categories is now counted once per category, which is what the per-category
+    # scores consume anyway.
+    return counts, 0, sum(counts_list)
 
 
 class AmenitiesTool:
@@ -131,7 +119,9 @@ class AmenitiesTool:
 
     def __init__(self, cache: ToolCache, timeout: float = 15.0, overpass: OverpassClient | None = None):
         self._cache = cache
-        self._overpass = overpass or OverpassClient(JsonHttpClient(timeout=timeout))
+        # OverpassClient supplies its own timeout/retry policy; the tool-level
+        # `timeout` is the fast-REST budget and is too short for Overpass.
+        self._overpass = overpass or OverpassClient()
 
     async def run(self, candidate: CandidatePlace, profile: PlaceRequestProfile) -> ToolResult:
         now = datetime.now(UTC)

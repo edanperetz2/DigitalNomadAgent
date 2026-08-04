@@ -10,7 +10,8 @@ from app.evidence.cache import ToolCache
 from app.evidence.models import EvidenceItem, EvidenceSource, ToolResult
 from app.tools.http_client import JsonHttpClient
 from app.tools.mediawiki_client import WIKIVOYAGE_API, MediaWikiClient
-from app.tools.overpass_client import OverpassClient
+from app.tools.overpass_client import OverpassClient, build_counted_query
+from app.tools.overpass_client import parse_counts as parse_counted_sets
 from app.tools.wikivoyage_sections import (
     CONTEXT_CONTRACT_VERSION,
     WikivoyageSection,
@@ -27,20 +28,36 @@ COMPONENTS = ("bus_stops", "rail_metro_tram_stations", "pedestrian_ways", "cycle
 
 
 def build_query(lat: float, lon: float) -> str:
-    """Build one bounded query from a fixed allow-list of mobility selectors."""
-    return (
-        "[out:json][timeout:15];("
-        f'nwr["highway"="bus_stop"](around:{RADIUS_M},{lat},{lon});'
-        f'nwr["public_transport"="platform"]["bus"="yes"](around:{RADIUS_M},{lat},{lon});'
-        f'nwr["railway"~"^(station|halt|tram_stop)$"](around:{RADIUS_M},{lat},{lon});'
-        f'nwr["station"="subway"](around:{RADIUS_M},{lat},{lon});'
-        f'way["highway"~"^(pedestrian|footway|living_street)$"](around:{RADIUS_M},{lat},{lon});'
-        f'way["highway"="cycleway"](around:{RADIUS_M},{lat},{lon});'
-        f'way["cycleway"](around:{RADIUS_M},{lat},{lon});'
-        f'way["cycleway:left"](around:{RADIUS_M},{lat},{lon});'
-        f'way["cycleway:right"](around:{RADIUS_M},{lat},{lon});'
-        f'way["cycleway:both"](around:{RADIUS_M},{lat},{lon});'
-        ");out tags;"
+    """One counted set per component, in COMPONENTS order.
+
+    This was by far the most expensive query in the codebase: measured against
+    Berlin it returned 28,150 elements / 9.6 MiB and took ~88 s, well past the
+    50 s per-invocation cap, so LocalMobilityTool never once succeeded in a real
+    run. The pedestrian/cycleway selectors are the bulk of that, and only their
+    *counts* are ever used.
+
+    Stops and stations are point features, so they are queried as `node` rather
+    than `nwr`; footpaths and cycleways are inherently ways and stay `way`.
+    """
+    return build_counted_query(
+        [
+            [
+                f'node["highway"="bus_stop"](around:{RADIUS_M},{lat},{lon});',
+                f'node["public_transport"="platform"]["bus"="yes"](around:{RADIUS_M},{lat},{lon});',
+            ],
+            [
+                f'node["railway"~"^(station|halt|tram_stop)$"](around:{RADIUS_M},{lat},{lon});',
+                f'node["station"="subway"](around:{RADIUS_M},{lat},{lon});',
+            ],
+            [f'way["highway"~"^(pedestrian|footway|living_street)$"](around:{RADIUS_M},{lat},{lon});'],
+            [
+                f'way["highway"="cycleway"](around:{RADIUS_M},{lat},{lon});',
+                f'way["cycleway"](around:{RADIUS_M},{lat},{lon});',
+                f'way["cycleway:left"](around:{RADIUS_M},{lat},{lon});',
+                f'way["cycleway:right"](around:{RADIUS_M},{lat},{lon});',
+                f'way["cycleway:both"](around:{RADIUS_M},{lat},{lon});',
+            ],
+        ]
     )
 
 
@@ -71,37 +88,15 @@ def _matching_components(element_type: str, tags: dict) -> set[str]:
 
 
 def parse_counts(data: dict) -> tuple[dict[str, int], int, int]:
-    elements = data.get("elements")
-    if not isinstance(elements, list):
-        raise ValueError("Overpass returned no usable elements list.")
+    """Map the per-set counts back onto COMPONENTS, in order.
 
-    seen_by_component: dict[str, set[tuple[str, int]]] = {name: set() for name in COMPONENTS}
-    valid_identities: set[tuple[str, int]] = set()
-    invalid_elements = 0
-    for element in elements:
-        if not isinstance(element, dict):
-            invalid_elements += 1
-            continue
-        element_type = element.get("type")
-        element_id = element.get("id")
-        tags = element.get("tags")
-        if (
-            element_type not in {"node", "way", "relation"}
-            or not isinstance(element_id, int)
-            or not isinstance(tags, dict)
-        ):
-            invalid_elements += 1
-            continue
-        identity = (element_type, element_id)
-        valid_identities.add(identity)
-        for component in _matching_components(element_type, tags):
-            seen_by_component[component].add(identity)
-
-    return (
-        {component: len(seen_by_component[component]) for component in COMPONENTS},
-        invalid_elements,
-        len(valid_identities),
-    )
+    `invalid_elements` stays in the signature for the caller's warning and
+    confidence logic but is now always 0: counting happens server-side, so no
+    per-element payload survives to be malformed.
+    """
+    counts_list = parse_counted_sets(data, len(COMPONENTS))
+    counts = dict(zip(COMPONENTS, counts_list, strict=True))
+    return counts, 0, sum(counts_list)
 
 
 def _mark_stale(result: ToolResult) -> ToolResult:

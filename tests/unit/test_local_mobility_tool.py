@@ -42,6 +42,11 @@ class FakeOverpass:
         return self.payload
 
 
+def _counted(*totals: int) -> dict:
+    """An Overpass `out count` response: one count element per selector group."""
+    return {"elements": [{"type": "count", "id": 0, "tags": {"total": str(t)}} for t in totals]}
+
+
 class FakeWikivoyage:
     def __init__(self, section=None, error=None):
         self.section = section or _section()
@@ -109,37 +114,25 @@ def _tool(*, payload=None, osm_error=None, section=None, wiki_error=None, cache=
     )
 
 
-def test_query_contains_all_fixed_mobility_selectors_in_one_request():
+def test_query_counts_each_component_server_side():
     query = build_query(1.0, 2.0)
 
-    assert query.startswith("[out:json][timeout:15];(")
-    assert 'nwr["highway"="bus_stop"]' in query
-    assert 'nwr["railway"~"^(station|halt|tram_stop)$"]' in query
+    assert query.startswith("[out:json][timeout:")
+    # Stops and stations are point features, so they are queried as nodes; the
+    # nwr form forced Overpass to resolve way/relation geometry for `around`,
+    # which is what made this the single most expensive query in the codebase
+    # (28,150 elements / 9.6 MiB / ~88s against Berlin).
+    assert 'node["highway"="bus_stop"]' in query
+    assert 'node["railway"~"^(station|halt|tram_stop)$"]' in query
+    # Footpaths and cycleways are inherently ways and stay as ways.
     assert 'way["highway"~"^(pedestrian|footway|living_street)$"]' in query
     assert 'way["cycleway"]' in query
-    assert query.endswith(");out tags;")
+    assert "out tags" not in query
+    assert query.count("out count;") == 4, "one counted set per component"
 
 
-def test_parser_returns_independent_counts_and_deduplicates_osm_elements():
-    data = {
-        "elements": [
-            {"type": "node", "id": 1, "tags": {"highway": "bus_stop"}},
-            {"type": "node", "id": 1, "tags": {"highway": "bus_stop"}},
-            {
-                "type": "relation",
-                "id": 2,
-                "tags": {"public_transport": "platform", "bus": "yes"},
-            },
-            {"type": "node", "id": 3, "tags": {"railway": "station", "station": "subway"}},
-            {"type": "way", "id": 4, "tags": {"highway": "footway"}},
-            {"type": "way", "id": 5, "tags": {"highway": "cycleway"}},
-            {"type": "way", "id": 6, "tags": {"highway": "residential", "cycleway:right": "lane"}},
-            {"type": "way", "id": 7, "tags": {"highway": "residential", "cycleway": "no"}},
-            {"type": "broken", "id": 8, "tags": {"railway": "station"}},
-        ]
-    }
-
-    counts, invalid, valid = parse_counts(data)
+def test_parser_maps_counted_sets_onto_components_in_order():
+    counts, invalid, valid = parse_counts(_counted(2, 1, 1, 2))
 
     assert counts == {
         "bus_stops": 2,
@@ -147,8 +140,16 @@ def test_parser_returns_independent_counts_and_deduplicates_osm_elements():
         "pedestrian_ways": 1,
         "cycleways": 2,
     }
-    assert invalid == 1
-    assert valid == 7
+    # Counting happens server-side now, so no per-element payload survives to be
+    # malformed; `valid` is the total across components.
+    assert invalid == 0
+    assert valid == 6
+
+
+def test_a_count_mismatch_raises_rather_than_reporting_zeros():
+    """A zero count is real evidence ("none nearby"); a truncated response is not."""
+    with pytest.raises(ValueError):
+        parse_counts(_counted(1, 2))
 
 
 def test_context_preserves_every_subsection_when_it_fits():
@@ -215,13 +216,8 @@ def test_context_distributes_truncated_budget_across_subsections():
 
 @pytest.mark.asyncio
 async def test_returns_raw_counts_and_revision_pinned_context_as_separate_evidence():
-    payload = {
-        "elements": [
-            {"type": "node", "id": 1, "tags": {"highway": "bus_stop"}},
-            {"type": "way", "id": 2, "tags": {"highway": "footway"}},
-        ]
-    }
-    tool, overpass, wikivoyage, cache = _tool(payload=payload)
+    # bus_stops, rail_metro_tram_stations, pedestrian_ways, cycleways
+    tool, overpass, wikivoyage, cache = _tool(payload=_counted(1, 0, 1, 0))
 
     result = await tool.run(_candidate(), PlaceRequestProfile(purpose="study"))
 
@@ -252,7 +248,7 @@ async def test_returns_raw_counts_and_revision_pinned_context_as_separate_eviden
 @pytest.mark.asyncio
 async def test_missing_wikivoyage_section_keeps_complete_osm_counts():
     tool, _, _, cache = _tool(
-        payload={"elements": []},
+        payload=_counted(0, 0, 0, 0),
         wiki_error=WikivoyageSectionNotFound("The article has no Get around section"),
     )
 
@@ -269,7 +265,7 @@ async def test_missing_wikivoyage_section_keeps_complete_osm_counts():
 @pytest.mark.asyncio
 async def test_wikivoyage_provider_failure_keeps_osm_as_uncached_partial_evidence():
     tool, _, _, cache = _tool(
-        payload={"elements": []},
+        payload=_counted(0, 0, 0, 0),
         wiki_error=RuntimeError("MediaWiki offline"),
     )
 
@@ -286,13 +282,7 @@ async def test_wikivoyage_provider_failure_keeps_osm_as_uncached_partial_evidenc
 @pytest.mark.asyncio
 async def test_partial_overpass_response_keeps_counts_with_low_confidence():
     tool, _, _, cache = _tool(
-        payload={
-            "remark": "runtime error: Query timed out",
-            "elements": [
-                {"type": "node", "id": 1, "tags": {"highway": "bus_stop"}},
-                {"type": "broken", "id": 2, "tags": {"highway": "bus_stop"}},
-            ],
-        }
+        payload=dict(_counted(1, 0, 0, 0), remark="runtime error: Query timed out")
     )
 
     result = await tool.run(_candidate(), PlaceRequestProfile(purpose="vacation"))
@@ -332,7 +322,7 @@ async def test_osm_and_wikivoyage_requests_start_concurrently():
             del query
             osm_started.set()
             await asyncio.wait_for(wiki_started.wait(), timeout=0.2)
-            return {"elements": []}
+            return _counted(0, 0, 0, 0)
 
     class CoordinatedWikivoyage:
         async def fetch(self, title, section_names, **options):

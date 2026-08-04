@@ -35,6 +35,11 @@ class FakeOverpass:
         return self.payload
 
 
+def _counted(*totals: int) -> dict:
+    """An Overpass `out count` response: one count element per selector group."""
+    return {"elements": [{"type": "count", "id": 0, "tags": {"total": str(t)}} for t in totals]}
+
+
 def _candidate(lat=38.72, lon=-9.14):
     return CandidatePlace(
         place_name="Lisbon",
@@ -71,7 +76,7 @@ def test_category_selection_uses_purpose_defaults_and_explicit_preferences():
     assert select_categories(mixed_without_secondaries) == (["coworking", "cafe"], [])
 
 
-def test_query_uses_only_bounded_nwr_selectors_and_never_hospitals():
+def test_query_counts_server_side_and_never_requests_hospitals():
     query = build_query(["coworking", "cafe", "park"], 1.0, 2.0)
 
     assert 'nwr["office"="coworking"]' in query
@@ -79,24 +84,17 @@ def test_query_uses_only_bounded_nwr_selectors_and_never_hospitals():
     assert 'nwr["amenity"="cafe"]' in query
     assert 'nwr["leisure"="park"]' in query
     assert "hospital" not in query
-    assert query.endswith("out tags;")
+    # Counts only. `out tags;` shipped every matching element and returned 504 /
+    # multi-MiB bodies against a real city, which is why no Overpass-backed tool
+    # ever completed inside its 50s cap.
+    assert "out tags" not in query
+    assert query.count("out count;") == 3, "one counted set per requested category"
 
 
 @pytest.mark.asyncio
-async def test_one_request_returns_independent_deduplicated_node_way_relation_counts():
-    payload = {
-        "elements": [
-            {"type": "node", "id": 1, "tags": {"office": "coworking"}},
-            {"type": "way", "id": 2, "tags": {"amenity": "coworking_space"}},
-            {"type": "relation", "id": 3, "tags": {"amenity": "cafe"}},
-            {"type": "node", "id": 4, "tags": {"amenity": "cafe", "shop": "supermarket"}},
-            {"type": "node", "id": 4, "tags": {"amenity": "cafe", "shop": "supermarket"}},
-            {"type": "way", "id": 5, "tags": {"leisure": "park"}},
-            {"type": "relation", "id": 6, "tags": {"leisure": "fitness_centre"}},
-            {"type": "way", "id": 7, "tags": {"amenity": "university"}},
-            {"type": "node", "id": 8, "tags": {"amenity": "library"}},
-        ]
-    }
+async def test_one_request_returns_one_count_per_requested_category():
+    # Counts arrive in the order the categories were requested.
+    payload = _counted(2, 2, 1, 1, 1, 1, 1)
     tool, overpass, cache = _tool(payload=payload)
     profile = PlaceRequestProfile(
         purpose="mixed",
@@ -117,9 +115,21 @@ async def test_one_request_returns_independent_deduplicated_node_way_relation_co
         "supermarket": 1,
         "fitness_centre": 1,
     }
-    assert result.normalized_data["valid_element_count"] == 8
+    assert result.normalized_data["valid_element_count"] == 9
     assert "count" not in result.normalized_data
     assert cache.set_calls
+
+
+@pytest.mark.asyncio
+async def test_a_count_mismatch_is_an_error_not_silent_zeros():
+    """A zero count means "none nearby", which is real evidence. A truncated
+    response must never be mistaken for it."""
+    tool, _, _ = _tool(payload=_counted(3))
+
+    result = await tool.run(_candidate(), PlaceRequestProfile(purpose="remote_work"))
+
+    assert result.error is not None
+    assert "count" in result.error
 
 
 @pytest.mark.asyncio
@@ -137,13 +147,7 @@ async def test_unsupported_hospital_only_request_stays_unresolved_without_networ
 
 @pytest.mark.asyncio
 async def test_partial_response_keeps_valid_counts_and_reduces_confidence():
-    payload = {
-        "remark": "runtime error: Query timed out",
-        "elements": [
-            {"type": "node", "id": 1, "tags": {"amenity": "cafe"}},
-            {"type": "broken", "id": 2, "tags": {"amenity": "cafe"}},
-        ],
-    }
+    payload = dict(_counted(0, 1), remark="runtime error: Query timed out")
     tool, _, _ = _tool(payload=payload)
 
     result = await tool.run(_candidate(), PlaceRequestProfile(purpose="remote_work"))
@@ -152,7 +156,6 @@ async def test_partial_response_keeps_valid_counts_and_reduces_confidence():
     assert result.normalized_data["partial"] is True
     assert result.confidence == "low"
     assert any("partial response" in warning for warning in result.warnings)
-    assert any("malformed" in warning for warning in result.warnings)
 
 
 @pytest.mark.asyncio

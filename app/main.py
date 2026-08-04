@@ -99,7 +99,10 @@ def _build_tool_registry(
     tool_execution_timeout: float = 50.0,
 ) -> ToolRegistry:
     http = JsonHttpClient(timeout=timeout)
-    overpass = OverpassClient(http=http)
+    # Deliberately NOT the shared `http`: that client's 10s budget is sized for
+    # fast REST lookups and aborts Overpass queries that legitimately run longer.
+    # OverpassClient supplies its own matched timeout/retry policy.
+    overpass = OverpassClient()
     mediawiki = MediaWikiClient(WIKIVOYAGE_API, http=http)
     wikivoyage_sections = WikivoyageSectionClient(mediawiki)
     origin_resolver = OriginResolver(cache, http=http)

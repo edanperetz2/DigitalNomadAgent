@@ -50,6 +50,11 @@ class FakeOverpass:
         return self.payload
 
 
+def _counted(*totals: int) -> dict:
+    """An Overpass `out count` response: one count element per selector group."""
+    return {"elements": [{"type": "count", "id": 0, "tags": {"total": str(t)}} for t in totals]}
+
+
 class FakeWikivoyage:
     def __init__(self, outcomes=None, error=None, delay=0):
         self.outcomes = outcomes or {"see": _section("See", "3"), "do": _section("Do", "4")}
@@ -129,58 +134,49 @@ def test_vacation_fallback_is_culture_and_parks_but_non_vacation_has_no_fallback
     assert select_activity_categories(_profile(purpose="study", activity_preferences=[])) == ([], [], False)
 
 
-def test_query_uses_category_specific_radii_in_one_union():
+def test_query_uses_category_specific_radii_and_counts_server_side():
     query = build_query(["culture", "nightlife", "parks", "beaches", "hiking"], 1.2, 3.4)
 
-    assert query.startswith("[out:json][timeout:15];(")
+    assert query.startswith("[out:json][timeout:")
     assert "around:5000,1.2,3.4" in query
     assert "around:10000,1.2,3.4" in query
     assert "around:20000,1.2,3.4" in query
     assert 'relation["route"="hiking"]' in query
-    assert query.endswith("out tags;")
+    # Counts only -- `out tags;` returned 504 / multi-MiB bodies for a real city.
+    assert "out tags" not in query
+    assert query.count("out count;") == 5, "one counted set per requested category"
 
 
-def test_parse_counts_handles_nodes_ways_relations_deduplication_and_hiking_routes():
+def test_parse_counts_maps_counted_sets_onto_categories_in_order():
     counts, invalid, valid = parse_counts(
-        {
-            "elements": [
-                {"type": "node", "id": 1, "tags": {"tourism": "museum"}},
-                {"type": "node", "id": 1, "tags": {"tourism": "museum"}},
-                {"type": "way", "id": 1, "tags": {"historic": "castle"}},
-                {"type": "relation", "id": 2, "tags": {"route": "hiking"}},
-                {"type": "node", "id": 3, "tags": {"natural": "peak"}},
-                {"type": "way", "id": 4, "tags": {"leisure": "park"}},
-                {"type": "relation", "id": 5, "tags": {"amenity": "nightclub"}},
-                {"type": "node", "id": 6, "tags": {"natural": "beach"}},
-                {"type": "node", "tags": {"tourism": "museum"}},
-            ]
-        },
+        _counted(2, 1, 1, 1, 2),
         ["culture", "nightlife", "parks", "beaches", "hiking"],
     )
 
     assert counts == {"culture": 2, "nightlife": 1, "parks": 1, "beaches": 1, "hiking": 2}
-    assert invalid == 1
+    assert invalid == 0
     assert valid == 7
 
 
 def test_complete_empty_response_returns_observed_zero_counts():
-    counts, invalid, valid = parse_counts({"elements": []}, ["culture", "hiking"])
+    counts, invalid, valid = parse_counts(_counted(0, 0), ["culture", "hiking"])
 
     assert counts == {"culture": 0, "hiking": 0}
     assert invalid == 0
     assert valid == 0
 
 
+def test_a_count_mismatch_raises_rather_than_reporting_zeros():
+    """A zero count is real evidence ("none nearby"); a truncated response is not."""
+    with pytest.raises(ValueError):
+        parse_counts(_counted(1), ["culture", "hiking"])
+
+
 @pytest.mark.asyncio
 async def test_returns_independent_category_and_wikivoyage_evidence_without_score():
     cache = FakeCache()
     overpass = FakeOverpass(
-        {
-            "elements": [
-                {"type": "node", "id": 1, "tags": {"tourism": "museum"}},
-                {"type": "relation", "id": 2, "tags": {"route": "hiking"}},
-            ]
-        }
+        _counted(1, 1)
     )
     wikivoyage = FakeWikivoyage()
     tool = ActivitiesTool(cache, overpass=overpass, wikivoyage=wikivoyage)
@@ -221,15 +217,7 @@ async def test_unsupported_category_remains_visible_without_becoming_zero():
 async def test_partial_overpass_preserves_valid_counts_and_reduces_confidence():
     tool = ActivitiesTool(
         FakeCache(),
-        overpass=FakeOverpass(
-            {
-                "remark": "runtime error: Query timed out",
-                "elements": [
-                    {"type": "node", "id": 1, "tags": {"tourism": "museum"}},
-                    {"bad": "element"},
-                ],
-            }
-        ),
+        overpass=FakeOverpass(dict(_counted(1), remark="runtime error: Query timed out")),
         wikivoyage=FakeWikivoyage(),
     )
 
@@ -247,7 +235,7 @@ async def test_missing_one_wikivoyage_section_preserves_the_other():
     wikivoyage = FakeWikivoyage(
         outcomes={"see": _section("See", "3"), "do": WikivoyageSectionNotFound("No Do section")}
     )
-    tool = ActivitiesTool(FakeCache(), overpass=FakeOverpass(), wikivoyage=wikivoyage)
+    tool = ActivitiesTool(FakeCache(), overpass=FakeOverpass(_counted(0)), wikivoyage=wikivoyage)
 
     result = await tool.run(_candidate(), _profile(activity_preferences=["parks"]))
 
