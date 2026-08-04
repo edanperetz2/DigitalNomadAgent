@@ -2,7 +2,11 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.agent.dynamic_evaluation import check_geocoded_constraints, evaluate_candidates
+from app.agent.dynamic_evaluation import (
+    canonicalize_criterion_weights,
+    check_geocoded_constraints,
+    evaluate_candidates,
+)
 from app.agent.models import Budget, CandidatePlace, PlaceRequestProfile
 from app.evidence.models import ToolResult
 
@@ -733,3 +737,66 @@ def test_apply_llm_scores_leaves_already_eliminated_candidates_untouched():
     )
     assert updated[0].eliminated is True
     assert updated[0].criterion_scores == {}
+
+
+def test_canonicalize_maps_observed_real_interpreter_keys():
+    # Keys the real LLM emitted in the 2026-08-04 verification run.
+    weights = canonicalize_criterion_weights(
+        {
+            "time_zone_overlap": 1.0,
+            "internet_speed": 0.95,
+            "airport_connectivity": 0.85,
+            "budget": 0.7,
+            "car_free_livability": 0.9,
+            "walkability/terrain": 0.8,
+        }
+    )
+    assert weights["timezone"] == 1.0
+    assert weights["work_infrastructure"] == 0.95
+    assert weights["accessibility"] == 0.85
+    assert weights["cost"] == 0.7
+    assert weights["transportation"] == 0.9
+
+
+def test_canonicalize_keeps_exact_and_unknown_keys():
+    weights = canonicalize_criterion_weights({"nightlife": 0.0, "city_size": 0.5, "english_prevalence": 0.9})
+    assert weights["nightlife"] == 0.0
+    assert weights["city_size"] == 0.5
+    assert weights["english_prevalence"] == 0.9
+
+
+def test_canonicalize_takes_strongest_weight_on_collision():
+    weights = canonicalize_criterion_weights({"walkability": 0.85, "public transport access": 0.75})
+    assert weights == {"transportation": 0.85}
+
+
+def test_free_form_timezone_weight_drives_ranking():
+    """A user's 1.0 weight on time_zone_overlap must outrank a strong amenity score."""
+    profile = PlaceRequestProfile(
+        purpose="remote_work",
+        relevant_criteria=["timezone", "work_infrastructure"],
+        inferred_weights={"time_zone_overlap": 1.0, "internet_and_coworking": 0.1},
+        budget=Budget(),
+    )
+    good_tz = _candidate("GoodOverlap")
+    good_amenities = _candidate("GoodAmenities")
+    evidence = {
+        "GoodOverlap": [
+            _tool_result("TimezoneFitTool", "GoodOverlap", {"estimated_workday_overlap_hours": 6.0}),
+            _tool_result(
+                "AmenitiesTool",
+                "GoodOverlap",
+                {"counts_by_category": {"coworking": 0, "cafe": 1}, "partial": False},
+            ),
+        ],
+        "GoodAmenities": [
+            _tool_result("TimezoneFitTool", "GoodAmenities", {"estimated_workday_overlap_hours": 1.0}),
+            _tool_result(
+                "AmenitiesTool",
+                "GoodAmenities",
+                {"counts_by_category": {"coworking": 5, "cafe": 25}, "partial": False},
+            ),
+        ],
+    }
+    evaluations = evaluate_candidates([good_tz, good_amenities], profile, evidence)
+    assert evaluations[0].place == "GoodOverlap"

@@ -16,6 +16,7 @@ from app.agent.agentic_research import generate_candidates, select_tools
 from app.agent.candidate_funnel import select_finalists
 from app.agent.dynamic_evaluation import (
     apply_llm_scores,
+    canonicalize_criterion_weights,
     check_geocoded_constraints,
     evaluate_candidates,
     score_unresolved_criteria,
@@ -232,8 +233,9 @@ class Orchestrator:
     def _tool_priorities(profile: PlaceRequestProfile, tool_names: set[str]) -> dict[str, float]:
         """Prioritize user-weighted evidence; ties remain deterministic by tool name."""
         priorities = {tool_name: 0.1 for tool_name in tool_names}
+        canonical_weights = canonicalize_criterion_weights(profile.inferred_weights)
         for criterion, criterion_tools in _CRITERION_TO_TOOLS.items():
-            weight = profile.inferred_weights.get(
+            weight = canonical_weights.get(
                 criterion,
                 0.5 if criterion in profile.relevant_criteria else 0.0,
             )

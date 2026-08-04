@@ -36,6 +36,53 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "safety": 0.6,
 }
 
+# The interpreter -- especially the real LLM -- emits free-form weight keys
+# ("time_zone_overlap", "car_free_livability"); scoring uses the fixed
+# vocabulary of DEFAULT_WEIGHTS. Without a mapping, a stated weight silently
+# falls back to the 0.5 default (found by the 2026-08-04 verification run: P05
+# weighted time_zone_overlap 1.0 and it never reached the timezone criterion).
+# Ordered: the first matching pattern wins, so specific phrases come first.
+_WEIGHT_KEY_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("timezone", ("timezone", "time zone", "overlap", "working hours")),
+    ("work_infrastructure", ("work infrastructure", "internet", "wifi", "cowork", "remote work")),
+    ("cost", ("budget", "cost", "afford", "price", "expense")),
+    ("safety", ("safety", "safe", "crime", "security")),
+    ("nightlife", ("nightlife", "party")),
+    ("culture", ("culture", "museum")),
+    ("student_life", ("student",)),
+    ("education", ("education", "universit", "academic", "course")),
+    ("climate", ("climate", "weather", "winter", "summer", "temperature")),
+    ("transportation", ("public transport", "transit", "mobility", "walkab", "car free", "transport")),
+    ("accessibility", ("accessib", "airport", "connectivity", "arrival")),
+    ("activities", ("activit", "beach", "hiking", "outdoor")),
+)
+
+
+def canonicalize_criterion_weights(inferred_weights: dict[str, float]) -> dict[str, float]:
+    """Map free-form interpreter weight keys onto the scoring vocabulary.
+
+    Unmapped keys are kept verbatim: they still count toward the uncertainty
+    penalty for high-weight-but-unscored criteria, which is honest -- an
+    unrecognized priority is an unevidenced one. When several raw keys land on
+    one criterion, the strongest stated weight wins.
+    """
+    canonical: dict[str, float] = {}
+    for raw_key, weight in inferred_weights.items():
+        normalized = " ".join(
+            raw_key.casefold().replace("_", " ").replace("-", " ").replace("/", " ").split()
+        )
+        target = raw_key
+        if normalized in DEFAULT_WEIGHTS:
+            target = normalized
+        else:
+            for criterion, patterns in _WEIGHT_KEY_PATTERNS:
+                if any(pattern in normalized for pattern in patterns):
+                    target = criterion
+                    break
+        canonical[target] = max(canonical[target], weight) if target in canonical else weight
+    return canonical
+
+
 REQUIRED_TIMEZONE_OVERLAP_HOURS = 4.0
 WIKIVOYAGE_CLIMATE_WEIGHT = 0.20
 CLIMATE_CONTRADICTION_GAP = 0.50
@@ -413,7 +460,7 @@ def _score_totals(
     confidence_factors: dict[str, float],
 ) -> tuple[dict[str, float], float, float]:
     """Shared weighting/uncertainty-penalty math used by both evaluation passes."""
-    weights = dict(inferred_weights)
+    weights = canonicalize_criterion_weights(inferred_weights)
     for c in criterion_scores:
         weights.setdefault(c, DEFAULT_WEIGHTS.get(c, 0.4))
 
