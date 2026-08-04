@@ -504,3 +504,28 @@ async def test_shared_section_client_reports_missing_section_without_fetching_te
         await client.fetch("Place", ("Get around",))
 
     assert len(mediawiki.calls) == 2
+
+@pytest.mark.asyncio
+async def test_stalled_overpass_query_still_returns_wikivoyage_context():
+    """The in-tool OSM budget must not take the already-fetched prose down with it."""
+
+    class HangingOverpass:
+        async def query(self, query):
+            await asyncio.sleep(30)
+
+    tool = LocalMobilityTool(
+        FakeCache(),
+        overpass=HangingOverpass(),
+        wikivoyage=FakeWikivoyage(),
+        osm_timeout_seconds=0.01,
+    )
+
+    result = await tool.run(_candidate(), PlaceRequestProfile(purpose="remote_work"))
+
+    assert result.error is None
+    assert result.normalized_data["osm_status"] == "error"
+    assert result.normalized_data["wikivoyage_status"] == "available"
+    assert result.normalized_data["wikivoyage_context"] is not None
+    assert result.normalized_data["counts_by_component"] == {}
+    assert any("in-tool budget" in warning for warning in result.warnings)
+    assert [item.component for item in result.evidence_items] == ["wikivoyage_get_around_context"]

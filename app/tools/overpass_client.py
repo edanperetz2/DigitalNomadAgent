@@ -12,6 +12,19 @@ DEFAULT_OVERPASS_ENDPOINTS = (
     "https://overpass.kumi.systems/api/interpreter",
 )
 
+# overpass-api.de asks for at most 2 concurrent requests per IP; the
+# kumi.systems mirror advertises no such limit and tolerates more. A single
+# global Semaphore(2) made every Overpass-backed tool/candidate pair queue for
+# the same two slots, so with ~16-32 jobs per request most spent their entire
+# 50s execution budget waiting (verification run, 2026-08-04: AmenitiesTool and
+# LocalMobilityTool timed out on essentially every invocation). Per-endpoint
+# limits plus round-robin dispatch triple the usable slots while staying polite
+# to each endpoint individually.
+ENDPOINT_CONCURRENCY: dict[str, int] = {
+    "https://overpass-api.de/api/interpreter": 2,
+    "https://overpass.kumi.systems/api/interpreter": 4,
+}
+
 # Overpass needs its own HTTP budget. The shared JsonHttpClient is tuned for fast
 # REST lookups (Nominatim, Open-Meteo) at 10s, but a counted city-radius query
 # legitimately takes 3-25s, so that client aborted nearly every request -- and
@@ -104,12 +117,25 @@ class OverpassClient:
             timeout=OVERPASS_HTTP_TIMEOUT_SECONDS, attempts=OVERPASS_HTTP_ATTEMPTS
         )
         self._endpoints = endpoints
-        self._semaphore = asyncio.Semaphore(max_concurrent_requests)
+        # `max_concurrent_requests` is the per-endpoint limit for endpoints not
+        # listed in ENDPOINT_CONCURRENCY (custom endpoints in tests).
+        self._semaphores = {
+            endpoint: asyncio.Semaphore(ENDPOINT_CONCURRENCY.get(endpoint, max_concurrent_requests))
+            for endpoint in endpoints
+        }
+        self._next_start_index = 0
 
     async def query(self, query: str) -> dict[str, Any]:
+        # Rotate the starting endpoint so concurrent queries spread across the
+        # endpoint pool instead of all contending for the primary's slots; on
+        # failure, fail over through the remaining endpoints in ring order.
+        start = self._next_start_index
+        self._next_start_index = (start + 1) % len(self._endpoints)
+        ordered = self._endpoints[start:] + self._endpoints[:start]
+
         last_error: Exception | None = None
-        async with self._semaphore:
-            for endpoint in self._endpoints:
+        for endpoint in ordered:
+            async with self._semaphores[endpoint]:
                 try:
                     payload = await self._http.get_json(endpoint, params={"data": query})
                     if not isinstance(payload, dict):

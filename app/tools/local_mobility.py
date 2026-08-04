@@ -20,6 +20,12 @@ from app.tools.wikivoyage_sections import (
 )
 
 RADIUS_M = 3000
+# In-tool budget for the OSM counts sub-call, safely inside the executor's 50s
+# per-invocation cap. Without it, an Overpass stall killed the whole tool run
+# and the already-fetched Wikivoyage "Get around" prose was lost with it
+# (verification run, 2026-08-04: every timed-out LocalMobilityTool invocation
+# discarded usable context evidence).
+OSM_SUBCALL_TIMEOUT_SECONDS = 40.0
 OVERPASS_SOURCE_NAME = "OpenStreetMap local mobility infrastructure"
 OVERPASS_SOURCE_URL = "https://wiki.openstreetmap.org/wiki/Overpass_API"
 WIKIVOYAGE_SOURCE_NAME = "Wikivoyage Get around section"
@@ -119,6 +125,7 @@ class LocalMobilityTool:
         *,
         overpass: OverpassClient | None = None,
         wikivoyage: WikivoyageSectionClient | None = None,
+        osm_timeout_seconds: float = OSM_SUBCALL_TIMEOUT_SECONDS,
     ) -> None:
         self._cache = cache
         http = JsonHttpClient(timeout=timeout)
@@ -126,9 +133,18 @@ class LocalMobilityTool:
         self._wikivoyage = wikivoyage or WikivoyageSectionClient(
             MediaWikiClient(WIKIVOYAGE_API, http)
         )
+        self._osm_timeout_seconds = osm_timeout_seconds
 
     async def _osm(self, candidate: CandidatePlace) -> dict:
-        return await self._overpass.query(build_query(candidate.lat, candidate.lon))
+        try:
+            return await asyncio.wait_for(
+                self._overpass.query(build_query(candidate.lat, candidate.lon)),
+                timeout=self._osm_timeout_seconds,
+            )
+        except TimeoutError as exc:
+            raise TimeoutError(
+                f"the Overpass query exceeded its {self._osm_timeout_seconds:.0f}s in-tool budget"
+            ) from exc
 
     async def _context(self, title: str) -> WikivoyageSection:
         return await self._wikivoyage.fetch(
