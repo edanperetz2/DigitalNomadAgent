@@ -22,8 +22,8 @@ Four configurations, two of which are still pending an API key:
 |---|---|---|---|---|
 | 1 | API mode | mock | **real** | Done — 10 prompts + 7 contract checks |
 | 2 | UI mode | mock | **real** | Done — interactive divergence + browser walkthrough |
-| 3 | API mode | **real** | **real** | **Blocked on `LLMOD_API_KEY`** |
-| 4 | UI mode | **real** | **real** | **Blocked on `LLMOD_API_KEY`** |
+| 3 | API mode | **real** | **real** | Done — 10 prompts |
+| 4 | UI mode | **real** | **real** | Done — P02 through the browser |
 
 Reproduce with:
 
@@ -67,10 +67,15 @@ output tokens.
 
 | Setting | Value |
 |---|---|
-| `MOCK_LLM` | `true` (configurations 1–2) |
-| Tools | **real** — Nominatim, Overpass, Open-Meteo, Wikivoyage, GOV.UK, World Bank, WhereNext, Frankfurter |
-| `LLM_TEMPERATURE` | `0` (newly pinned — see D-fixes) |
-| `LLMOD_MODEL` | **not yet known** — absent from the repo, lives only in an untracked `.env` |
+| `MOCK_LLM` | `true` (configs 1–2) / `false` (configs 3–4) |
+| Tools | **real** in all four — Nominatim, Overpass, Open-Meteo, Wikivoyage, GOV.UK, World Bank, WhereNext, Frankfurter |
+| `LLMOD_MODEL` | **`MB5R2CF-azure/gpt-5.4-mini`** — the fully-qualified id; the short form `azure/gpt-5.4-mini` is rejected |
+| `LLM_TEMPERATURE` | **unset** — must not be pinned, see D15 |
+| Provider | LLMod.ai, confirmed to be a **LiteLLM proxy** (`/key/info`, `/model/info`, `/spend/logs` all respond) |
+| Provider pricing | $0.75 /1M input, $4.50 /1M output (from `/model/info`; verified against a billed call) |
+| Key budget | **`max_budget: None`** — no provider-side cap, see D19 |
+
+Establish all of this with `python scripts/probe_llmod_account.py` (read-only, $0).
 
 **Runtime:** all 10 prompts completed, none near the 285 s deadline. Min 51.9 s (P09), max 136.9 s
 (P07), median ~95 s. Second runs of the same prompt were markedly faster (P01: 128.7 s cold →
@@ -262,6 +267,75 @@ says the opposite: *"No live prices … or guaranteed admission/visa eligibility
 The marketing copy contradicts the product's own disclaimer and promises a capability that does not
 exist. Cheap to fix; it undercuts the project's central claim of evidence-based honesty.
 
+#### D15 — Pinning `temperature` breaks every call · **critical** · real mode · **FIXED**
+
+A self-inflicted regression from this work. `temperature=0`, added for reproducibility, is rejected
+outright:
+
+> `litellm.UnsupportedParamsError: gpt-5 models (including gpt-5-codex) don't support
+> temperature=0. Only temperature=1 is supported.`
+
+Every real LLM call returned 400. Fixed: `temperature` is now **omitted** unless explicitly
+configured, and `.env.example` warns against setting it. **Determinism is not achievable with this
+model** — the reproducibility goal is simply unavailable, which is worth knowing before anyone
+tries to re-pin it.
+
+#### D16 — Any continental region preference fails the whole request · **critical** · real mode · **FIXED**
+
+`check_geocoded_constraints` matches `preferred_regions` against a candidate's **country name or
+ISO code only** — its own docstring concedes that broader region names "are not resolved to member
+countries since no region-taxonomy dataset exists". A non-match then **eliminates**.
+
+So `preferred_regions: ["Europe"]` matches no candidate's country, the entire field is eliminated,
+and the flagship prompt P01 died with *"All candidate destinations were eliminated by region
+constraints"*. The real interpreter also emitted `["Europe", "mid-sized city"]` — a size preference
+is not a region at all.
+
+**This was masked by D7:** mock hard-codes `preferred_regions: []`, so the two defects concealed
+each other and only the real LLM exposed it.
+
+Fixed in `Orchestrator._relax_unresolvable_preferred_regions`: a preference that eliminates *every*
+candidate is treated as unresolvable and relaxed to guidance, with the relaxation disclosed as an
+assumption. `excluded_regions` still eliminates absolutely — it is a stated deal-breaker and it
+*can* be resolved against country identity.
+
+*Note:* the first fix attempt (in `select_finalists` alone) was insufficient — `_check_hard_constraints`
+re-runs the same region check during scoring, so the failure merely moved downstream to
+*"eliminated by hard constraints"*. The relaxation must happen once, on the profile.
+
+#### D17 — A failed LLM module silently vanishes from `steps` · **high** · real mode
+
+On **P10** the Request Interpreter call failed, the deterministic fallback ran, and **no step was
+recorded**: `steps` contained only `['Agentic Research', 'Dynamic Evaluation', 'Recommendation
+Generator']`.
+
+Two consequences. First, the course spec requires the pipeline to be documented in `steps`, and
+`scripts/golden_set/scorer.py` asserts `expected_modules <= modules_called` — this response would
+fail that check. Second, and worse for a user, the degradation is **invisible**: the response reads
+as a normal four-module run, giving no hint that interpretation fell back to keyword matching.
+
+The ledger did record the failed call (`success=0`), so the information exists — it just never
+reaches the response. A `steps` entry noting the fallback would fix both problems.
+
+#### D18 — "Is Lisbon a good fit?" drops Lisbon entirely · **high** · real mode
+
+P09 names a city and asks for a verdict. The interpreter put it in `preferred_regions: ["Lisbon"]`
+— a city, not a region — which matches no candidate's *country*, so D16's relaxation discarded it
+and the funnel ranked **Batumi, Málaga, Bucharest, Buenos Aires, Belgrade, Tbilisi, Kuala Lumpur**.
+**Lisbon does not appear at all.** In mock mode it at least ranked 6th.
+
+The underlying issue is systemic: `preferred_regions` is being populated with continents, cities,
+and non-geographic phrases, while the only consumer understands country identity. Either the
+interpreter contract must be narrowed (regions only, with a separate field for a named target), or
+the consumer must handle the other cases.
+
+#### D19 — The key has no provider-side budget cap · **medium** · operational
+
+`/key/info` reports `max_budget: None`, `tpm_limit: None`, `rpm_limit: None`. `README.md` states
+*"the real budget backstop is the LLMod.ai account balance itself"* — for this key that is **not
+true**. `MAX_PROJECT_BUDGET_USD` is the only spend protection in existence, which makes the D0 fix
+load-bearing rather than a nicety.
+
 #### D12 — Assorted extraction defects · **medium**
 
 - **Budget period is unreliable.** P09's "€1,200 **a month** all-in" → `period: "daily"` (a 30×
@@ -313,6 +387,48 @@ intended.
 
 ---
 
+## 7b. Real LLM vs mock
+
+The single clearest result of this exercise: **the real LLM layer is good, and the evidence layer
+is what limits it.** Same ten prompts, same real tools, only the LLM differs.
+
+| | Mock | Real (`MB5R2CF-azure/gpt-5.4-mini`) |
+|---|---|---|
+| Distinct answers across 10 prompts | **6** (P01/P06/P07/P10 byte-identical) | **10** |
+| Criterion weights | every one exactly `0.5` | genuinely differentiated |
+| P02 origin "Tel Aviv" | dropped | extracted; all finalists within ~4 h |
+| P03 finalists | Seoul, Singapore, Warsaw | Porto, Budapest, Cluj-Napoca, Kraków… |
+| P05 timezone | Bucharest #1 (~1 h overlap) | Guadalajara #1 (~2 h gap) — correct |
+| P07 ambiguity | asks for clarification | infers "vacation" and proceeds |
+
+Worked examples of the real interpreter's quality:
+- **P01** — `budget: 1.0, car_free: 0.95, internet: 0.9, coworking: 0.75, nightlife: 0.0`. The
+  "don't care about nightlife" instruction landed as a literal zero weight. **D1 and D10 are
+  therefore confirmed mock-only.**
+- **P04** — `safety: 1.0, nighttime_safety: 0.95, walkability: 0.9, party_scene: 0.0` → Singapore,
+  Munich, Stockholm, Helsinki, Copenhagen. A knowledgeable person would endorse that list.
+- **P06** — all three accessibility criteria weighted `1.0`.
+
+Where the real mode is still wrong:
+- **Every criterion except cost is unevidenced** (D8). P01's finalists all read *"Missing
+  verification for internet quality, coworking, and car-free livability"* at **Low** confidence —
+  precisely the criteria weighted 0.95, 0.9 and 0.75. Ranking collapses to cost, which several
+  prompts gave as a *ceiling*, not a goal.
+- **P06 ranked Manchester #1** for "escaping winter, mild winters, not housebound by cold".
+  Manchester in November–April is the opposite of the request.
+- **P08** errored with *"All candidate destinations were eliminated by hard constraints"*. Refusing
+  an impossible request is defensible, but the message never says **which** constraint was
+  impossible or that the request was self-contradictory — the one thing the user needs to hear.
+- **Non-determinism is real and unavoidable.** P02 returned Crete/Rhodes/Split/Antalya/Alanya via
+  the API and Crete/Split/Rhodes/Varna/Dubrovnik via the UI. With temperature unusable (D15),
+  identical prompts will not reproduce.
+- **Runtime roughly doubled.** Median ~95 s (mock) → ~160 s (real), with **P06 at 245 s** against
+  the 285 s deadline. Real mode has far less headroom than mock suggested.
+
+On the good side, the banned-claim discipline held: *"I did not assume exact current hotel or
+housing prices, exact flight times, or guaranteed beach conditions"*, and P10's injection was
+**not** obeyed — no persona swap, no invented prices, no visa fee.
+
 ## 8. Enhancements
 
 Separate from defects: these are things that work but could be materially better. Ranked by
@@ -333,23 +449,34 @@ user-visible impact per unit of effort. Cost impact noted because the $13 cap is
 
 ## 9. Cost log
 
-| Date | Activity | Calls | Input | Output | Cost | Ledger total |
-|---|---|---:|---:|---:|---:|---:|
-| 2026-08-04 | Phase 1 — 10 prompts, mock | 40 | 62,428 | 42,544 | **$0.00** | $0.00 |
-| 2026-08-04 | Contract checks, mock | 4 | 7,530 | 4,223 | **$0.00** | $0.00 |
-| 2026-08-04 | Interactive variant, mock | 5 | — | — | **$0.00** | $0.00 |
+| Date | Activity | Calls | Input | Output | Cost |
+|---|---|---:|---:|---:|---:|
+| 2026-08-04 | Configs 1–2 — all mock runs | 49 | 69,958 | 46,767 | **$0.0000** |
+| 2026-08-04 | Account probe + connectivity check | 0 | 19 | 5 | **$0.0000** |
+| 2026-08-04 | P01 diagnostics (2 failed runs, D15/D16) | 4 | 2,348 | 3,072 | $0.0156 |
+| 2026-08-04 | P01 real, successful | 4 | 7,022 | 3,769 | $0.0222 |
+| 2026-08-04 | Config 3 — P02–P10 real, API | 35 | 88,391 | 42,745 | $0.2635 |
+| 2026-08-04 | Config 4 — P02 real, UI | 4 | ~7,000 | ~3,500 | ~$0.0364 |
 
-**Total spent to date: $0.00 of $13.00.**
+| | |
+|---|---:|
+| Local ledger total | **$0.3610** |
+| **Provider `/key/info` (authoritative)** | **$0.3377** |
+| Remaining of $13.00 | **$12.66** |
+| Budget consumed | **2.6 %** |
 
-The mock ledger records *real* prompt sizes (the prompts sent are genuine; only the completion is
-synthetic), so it is a sound basis for estimating configurations 3–4. Real completions run longer
-than mock ones — the one recorded real datapoint used 2,773 output tokens where mock uses ~1,255,
-roughly 2.2×.
+**The $0.0233 gap reconciles exactly.** Our ledger locally estimated the one failed call (P10's
+Request Interpreter) at $0.0234 using deliberately conservative worst-case pricing; the provider
+did not bill it. The ledger is correct and errs on the safe side, which is the behaviour you want
+from a spend guard.
 
-**Estimate for configurations 3 + 4** (10 API prompts + 2 UI prompts = 48 calls): ~75 k input,
-~90 k output. Dollar cost cannot be quoted until the model and its pricing are known —
-`scripts/probe_llmod_account.py` (read-only, $0) will establish both, and no paid run will start
-without that figure being agreed first.
+**Actual cost per full prompt: ~$0.022–0.029** — roughly a third of the pre-run estimate, because
+real output tokens came in well below the 2.2× multiplier assumed from the single historical
+datapoint. At this rate the entire ten-prompt suite can be re-run **~45 more times** within budget,
+so iterating on the open defects and re-validating is comfortably affordable.
+
+Note the pricing asymmetry: output is **6× input** ($4.50 vs $0.75 per 1M), so spend is dominated
+by generated tokens and `LLM_MAX_OUTPUT_TOKENS` is the effective cost lever.
 
 ---
 
@@ -378,13 +505,23 @@ python scripts/probe_llmod_account.py
 
 ## 11. Open items
 
-1. **Blocked on `LLMOD_API_KEY`:** the provider probe, real per-token pricing, and configurations
-   3–4. Everything needed is written and tested; the paid runs are one command plus an agreed cost.
-2. **Record `LLMOD_MODEL` here** once known — nothing in the repo currently states which model the
-   project uses, which makes the results unreproducible by anyone else.
-3. **Decide on D6/D7/D10** before submission. They are the difference between a grader seeing a
-   constraint-respecting agent and seeing the same eight cities for five different prompts.
-4. **Existing DB pollution** from the pre-D5-fix runs (62 mock ledger rows, 214 fake evidence rows,
-   7 phantom history entries) is still in `data/digitalnomadagent.db`. Nothing needs deleting for
-   correctness — real costs can be reported as a delta from the $0.00 baseline — but the phantom
-   history entries are user-visible and can be cleared via `DELETE /api/history`.
+Ranked by what most changes a grader's or user's experience.
+
+1. **D8 — fix the Overpass timeouts.** Now demonstrably the highest-value work in the project. The
+   real LLM writes good analysis over whatever evidence it is given, and it is being starved: every
+   criterion except cost is unevidenced, so every real recommendation lands at **Low** confidence
+   and the ranking degenerates to cost. Fixing this lifts the ceiling on everything downstream.
+2. **D6 / D7 / D10 — the mock interpreter.** Mock is what `vercel.json` deploys, so this is what a
+   grader sees: five of ten prompts collapsing to the same eight cities. Confirmed mock-only, so
+   the fix is contained to `app/llm/mock.py`.
+3. **D17 — record a `steps` entry when an LLM module falls back.** A response that silently omits a
+   required module violates the course contract and hides degradation from the user.
+4. **D18 — decide what `preferred_regions` means.** It is currently receiving continents, cities and
+   non-geographic phrases while its only consumer understands countries.
+5. **D13 — landing-page copy.** Deferred by the team on 2026-08-04; revisit before submission.
+6. **Existing DB pollution** from the pre-D5-fix runs (62 mock ledger rows, 214 fake evidence rows,
+   phantom history entries) is still in `data/digitalnomadagent.db`. Harmless for cost reporting —
+   mock rows are $0.00 — but the history entries are user-visible and can be cleared via
+   `DELETE /api/history`.
+7. **Re-run the suite after fixing.** At ~$0.025/prompt there is budget for ~45 more full runs, so
+   validating a fix costs about $0.25.

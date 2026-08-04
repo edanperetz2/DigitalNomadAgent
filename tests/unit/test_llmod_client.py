@@ -127,13 +127,15 @@ async def test_missing_cost_everywhere_is_none():
 
 
 @pytest.mark.asyncio
-async def test_temperature_is_pinned_in_the_payload():
-    client = _client(temperature=0.0)
+async def test_temperature_is_omitted_when_not_configured():
+    """gpt-5 deployments 400 on any temperature except 1.0, so the default
+    request must not carry the parameter at all."""
+    client = _client()
     sent = _stub_post(client, _response())
 
     await client.complete(_MESSAGES, max_output_tokens=100)
 
-    assert sent[0]["temperature"] == 0.0
+    assert "temperature" not in sent[0]
 
 
 @pytest.mark.asyncio
@@ -144,6 +146,17 @@ async def test_configured_temperature_is_forwarded():
     await client.complete(_MESSAGES, max_output_tokens=100)
 
     assert sent[0]["temperature"] == 0.7
+
+
+@pytest.mark.asyncio
+async def test_explicit_zero_temperature_is_still_sent():
+    """0.0 is falsy -- it must not be dropped by an accidental truthiness check."""
+    client = _client(temperature=0.0)
+    sent = _stub_post(client, _response())
+
+    await client.complete(_MESSAGES, max_output_tokens=100)
+
+    assert sent[0]["temperature"] == 0.0
 
 
 @pytest.mark.asyncio
@@ -215,3 +228,14 @@ async def test_error_status_raises_without_leaking_the_key():
 def test_invalid_configuration_raises_before_any_request(overrides):
     with pytest.raises(ConfigurationError):
         _client(**overrides)
+
+
+def test_masked_api_key_is_rejected_with_an_actionable_message():
+    """A key copied from a masked UI field would otherwise raise a bare
+    UnicodeEncodeError from deep inside httpx header encoding."""
+    with pytest.raises(ConfigurationError) as exc_info:
+        _client(api_key="sk-lAGYw" + "•" * 17)
+
+    message = str(exc_info.value)
+    assert "non-ASCII" in message
+    assert "masked" in message

@@ -57,7 +57,7 @@ class LLModClient(BaseLLMClient):
         auth_header: str,
         auth_scheme: str,
         timeout_seconds: float,
-        temperature: float = 0.0,
+        temperature: float | None = None,
     ):
         if not api_key:
             raise ConfigurationError(
@@ -68,6 +68,16 @@ class LLModClient(BaseLLMClient):
             raise ConfigurationError(
                 "LLMod.ai is not configured. Set LLMOD_MODEL (and LLMOD_API_KEY), "
                 "or set MOCK_LLM=true for offline development."
+            )
+        if not api_key.isascii():
+            # Caught eagerly because httpx raises a bare UnicodeEncodeError deep in
+            # header encoding, which gives no hint about the cause. In practice this
+            # means a *masked* value was copied out of a UI ("sk-abc<bullets>")
+            # instead of the real key.
+            raise ConfigurationError(
+                "LLMOD_API_KEY contains non-ASCII characters and cannot be sent as an "
+                "HTTP header. This usually means a masked or truncated value was copied "
+                "instead of the real key -- check for bullet or ellipsis characters."
             )
         parsed = urlsplit(base_url)
         if not parsed.scheme or not parsed.netloc:
@@ -112,8 +122,12 @@ class LLModClient(BaseLLMClient):
             "model": self._model,
             "messages": messages,
             "max_tokens": max_output_tokens,
-            "temperature": self._temperature,
         }
+        # Omitted unless explicitly configured. gpt-5 family deployments reject
+        # any value other than 1.0 outright (400 UnsupportedParamsError), so
+        # sending a default here would break them.
+        if self._temperature is not None:
+            payload["temperature"] = self._temperature
         try:
             response = await self._post(payload)
         except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:

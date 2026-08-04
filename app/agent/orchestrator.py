@@ -14,7 +14,12 @@ from dataclasses import dataclass, field
 
 from app.agent.agentic_research import generate_candidates, select_tools
 from app.agent.candidate_funnel import select_finalists
-from app.agent.dynamic_evaluation import apply_llm_scores, evaluate_candidates, score_unresolved_criteria
+from app.agent.dynamic_evaluation import (
+    apply_llm_scores,
+    check_geocoded_constraints,
+    evaluate_candidates,
+    score_unresolved_criteria,
+)
 from app.agent.models import CandidateEvaluation, CandidatePlace, PlaceRequestProfile, ValidationResult
 from app.agent.recommendation_generator import generate_recommendation, render_recommendation_fallback
 from app.agent.recommendation_validator import validate_recommendations
@@ -84,6 +89,40 @@ def _resolve_ambiguous_profile(profile: PlaceRequestProfile) -> PlaceRequestProf
     if updated.purpose == "unknown":
         updated.purpose = "mixed"
     return updated
+
+
+def _relax_unresolvable_preferred_regions(
+    profile: PlaceRequestProfile, candidates: list[CandidatePlace]
+) -> PlaceRequestProfile:
+    """Drop preferred_regions when it would eliminate every geocoded candidate.
+
+    check_geocoded_constraints compares country name/ISO code only -- there is
+    no region-taxonomy dataset here to expand "Europe" into its member
+    countries. So a continental preference, or a non-geographic string the
+    interpreter placed in preferred_regions (observed in a real run:
+    ["Europe", "mid-sized city"]), matches no candidate and eliminates the whole
+    field, failing the request outright.
+
+    Relaxing is the fail-open behaviour the rest of the pipeline already applies
+    to evidence it cannot evaluate, and the region intent is still carried by
+    candidate generation and by the recommendation prompt. excluded_regions is
+    deliberately left alone: it is a stated deal-breaker and it *can* be
+    resolved, since it is matched against country identity directly.
+    """
+    if not profile.preferred_regions or not candidates:
+        return profile
+    if any(not check_geocoded_constraints(profile, candidate)[0] for candidate in candidates):
+        return profile
+
+    relaxed = profile.model_copy(deep=True)
+    relaxed.preferred_regions = []
+    relaxed.assumptions.append(
+        "The stated region preference ("
+        + ", ".join(profile.preferred_regions)
+        + ") could not be matched against any candidate's country, so it was treated as "
+        "guidance rather than a filter; candidate selection still targeted it."
+    )
+    return relaxed
 
 
 class Orchestrator:
@@ -474,6 +513,16 @@ class Orchestrator:
                     # Stage 2 of the candidate-discovery funnel: a cheap, zero-LLM filter/rank
                     # over all geocoded survivors (up to max_bulk_candidates), narrowing down to
                     # max_finalists before the expensive full tool suite (Stage 3) ever runs.
+                    # A preferred region that eliminates the entire field is far more
+                    # likely unresolvable than truly unsatisfiable: check_geocoded_constraints
+                    # can only compare country identity, so a continent ("somewhere in
+                    # Europe") or a non-geographic string the interpreter placed there
+                    # (observed: "mid-sized city") matches nothing. Relax it once, here, so
+                    # the funnel AND the later hard-constraint check agree -- the latter
+                    # re-runs the same region check, so relaxing only in the funnel would
+                    # just move the failure downstream.
+                    profile = _relax_unresolvable_preferred_regions(profile, candidates)
+
                     remaining_research = max(0.0, research_deadline - asyncio.get_running_loop().time())
                     budget_grouped = await self._tools.run_tools(
                         {"BudgetFitTool"},

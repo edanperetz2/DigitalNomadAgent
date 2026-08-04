@@ -65,6 +65,13 @@ async def probe(settings) -> dict:
             "LLMOD_API_KEY is not set. Copy .env.example to .env and fill it in.\n"
             "This probe makes no paid calls, but it does need a key to authenticate."
         )
+    if not settings.llmod_api_key.isascii():
+        raise SystemExit(
+            "LLMOD_API_KEY contains non-ASCII characters and cannot be sent as an HTTP "
+            "header.\nThis usually means a masked value was copied from a UI (e.g. "
+            "'sk-abc' followed by bullet characters) rather than the real key.\n"
+            "Re-copy the unmasked key into .env."
+        )
     register_secret(settings.llmod_api_key)
     base_url = settings.llmod_base_url.rstrip("/")
     headers = {

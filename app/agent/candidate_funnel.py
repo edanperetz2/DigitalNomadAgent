@@ -74,6 +74,34 @@ def select_finalists(
     while affordability is a softer preference signal refined further by the
     full Dynamic Evaluation scoring in Stage 3.
     """
+    survivors = _rank_survivors(candidates, profile, budget_results)
+
+    # check_geocoded_constraints can only compare *country* identity -- no
+    # region-taxonomy dataset exists here to expand "Europe" into its member
+    # countries. So a continental preference ("somewhere in Europe"), or a
+    # non-geographic string the interpreter placed in preferred_regions
+    # (observed: "mid-sized city"), matches no candidate's country and
+    # eliminates the entire field, failing the whole request.
+    #
+    # A preference that excludes everything is far more likely an unresolvable
+    # preference than a true "nothing qualifies", so retry ignoring it. This
+    # matches the fail-open rule the rest of the pipeline follows for evidence
+    # it cannot evaluate. excluded_regions is a stated deal-breaker and keeps
+    # eliminating absolutely -- it is only ever matched against country
+    # identity, which it can actually resolve.
+    if not survivors and profile.preferred_regions:
+        relaxed = profile.model_copy(update={"preferred_regions": []})
+        survivors = _rank_survivors(candidates, relaxed, budget_results)
+
+    survivors.sort(key=lambda pair: pair[0], reverse=True)
+    return [candidate for _, candidate in survivors[:max_finalists]]
+
+
+def _rank_survivors(
+    candidates: list[CandidatePlace],
+    profile: PlaceRequestProfile,
+    budget_results: dict[str, list[ToolResult]],
+) -> list[tuple[float, CandidatePlace]]:
     survivors: list[tuple[float, CandidatePlace]] = []
     for candidate in candidates:
         eliminated, _ = check_geocoded_constraints(profile, candidate)
@@ -85,6 +113,4 @@ def select_finalists(
         affordability = estimate_affordability(normalized_data)
         composite = IMPORTANCE_WEIGHT * importance + AFFORDABILITY_WEIGHT * affordability
         survivors.append((composite, candidate))
-
-    survivors.sort(key=lambda pair: pair[0], reverse=True)
-    return [candidate for _, candidate in survivors[:max_finalists]]
+    return survivors

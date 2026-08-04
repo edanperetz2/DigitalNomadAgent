@@ -16,6 +16,86 @@ def _candidate(name, country="Spain", country_code="ES", importance=0.7):
     )
 
 
+def test_orchestrator_relaxes_a_preferred_region_that_matches_nothing():
+    """The pipeline-level fix. Relaxing only inside select_finalists is not
+    enough: _check_hard_constraints re-runs the same region check during
+    scoring, so an unrelaxed profile just moves the failure downstream from
+    "eliminated by region constraints" to "eliminated by hard constraints".
+    """
+    from app.agent.orchestrator import _relax_unresolvable_preferred_regions
+
+    profile = PlaceRequestProfile(
+        purpose="remote_work", preferred_regions=["Europe", "mid-sized city"]
+    )
+    candidates = [_candidate("Valencia"), _candidate("Porto", country="Portugal", country_code="PT")]
+
+    relaxed = _relax_unresolvable_preferred_regions(profile, candidates)
+
+    assert relaxed.preferred_regions == []
+    assert any("region preference" in a for a in relaxed.assumptions), "relaxation must be disclosed"
+    assert profile.preferred_regions == ["Europe", "mid-sized city"], "must not mutate the original"
+
+
+def test_orchestrator_keeps_a_preferred_region_that_matches_something():
+    from app.agent.orchestrator import _relax_unresolvable_preferred_regions
+
+    profile = PlaceRequestProfile(purpose="remote_work", preferred_regions=["Spain"])
+    candidates = [_candidate("Valencia"), _candidate("Porto", country="Portugal", country_code="PT")]
+
+    relaxed = _relax_unresolvable_preferred_regions(profile, candidates)
+
+    assert relaxed.preferred_regions == ["Spain"]
+    assert relaxed.assumptions == []
+
+
+def test_continental_preferred_region_does_not_eliminate_every_candidate():
+    """"Somewhere in Europe" must not wipe out the whole field.
+
+    check_geocoded_constraints only compares country identity, so a continent
+    name matches nothing and previously eliminated every candidate -- which the
+    orchestrator turned into a hard "all candidates eliminated by region
+    constraints" failure for the flagship remote-work prompt.
+    """
+    profile = PlaceRequestProfile(purpose="remote_work", preferred_regions=["Europe"])
+    candidates = [_candidate("Valencia"), _candidate("Porto", country="Portugal", country_code="PT")]
+
+    finalists = select_finalists(candidates, profile, {}, max_finalists=8)
+
+    assert {c.place_name for c in finalists} == {"Valencia", "Porto"}
+
+
+def test_non_geographic_preferred_region_does_not_eliminate_every_candidate():
+    """The interpreter has been observed emitting preferred_regions=
+    ["Europe", "mid-sized city"]; a size preference is not a region."""
+    profile = PlaceRequestProfile(
+        purpose="remote_work", preferred_regions=["Europe", "mid-sized city"]
+    )
+    candidates = [_candidate("Valencia")]
+
+    finalists = select_finalists(candidates, profile, {}, max_finalists=8)
+
+    assert [c.place_name for c in finalists] == ["Valencia"]
+
+
+def test_country_level_preferred_region_still_filters_when_some_candidates_match():
+    """The relaxation must not weaken a preference that genuinely resolves."""
+    profile = PlaceRequestProfile(purpose="vacation", preferred_regions=["Spain"])
+    candidates = [_candidate("Valencia"), _candidate("Porto", country="Portugal", country_code="PT")]
+
+    finalists = select_finalists(candidates, profile, {}, max_finalists=8)
+
+    assert [c.place_name for c in finalists] == ["Valencia"]
+
+
+def test_excluded_region_still_eliminates_absolutely():
+    """excluded_regions is a stated deal-breaker: it must never be relaxed,
+    even when it removes every candidate."""
+    profile = PlaceRequestProfile(purpose="vacation", excluded_regions=["Spain"])
+    candidates = [_candidate("Valencia"), _candidate("Seville")]
+
+    assert select_finalists(candidates, profile, {}, max_finalists=8) == []
+
+
 def _budget_result(place, *, status, remaining=None, monthly_total=None, error=None):
     if error:
         return ToolResult(

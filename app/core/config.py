@@ -36,10 +36,12 @@ class Settings(BaseSettings):
     llm_input_cost_per_1m: float = 0.0
     llm_output_cost_per_1m: float = 0.0
 
-    # Pinned so paid runs are reproducible: an identical prompt should not need
-    # re-spending to chase output variance. Raise it only for a deliberate
-    # experiment, never as an incidental change.
-    llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    # Left unset by default, which omits `temperature` from the request so the
+    # model's own default applies. Do NOT pin this blindly: gpt-5 family models
+    # reject every value except 1.0 with an UnsupportedParamsError, so a pin
+    # intended to make runs reproducible breaks them outright. Set it only for a
+    # provider known to accept the value.
+    llm_temperature: float | None = Field(default=None, ge=0.0, le=2.0)
 
     # --- Networking ---------------------------------------------------------------
     # Research-tool HTTP calls (Nominatim/Overpass/etc.) are fast REST lookups and
