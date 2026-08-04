@@ -6,10 +6,11 @@ fixing. Two things are kept deliberately separate: **defects** (it does not work
 
 Last updated: **2026-08-04**.
 
-> **Reading order.** Section 0 is the current status and the handover for the next session.
-> Sections 2–9 are the original findings, written before the fixes landed — they still describe
-> several defects as open. Section 0 is authoritative on what is fixed; the detail below explains
-> *why* each one mattered and is worth keeping for that reason.
+> **Reading order.** Section 0 is the current status, including the results of the post-fix
+> verification run against the real provider (2026-08-04). Sections 2–9 are the original
+> findings, written before the fixes landed — they still describe several defects as open.
+> Section 0 is authoritative on what is fixed; the detail below explains *why* each one mattered
+> and is worth keeping for that reason.
 
 ---
 
@@ -29,7 +30,7 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D5 | Test suite wrote to the production database | **Fixed** | `0fcd28f` |
 | D6 | One missed keyword discarded every stated constraint | **Fixed** | `b100775` |
 | D7 | `preferred_regions` hard-coded empty | **Fixed** | `b100775` |
-| D8 | Every Overpass-backed tool timed out | **Fixed** | `054fc41` |
+| D8 | Every Overpass-backed tool timed out | **Partially fixed** — live run: Transport/Activities succeed, Amenities/LocalMobility still time out | `054fc41` |
 | D9 | Five of ten prompts returned identical output | **Fixed** (via D6) | `b100775` |
 | D10 | All criterion weights were exactly 0.5 | **Fixed** | `b100775` |
 | D11 | "No major drawback identified" printed when evidence was absent | **Fixed** | `0c88ab9` |
@@ -51,51 +52,34 @@ Two deliberate non-changes, both flagged rather than decided unilaterally:
   as D17 applies. Worth a decision.
 - **D13** is copy-only and was deferred by the team on 2026-08-04. Raise it at submission prep.
 
-### What has NOT been done: the verification run
+### The verification run — DONE (2026-08-04, `validation_runs/20260804T175107Z-real-api-postfix`)
 
-**The fixes have not been re-validated end to end against the real provider.** Only fix A was
-confirmed live, incidentally: a mock-mode UI run after `054fc41` returned *"Activity counts (293),
-matching 2 requested preference(s)"* for Nice, where the original runs reported
-`Activity counts (0), matching 0` for almost every candidate.
+The fixes were re-validated end to end against the real provider on 2026-08-04. Offline gate
+first: `pytest -q` → **465 passed, 1 skipped**; `ruff check .` clean. All ten prompts returned
+`status: ok`; run cost **$0.3252** (ledger) / $0.3018 (provider-billed). Per-prompt outcomes
+against the planned checklist:
 
-Everything needed to run it is in place. Estimated cost **~$0.25**, from a measured $0.022–0.029
-per prompt.
+| Prompt | What was verified | Outcome |
+|---|---|---|
+| **P01** | Budget, car-free and region constraints in the profile; European finalists; no elimination error (D6, D7, D16) | **PASS** — full profile (€1,800/monthly, both hard constraints, `["Europe"]`); finalists Sofia, Timișoara, Plovdiv, Gdańsk, Seville; no elimination error |
+| **P02** | `origin: "Tel Aviv"` extracted, 5-hour flight cap applied | **PASS** — origin extracted, `flight_time_under_5_hours` a hard constraint; finalists Barcelona, Sicily, Mallorca, Marseille, Nice — all ≲5 h from Tel Aviv |
+| **P03** | Ranked priorities → descending weights (D10) | **PASS** — 0.35 / 0.25 / 0.20 / 0.15 / 0.05, matching the stated order |
+| **P05** | Timezone evidenced; ranking not inverted (D8, D11) | **PARTIAL** — D11 holds: every finalist *names* the unverified time-zone evidence as its key uncertainty; no "No major drawback identified" anywhere. But the evaluation still scored only `cost` and `accessibility` — the time-zone criterion (weighted 1.0) remains unevidenced, and ranking (Madrid, Barcelona, Málaga, Lisbon) still leans on cost. Better than Bucharest/Taipei, still not evidence-driven |
+| **P06** | Accessibility criteria evidenced (D8) | **PASS** — differentiated accessibility scores (0.4–0.7) with concrete transit/airport evidence per city. Note: the first Recommendation Generator call failed (`malformed_json`), the retry succeeded, **and both steps are recorded** — 261.8 s of the 285 s deadline |
+| **P08** | Relaxation explained, not a bare elimination error | **PARTIAL** — no error; it recommends Tallinn and *discloses* that Scandinavia was not hard-filtered and the candidate set was thin, but never states plainly that $400/month contradicts Scandinavia |
+| **P09** | Lisbon in the finalists with a direct verdict (D18) | **PASS** — interpreter emits `named_destinations: ["Lisbon"]`; **Lisbon ranks #1** of five Portuguese candidates with a direct verdict |
+| **P10** | All four modules in `steps` even on interpreter failure (D17) | **PASS** — the real interpreter call failed again (provider 400) and the step **stays visible**: `{"error": "provider_call_failed", "note": "…a deterministic fallback was used."}`. Injection still not obeyed |
+| **All** | Honest evidence wording (D11) | **PASS** — missing data is reported as "missing verification", never as a negative property of the place; confidence varies within result sets (e.g. "Medium-low") |
 
-```bash
-# 1. Offline gate first -- must be green before spending anything
-pytest -q && ruff check .
-
-# 2. Confirm the provider state, read-only, $0
-python scripts/probe_llmod_account.py
-
-# 3. Real mode: set MOCK_LLM=false in .env, then
-uvicorn app.main:app --port 8000
-
-# 4. In a second shell -- captures to validation_runs/, judges nothing
-python scripts/run_e2e_suite.py --label real-api-postfix
-
-# 5. Report spend, and reconcile against the provider
-python scripts/show_llm_usage.py --calls
-python scripts/probe_llmod_account.py
-
-# 6. Put MOCK_LLM back to true in .env when finished
-```
-
-### What to check in that run, per prompt
-
-The point is to confirm the fixes hold against real behaviour, so look for these specifically:
-
-| Prompt | What to verify |
-|---|---|
-| **P01** | Budget, car-free and region constraints all present in the profile; finalists European; no "eliminated by region constraints" error (D6, D7, D16) |
-| **P02** | `origin: "Tel Aviv"` extracted and the 5-hour flight cap applied |
-| **P03** | Ranked priorities produce *descending* weights, not a flat 0.5 (D10) |
-| **P05** | `timezone` now has evidence rather than "no verified data"; ranking should favour Guadalajara/Lima over Bucharest/Taipei (D8, D11) |
-| **P06** | Accessibility criteria evidenced rather than unverified (D8) |
-| **P08** | Fails or relaxes *explaining which constraint was impossible*, not a bare "eliminated by hard constraints" |
-| **P09** | **Lisbon appears in the finalists** with a direct verdict (D18) |
-| **P10** | All four modules present in `steps` even if the interpreter fails (D17) |
-| **All** | Overpass-backed criteria carry real counts; "Not assessed: no verified data" only where evidence is genuinely missing (D8, D11) |
+**The one substantive negative finding is that D8 is only partially fixed.** The server-side
+counting fix (`054fc41`) brought `TransportAccessTool` (~41 s/query) and `ActivitiesTool` into
+reliable success, which is what evidenced P06's accessibility criteria. But `AmenitiesTool` and
+`LocalMobilityTool` still exceed the 50 s cap and timed out on essentially every invocation in
+this run — coworking/amenity and car-free-mobility criteria remain unevidenced in real runs.
+Thanks to D11 the output now *says so honestly*, so the failure mode is disclosure rather than
+misinformation, but the evidence gap itself stands. Second observation, related: the time-zone
+criterion is never scored even though `timezonefinder` data appears in the source list — an
+evidence-mapping gap rather than an Overpass one.
 
 ### Environment notes that will bite otherwise
 
@@ -108,8 +92,8 @@ The point is to confirm the fixes hold against real behaviour, so look for these
 - **Provider pricing is $0.75 / $4.50 per 1M** (input/output), from `/model/info` and confirmed
   against a billed call — *not* the $0.1438 / $5.7205 in the course handout. `.env` deliberately
   carries the higher of each figure so the pre-call guard cannot under-estimate.
-- **Spend so far: $0.3377 of $13.00** (provider-authoritative). About 45 more full suite runs fit
-  in the remaining budget.
+- **Spend so far: $0.6395 of $13.00** (provider-authoritative, after the verification run).
+  About 40 more full suite runs fit in the remaining budget.
 - **The ledger has a pre-existing baseline** of 62 mock rows at $0.00, plus 214 fake evidence rows
   and some phantom search-history entries, all written by the test suite before D5 was fixed.
   Harmless for cost reporting; the history entries are user-visible and can be cleared with
@@ -117,8 +101,12 @@ The point is to confirm the fixes hold against real behaviour, so look for these
 
 ### Follow-ups this report does not cover
 
-- Update this document after the verification run: fold the results into sections 6–7b and refresh
-  the cost log in section 9.
+- **D8 residual:** `AmenitiesTool` and `LocalMobilityTool` still time out on essentially every
+  real invocation (the fix rescued `TransportAccessTool` and `ActivitiesTool`). The affected
+  criteria are honestly disclosed as unverified (D11), but coworking/amenity and car-free
+  evidence is still missing from real runs.
+- **Time-zone criterion never scored** despite timezonefinder data in the source set — an
+  evidence-mapping gap surfaced by P05; the decisive criterion of that prompt runs unevidenced.
 - The enhancement backlog (section 8) is untouched. E1 (boilerplate justifications) and E3
   (Wikivoyage prose collected then discarded) are the most valuable.
 - There is still **no CI**, no coverage measurement, and no frontend test tooling.
@@ -574,18 +562,19 @@ user-visible impact per unit of effort. Cost impact noted because the $13 cap is
 | 2026-08-04 | P01 real, successful | 4 | 7,022 | 3,769 | $0.0222 |
 | 2026-08-04 | Config 3 — P02–P10 real, API | 35 | 88,391 | 42,745 | $0.2635 |
 | 2026-08-04 | Config 4 — P02 real, UI | 4 | ~7,000 | ~3,500 | ~$0.0364 |
+| 2026-08-04 | **Post-fix verification run** — P01–P10 real, API | 41 | 120,881 | 52,308 | $0.3252 |
 
 | | |
 |---|---:|
-| Local ledger total | **$0.3610** |
-| **Provider `/key/info` (authoritative)** | **$0.3377** |
-| Remaining of $13.00 | **$12.66** |
-| Budget consumed | **2.6 %** |
+| Local ledger total | **$0.6862** |
+| **Provider `/key/info` (authoritative)** | **$0.6395** |
+| Remaining of $13.00 | **$12.36** |
+| Budget consumed | **4.9 %** |
 
-**The $0.0233 gap reconciles exactly.** Our ledger locally estimated the one failed call (P10's
-Request Interpreter) at $0.0234 using deliberately conservative worst-case pricing; the provider
-did not bill it. The ledger is correct and errs on the safe side, which is the behaviour you want
-from a spend guard.
+**The $0.0467 gap reconciles exactly.** It is two failed Request Interpreter calls on P10 — one
+per real run — each locally estimated at ~$0.0234 using deliberately conservative worst-case
+pricing and not billed by the provider. The ledger is correct and errs on the safe side, which is
+the behaviour you want from a spend guard.
 
 **Actual cost per full prompt: ~$0.022–0.029** — roughly a third of the pre-run estimate, because
 real output tokens came in well below the 2.2× multiplier assumed from the single historical
@@ -623,5 +612,6 @@ python scripts/probe_llmod_account.py
 ## 11. Open items
 
 Superseded by **section 0**, which carries the current defect status and the handover for the next
-session. The items that were listed here — D8, D6/D7/D10, D17, D18 — have since been fixed; D13
-remains deferred, and the verification run remains outstanding.
+session. The items that were listed here — D8, D6/D7/D10, D17, D18 — have since been fixed and
+**verified against the real provider on 2026-08-04** (D8 partially: see section 0). D13 remains
+deferred until submission prep.
