@@ -30,7 +30,7 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D5 | Test suite wrote to the production database | **Fixed** | `0fcd28f` |
 | D6 | One missed keyword discarded every stated constraint | **Fixed** | `b100775` |
 | D7 | `preferred_regions` hard-coded empty | **Fixed** | `b100775` |
-| D8 | Every Overpass-backed tool timed out | **Partially fixed** — live run: Transport/Activities succeed, Amenities/LocalMobility still time out | `054fc41` |
+| D8 | Every Overpass-backed tool timed out | **Fixed** in two rounds — `054fc41` (server-side counting), then `9405937` (per-endpoint concurrency + in-tool OSM budget); see D8b below | `054fc41`, `9405937` |
 | D9 | Five of ten prompts returned identical output | **Fixed** (via D6) | `b100775` |
 | D10 | All criterion weights were exactly 0.5 | **Fixed** | `b100775` |
 | D11 | "No major drawback identified" printed when evidence was absent | **Fixed** | `0c88ab9` |
@@ -42,6 +42,9 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D17 | A failed LLM module vanished from `steps` | **Fixed** | `df24a78` |
 | D18 | A named destination ("is Lisbon a good fit?") was dropped | **Fixed** | `2c5c9bf` |
 | D19 | No provider-side budget cap; README claimed otherwise | **Documented** | `14d582e` |
+| D20 | Time-zone criterion never scored when the reference timezone is named ("overlap with US Eastern") rather than implied by an origin | **Fixed** | `8d1f6b5`, `03ce480` |
+| D21 | Free-form interpreter weight keys (`time_zone_overlap`) never matched the scoring vocabulary, so every user-stated weight fell back to the 0.5 default | **Fixed** | `17927a0` |
+| D8b | Residual of D8: global `Semaphore(2)` starved Amenities/LocalMobility jobs, and a killed LocalMobilityTool lost its already-fetched Wikivoyage prose | **Fixed** | `9405937` |
 
 Two deliberate non-changes, both flagged rather than decided unilaterally:
 
@@ -81,6 +84,9 @@ misinformation, but the evidence gap itself stands. Second observation, related:
 criterion is never scored even though `timezonefinder` data appears in the source list — an
 evidence-mapping gap rather than an Overpass one.
 
+*(Both findings were fixed the same evening — see "Verification-run findings, fixed on
+2026-08-04" below: D8b, D20, D21.)*
+
 ### Environment notes that will bite otherwise
 
 - **`LLMOD_MODEL` must be `MB5R2CF-azure/gpt-5.4-mini`.** The short form `azure/gpt-5.4-mini` does
@@ -99,14 +105,40 @@ evidence-mapping gap rather than an Overpass one.
   Harmless for cost reporting; the history entries are user-visible and can be cleared with
   `DELETE /api/history`.
 
+### Verification-run findings, fixed on 2026-08-04 (evening)
+
+Both residual findings from the verification run were investigated and fixed the same day; the
+P05 investigation split into two distinct defects (D20, D21).
+
+- **D20 — named reference timezone** (`8d1f6b5`, mock half `03ce480`): P05 names "US Eastern" as
+  the coordination target and states no origin, so `TimezoneFitTool` could never compute an
+  overlap. The tool now resolves a timezone named in the request text (word-bounded phrase table,
+  no network) and measures against it; an explicit reference wins over the origin. The mock
+  interpreter also now captures "N hours of overlap with X" as the hard constraint it is.
+  *Verified live (mock LLM + real tools, $0):* P05 now ranks Lisbon #1 with "Good working-hours
+  overlap (~3.0h)" and demotes Taipei to 7th at ~0.0h — the original run had ranked Bucharest #1.
+  The chain was also verified offline against the captured real-LLM P05 profile.
+- **D21 — weight canonicalization** (`17927a0`): the real interpreter's free-form weight keys
+  (`time_zone_overlap: 1.0`, `car_free_livability: 0.9`) never matched the canonical criterion
+  names, so every user weight silently became the 0.5 default — ranking could not reflect stated
+  priorities in real mode, the product's core claim. An ordered pattern table now maps them;
+  unmapped keys stay verbatim so an unrecognized priority still counts as unevidenced.
+- **D8b — Overpass starvation** (`9405937`): all Overpass jobs shared one global `Semaphore(2)`,
+  so with ~16–32 jobs per request most spent their whole 50 s budget queueing. Now per-endpoint
+  limits (2 for overpass-api.de per its usage policy, 4 for kumi.systems) with round-robin
+  dispatch, and `LocalMobilityTool` bounds its OSM sub-call at 40 s so an Overpass stall degrades
+  to Wikivoyage-context-only evidence instead of losing the whole tool run. *Verified live under
+  the same evening Overpass load that produced the failures:* LocalMobilityTool went 0/8 → **8/8
+  ok** (Kraków 21,368 / Berlin 27,595 mobility elements; stalled cities returned context-only),
+  AmenitiesTool 12.5% → 4/9 ok with `queue_seconds=0.000` on every invocation — the remaining
+  failures are upstream Overpass slowness on specific cities, honestly disclosed per D11.
+
 ### Follow-ups this report does not cover
 
-- **D8 residual:** `AmenitiesTool` and `LocalMobilityTool` still time out on essentially every
-  real invocation (the fix rescued `TransportAccessTool` and `ActivitiesTool`). The affected
-  criteria are honestly disclosed as unverified (D11), but coworking/amenity and car-free
-  evidence is still missing from real runs.
-- **Time-zone criterion never scored** despite timezonefinder data in the source set — an
-  evidence-mapping gap surfaced by P05; the decisive criterion of that prompt runs unevidenced.
+- **Mock renderer wording:** a LocalMobility result whose OSM half failed renders as "Local
+  mobility infrastructure count (0)" — data-absence phrased as a zero count. The evidence itself
+  is honest (`osm_status: "error"`, no OSM evidence item); this is the mock renderer's
+  boilerplate (E1 territory), not an evidence defect.
 - The enhancement backlog (section 8) is untouched. E1 (boilerplate justifications) and E3
   (Wikivoyage prose collected then discarded) are the most valuable.
 - There is still **no CI**, no coverage measurement, and no frontend test tooling.
