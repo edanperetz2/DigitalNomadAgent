@@ -20,10 +20,12 @@ Last updated: **2026-08-05**.
 
 ### Where this stands, in one paragraph
 
-**Every defect on the ledger is closed**, including D19, whose original finding turned out to be
-wrong: there *is* a provider-side cap, on the account rather than the key. The offline gate is
-green (**502 passed, 1 skipped**, `ruff` clean) and **$12.00 of the $13.00 budget remains**
-(account-authoritative — see the D19 note for why this is $0.14 lower than previously reported).
+Every defect on the ledger is closed except **D27**, found on 2026-08-05 and left open
+deliberately — it needs a region taxonomy this repository does not have. D19's original finding
+turned out to be wrong in the other direction: there *is* a provider-side cap, on the account
+rather than the key. The offline gate is green (**510 passed, 1 skipped**, `ruff` clean) and
+**$12.00 of the $13.00 budget remains** (account-authoritative — see the D19 note for why this is
+$0.14 lower than previously reported).
 
 **Every fix on the ledger has now been confirmed against the real provider.** Two subset runs on
 2026-08-05 did it: the first (`20260805T051351Z-real-api-postfix-2`, $0.1130) confirmed D8b, D20
@@ -35,7 +37,8 @@ What *is* still unverified against the real provider is narrower and worth stati
 seven prompts not in either subset (P01, P02, P06–P10) were last exercised on **2026-08-04**, and
 six code commits have landed since. Nothing suggests they are broken — the shared paths all three
 subset prompts exercise are the ones that changed — but a full-suite run (~$0.35) is what would
-actually close it, and it would also re-check **P08**, whose 2026-08-04 PARTIAL was never resolved.
+actually close it. **P08** has since been investigated separately (see below): its PARTIAL was
+mis-diagnosed, and the real defect is now **D27**, open.
 
 ### Defect status
 
@@ -70,6 +73,8 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D23 | `missing_evidence` compared free-form interpreter criterion names against the canonical scoring vocabulary, so every criterion was reported missing even when scored — and the same mismatch made the gap-research iteration select no tools | **Fixed** (2026-08-05) | `7a99f1a` |
 | D24 | A stated working-hours overlap minimum ("at least four hours with US Eastern") was never checked, so a candidate missing it ranked #1 | **Fixed** (2026-08-05) | `5606431` |
 | D25 | `llm_max_input_tokens` was declared, set in `.env`, and read nowhere — a configured guard that could never fire, and set to a value (4000) that real calls exceed anyway | **Fixed** (2026-08-05) | `27586eb` |
+| D26 | The region-relaxation disclosure asserted "candidate selection still targeted it" — false whenever the generator ignores the region, which nothing in the pipeline can detect | **Fixed** (2026-08-05) | `4cf8bc4` |
+| D27 | A requested region that cannot be resolved to countries is never actually researched: P08 asks for Scandinavia and gets 30 candidates, none Scandinavian | **Open** | — |
 
 One deliberate non-change, flagged rather than decided unilaterally:
 
@@ -287,31 +292,57 @@ activities interests go from `[]` to `["food", "scene", "street", "culture", "ma
   flat list, not attached to claims), **E5** (vacuous trade-offs), **E7** (UI progress is still
   driven by `setInterval` timers in `app/static/app.js`, not by real `steps`), **E8** (golden case
   for a positive region constraint).
-- **P08's 2026-08-04 PARTIAL was never resolved or numbered.** It recommends Tallinn on a
-  $400/month Scandinavia request and discloses that Scandinavia was not hard-filtered, but never
-  states plainly that $400/month contradicts Scandinavia. It is the one known-unresolved finding
-  that is not on the defect ledger.
+### P08, investigated 2026-08-05 — the finding was mis-diagnosed
+
+P08's PARTIAL was recorded as "never states plainly that $400/month contradicts Scandinavia".
+Investigating it (mock LLM, real tools, $0) showed that is not the defect, and the real one is
+worse — and was in fact already written down in section 5, just never numbered or carried onto
+the ledger: *"P08 — asks for Scandinavia, receives no Scandinavian city."*
+
+**That still holds today.** Of the 30 candidates generated for "somewhere in Scandinavia", **not
+one is Scandinavian** — Lisbon, Tbilisi, Chiang Mai, Bali, Mexico City. The region cannot be
+resolved to countries, so it is relaxed (D16's fail-open, correct in itself), and candidate
+generation then optimises for the $400 budget instead. Now numbered **D27** and left open: doing
+better needs a region→country taxonomy, which is the same gap behind the "region preferences never
+filter" note below. It is the honest reason P08 cannot yet answer the question it was written to
+test, and it is worth noting the finding survived three sessions by never having an ID.
+
+**And the budget is not actually contradictory.** Once the region is dropped, Tirana comes in at
+about $385 against the $400 budget. So "$400 is impossible" would have been the wrong thing to
+say; what is true is "$400 is possible, but not in Scandinavia" — and the system cannot currently
+establish the second half, because it never looks at Scandinavia.
+
+Two things did come out of it, both fixed in `4cf8bc4`:
+
+- **D26** — the relaxation disclosure asserted "candidate selection still targeted it". For P08
+  that is plainly false, and nothing in the pipeline can distinguish the honored case from the
+  ignored one, since resolving the region is exactly what failed. It now warns the reader to check
+  rather than reassuring them that the region was honored.
+- **A budget disclosure**, which was the original goal: when every researched place is over the
+  stated budget, the answer now says so in words and names the cheapest, instead of leaving it as
+  a low cost score. Bounded by measurement, silent unless every comparable candidate is over — so
+  it correctly does *not* fire for P08.
 - There is still **no CI**, no coverage measurement, and no frontend test tooling.
-- **Region preferences still never filter.** Both P01 and P05 disclose "the stated region
-  preference (Europe) could not be matched against any candidate's country, so it was treated as
-  guidance rather than a filter". That is D16's fix working as designed — `check_geocoded_constraints`
-  matches country names and ISO codes, and deliberately does not resolve a continent to its member
-  countries because no region taxonomy exists in the codebase. It is disclosed and candidate
-  selection still targets the region, so it is an enhancement rather than a defect, but it is the
-  reason a continental preference cannot be enforced.
+- **Region preferences still never filter.** Both P01 and P05 disclose that the stated region
+  preference could not be matched against any candidate's country. That much is D16's fix working
+  as designed — `check_geocoded_constraints` matches country names and ISO codes, and deliberately
+  does not resolve a continent to its member countries because no region taxonomy exists in the
+  codebase. This was previously filed as an enhancement rather than a defect on the grounds that
+  "candidate selection still targets the region"; P08 disproved that (D26, D27), so the relaxation
+  is now the *first half* of a real defect and the second half is D27. The one static
+  region→country table would close both.
 
 ### Suggested next session
 
-Ranked. No item here has a *known* correctness defect behind it — the ledger is closed and
-confirmed. The first is about coverage, the rest are improvements.
+Ranked. One open defect (**D27**) and one coverage gap; the rest are improvements.
 
 **1. Full-suite run against the real provider (~$0.35, leaves ~$11.65).** Not chasing a known bug:
 closing the coverage gap. Seven prompts (P01, P02, P06–P10) were last exercised on 2026-08-04 and
 six code commits have landed since, all touching paths every request flows through — evidence
 selection, the validator's gap decision, hard-constraint checking, tool priority. The three subset
 prompts exercise those paths and pass, so the risk is low, but "low" is an argument, not a
-measurement. This run would also re-check **P08**, whose PARTIAL is the one known-unresolved
-finding not on the ledger.
+measurement. It would also show whether the **real** candidate generator honors a region the
+pipeline cannot filter on (D27) — the mock one plainly does not.
 
 ```bash
 # 1. Offline gate -- must be green before spending anything
@@ -335,13 +366,16 @@ python scripts/show_llm_usage.py --calls && python scripts/probe_llmod_account.p
 Read it against the per-prompt table in the 2026-08-04 verification-run section, which is still
 the reference for the seven prompts not since re-run. Beyond `status: ok`: `missing_evidence`
 should name only criteria with no score in the same candidate's `criterion_scores`; no
-`validation_issues` entry should claim a scored criterion is unverified; and P08 should say
-plainly that $400/month and Scandinavia are in conflict.
+`validation_issues` entry should claim a scored criterion is unverified; and P08's candidate list
+should be checked for whether *any* of it is Scandinavian (D27).
 
-**2. P08 — state the contradiction.** The system has the evidence that $400/month rules out
-Scandinavia and discloses the thin candidate set, but never connects the two for the reader. The
-nearest fixed precedent is D11 (report missing data as missing, not as a negative property);
-this is its positive counterpart — report a conflict the evidence supports.
+**2. D27 — research the region that was actually asked for.** The open defect. A region that
+cannot be matched to a country is relaxed and then effectively forgotten, so P08 asks for
+Scandinavia and is answered with Chiang Mai. The disclosure is now honest about this (D26), but
+honest about a bad answer is still a bad answer. Needs a region→country taxonomy — a small static
+table would cover the continents and common sub-regions ("Scandinavia", "Southeast Asia",
+"the Balkans") and would also let `check_geocoded_constraints` filter properly, closing the
+"region preferences never filter" gap at the same time.
 
 **3. E4 — attach sources to the claims they support.** 33 undifferentiated citations is a list,
 not an evidence chain. The most valuable remaining enhancement now that E3 is done.
@@ -881,9 +915,8 @@ Superseded by **section 0**, which carries the current defect status and the han
 session. The items that were listed here — D8, D6/D7/D10, D17, D18 — have since been fixed and
 **verified against the real provider on 2026-08-04**; D8's residual (D8b) and D13 were fixed
 afterwards, and D20–D25 were found and fixed across the two 2026-08-05 runs. **Every defect on the
-ledger is now closed**, D19 included — its original "no provider-side cap" finding was itself
-wrong, and the correction is in section 0.
+ledger is now closed** except **D27**, and D19's original "no provider-side cap" finding was
+itself wrong — both corrections are in section 0.
 
-What remains open is not on the ledger: **P08's 2026-08-04 PARTIAL** (it never states that
-$400/month contradicts Scandinavia), the **budget-refusal `steps` decision**, and enhancements
-**E4, E5, E7, E8**.
+Also open, off the ledger: the **budget-refusal `steps` decision**, and enhancements **E4, E5,
+E7, E8**.
