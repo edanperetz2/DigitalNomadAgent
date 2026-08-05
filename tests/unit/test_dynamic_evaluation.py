@@ -1282,3 +1282,58 @@ def test_flight_hours_are_calibrated_against_real_routes_from_tel_aviv():
     assert flight_hours_from_distance(653.0) == pytest.approx(1.37, abs=0.05)
     assert flight_hours_from_distance(2720.0) == pytest.approx(4.10, abs=0.05)
     assert flight_hours_from_distance(4805.0) == pytest.approx(6.87, abs=0.05)
+
+
+def _avoid_nightlife_profile() -> PlaceRequestProfile:
+    return PlaceRequestProfile(
+        purpose="vacation",
+        relevant_criteria=["safety", "walkability"],
+        deal_breakers=["big party destinations"],
+        budget=Budget(),
+    )
+
+
+def _activity_counts(place: str, nightlife: int) -> ToolResult:
+    return _tool_result(
+        "ActivitiesTool",
+        place,
+        {"counts_by_category": {"nightlife": nightlife}, "partial": False},
+    )
+
+
+def test_a_place_the_user_wanted_to_avoid_ranks_below_one_they_did_not():
+    """D35: P04's deal-breaker was "big party destinations". Barcelona took rank
+    1, sold on "lively central areas suit evening walking" -- the excluded
+    property reframed as a selling point -- while party level was never
+    measured for anyone."""
+    profile = _avoid_nightlife_profile()
+    evidence = {
+        "Barcelona": [_activity_counts("Barcelona", 400)],
+        "Lecce": [_activity_counts("Lecce", 20)],
+    }
+
+    ranked = evaluate_candidates(
+        [_candidate("Barcelona"), _candidate("Lecce")], profile, evidence
+    )
+
+    assert [e.place for e in ranked] == ["Lecce", "Barcelona"]
+    assert ranked[0].criterion_scores["nightlife"] > ranked[1].criterion_scores["nightlife"]
+
+
+def test_an_avoided_property_is_never_written_up_as_an_advantage():
+    profile = _avoid_nightlife_profile()
+    evidence = {"Barcelona": [_activity_counts("Barcelona", 400)]}
+
+    evaluation = evaluate_candidates([_candidate("Barcelona")], profile, evidence)[0]
+
+    assert any("you said you wanted to avoid" in d for d in evaluation.drawbacks)
+    assert all("Quiet by the measure" not in a for a in evaluation.advantages)
+
+
+def test_nightlife_counts_are_ignored_when_nobody_asked_to_avoid_them():
+    profile = PlaceRequestProfile(purpose="vacation", relevant_criteria=["safety"], budget=Budget())
+    evidence = {"Barcelona": [_activity_counts("Barcelona", 400)]}
+
+    evaluation = evaluate_candidates([_candidate("Barcelona")], profile, evidence)[0]
+
+    assert "nightlife" not in evaluation.criterion_scores

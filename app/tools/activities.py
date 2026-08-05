@@ -43,6 +43,15 @@ CATEGORY_ALIASES = {
     "nightlife": "nightlife",
     "nightclub": "nightlife",
     "nightclubs": "nightlife",
+    "party": "nightlife",
+    "parties": "nightlife",
+    "partying": "nightlife",
+    "party destination": "nightlife",
+    "party destinations": "nightlife",
+    "big party destinations": "nightlife",
+    "clubbing": "nightlife",
+    "bar": "nightlife",
+    "bars": "nightlife",
     "park": "parks",
     "parks": "parks",
     "garden": "parks",
@@ -73,6 +82,34 @@ CATEGORY_SELECTORS = {
 }
 
 
+def avoided_activity_categories(profile: PlaceRequestProfile) -> list[str]:
+    """Categories the request wants *less* of, read off deal_breakers.
+
+    A deal-breaker used to be collected and then never queried, because only
+    positively requested categories reached Overpass. P04's deal-breaker was
+    "big party destinations"; nightlife was never counted anywhere, so Barcelona
+    took rank 1 with "lively central areas suit evening walking" offered as a
+    reason to go (D35). What the user wants avoided has to be measured before it
+    can count against a place.
+    """
+    avoided: list[str] = []
+    for phrase in profile.deal_breakers:
+        normalized = " ".join(phrase.strip().casefold().replace("_", " ").split())
+        category = CATEGORY_ALIASES.get(normalized)
+        if category is None:
+            category = next(
+                (
+                    mapped
+                    for alias, mapped in CATEGORY_ALIASES.items()
+                    if len(alias) > 3 and alias in normalized
+                ),
+                None,
+            )
+        if category is not None and category not in avoided:
+            avoided.append(category)
+    return avoided
+
+
 def select_activity_categories(profile: PlaceRequestProfile) -> tuple[list[str], list[str], bool]:
     supported: list[str] = []
     unsupported: list[str] = []
@@ -83,6 +120,11 @@ def select_activity_categories(profile: PlaceRequestProfile) -> tuple[list[str],
             if normalized and normalized not in unsupported:
                 unsupported.append(normalized)
         elif category not in supported:
+            supported.append(category)
+
+    # Counted too, so an avoidance can be evidenced rather than only asserted.
+    for category in avoided_activity_categories(profile):
+        if category not in supported:
             supported.append(category)
 
     used_fallback = False

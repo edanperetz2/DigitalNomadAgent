@@ -22,6 +22,7 @@ from app.geography import resolve_region
 from app.llm.base import BaseLLMClient
 from app.llm.budget import BudgetManager
 from app.llm.traced_client import traced_llm_call
+from app.tools.activities import avoided_activity_categories
 
 DEFAULT_WEIGHTS: dict[str, float] = {
     "climate": 0.5,
@@ -153,6 +154,11 @@ _INTEREST_STOPWORDS = frozenset(
     }
 )
 STUDENT_AMENITY_SATURATION = {"university": 3.0, "library": 8.0}
+# Venues within 5 km at which a place is "as nightlife-heavy as it gets" for
+# someone who asked to avoid it. Barcelona and Split both clear this; Lecce and
+# Ponta Delgada do not.
+AVOIDED_CATEGORY_SATURATION = 300.0
+_AVOIDED_CATEGORY_CRITERIA = {"nightlife": "nightlife"}
 HARD_CONSTRAINT_ELIMINATION_THRESHOLD = 0.2
 
 _UNRESOLVED_TOOL_CRITERIA: dict[str, str] = {
@@ -166,7 +172,7 @@ _UNRESOLVED_TOOL_CRITERIA: dict[str, str] = {
 # came from (E4). Superset of _UNRESOLVED_TOOL_CRITERIA, which covers only the
 # four the LLM resolves.
 _TOOL_CRITERIA: dict[str, tuple[str, ...]] = {
-    "ActivitiesTool": ("activities",),
+    "ActivitiesTool": ("activities", "nightlife"),
     "LocalMobilityTool": ("transportation",),
     "TransportAccessTool": ("accessibility",),
     "BudgetFitTool": ("cost",),
@@ -459,6 +465,28 @@ def _extract_criterion_scores(
     for result in results:
         if result.error:
             continue
+        if result.tool_name == "ActivitiesTool":
+            avoided = avoided_activity_categories(profile)
+            counts = result.normalized_data.get("counts_by_category")
+            if avoided and isinstance(counts, dict) and not result.normalized_data.get("partial"):
+                for category in avoided:
+                    count = counts.get(category)
+                    if not isinstance(count, int | float) or isinstance(count, bool) or count < 0:
+                        continue
+                    # Fewer is better here: the request asked to avoid this.
+                    # Scoring it the usual way is how "lively central areas"
+                    # became a reason to recommend a city to someone who said
+                    # they wanted to skip the party destinations (D35).
+                    criterion = _AVOIDED_CATEGORY_CRITERIA.get(category, category)
+                    scores[criterion] = clamp(1.0 - min(1.0, count / AVOIDED_CATEGORY_SATURATION))
+                    confidence_factors[criterion] = 0.75
+                    detail = f"{count:g} bars, pubs and clubs mapped within 5 km"
+                    if scores[criterion] >= 0.7:
+                        advantages.append(f"Quiet by the measure you asked about: {detail}.")
+                    else:
+                        drawbacks.append(
+                            f"This is the kind of place you said you wanted to avoid: {detail}."
+                        )
         if result.tool_name == "LanguageTool":
             score, note = _language_evaluation(result.normalized_data, profile)
             if score is not None:
