@@ -6,6 +6,7 @@ from app.agent.dynamic_evaluation import (
     canonicalize_criterion_weights,
     check_geocoded_constraints,
     evaluate_candidates,
+    unevidenced_criteria,
 )
 from app.agent.models import Budget, CandidatePlace, PlaceRequestProfile
 from app.evidence.models import ToolResult
@@ -800,3 +801,49 @@ def test_free_form_timezone_weight_drives_ranking():
     }
     evaluations = evaluate_candidates([good_tz, good_amenities], profile, evidence)
     assert evaluations[0].place == "GoodOverlap"
+
+
+def test_scored_criteria_are_not_reported_missing_under_free_form_names():
+    """The 2026-08-05 run reported every criterion missing while scoring all of them.
+
+    `relevant_criteria` is interpreter prose and `criterion_scores` is the
+    scoring vocabulary, so the two only line up once canonicalized.
+    """
+    profile = PlaceRequestProfile(
+        purpose="remote_work",
+        # Verbatim from the P05 profile of validation_runs/20260805T051351Z.
+        relevant_criteria=[
+            "time_zone_overlap",
+            "internet_quality",
+            "airport_connectivity",
+            "budget",
+        ],
+        budget=Budget(),
+    )
+    candidate = _candidate("Lisbon")
+    evidence = {
+        "Lisbon": [
+            _tool_result("TimezoneFitTool", "Lisbon", {"estimated_workday_overlap_hours": 3.0}),
+            _tool_result(
+                "AmenitiesTool",
+                "Lisbon",
+                {"counts_by_category": {"coworking": 5, "cafe": 25}, "partial": False},
+            ),
+        ]
+    }
+    evaluation = evaluate_candidates([candidate], profile, evidence)[0]
+
+    assert "timezone" in evaluation.criterion_scores
+    assert "work_infrastructure" in evaluation.criterion_scores
+    assert "time_zone_overlap" not in evaluation.missing_evidence
+    assert "internet_quality" not in evaluation.missing_evidence
+    # Nothing evidenced these two, so they are still reported -- in the user's wording.
+    assert evaluation.missing_evidence == ["airport_connectivity", "budget"]
+
+
+def test_unevidenced_criteria_reports_each_criterion_once():
+    """Two raw names for one criterion must not become two research targets."""
+    assert unevidenced_criteria(["internet quality", "coworking availability"], {}) == [
+        "internet quality"
+    ]
+    assert unevidenced_criteria(["cost of living", "climate"], {"cost": 0.5}) == ["climate"]

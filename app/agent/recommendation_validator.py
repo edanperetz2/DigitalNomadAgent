@@ -7,6 +7,7 @@ iteration is warranted (bounded by the orchestrator's iteration flag).
 
 from __future__ import annotations
 
+from app.agent.dynamic_evaluation import canonical_criterion_name
 from app.agent.models import (
     CandidateEvaluation,
     MissingResearchItem,
@@ -35,14 +36,23 @@ def validate_recommendations(
             "hard-constraint checks."
         )
 
-    high_weight_criteria = {c for c, w in profile.inferred_weights.items() if w >= HIGH_WEIGHT_THRESHOLD}
+    # All three vocabularies here are authored independently -- weight keys and
+    # missing_evidence by the interpreter, unscored_evidence by the tool layer --
+    # so they only line up once canonicalized.
+    high_weight_criteria = {
+        canonical_criterion_name(c)
+        for c, w in profile.inferred_weights.items()
+        if w >= HIGH_WEIGHT_THRESHOLD
+    }
 
     top_candidates = viable[:max_final_recommendations]
     for evaluation in top_candidates:
+        unscored = {canonical_criterion_name(c) for c in evaluation.unscored_evidence}
         missing_high = [
             criterion
             for criterion in evaluation.missing_evidence
-            if criterion in high_weight_criteria and criterion not in evaluation.unscored_evidence
+            if canonical_criterion_name(criterion) in high_weight_criteria
+            and canonical_criterion_name(criterion) not in unscored
         ]
         for criterion in missing_high:
             missing_research.append(MissingResearchItem(place=evaluation.place, criterion=criterion))

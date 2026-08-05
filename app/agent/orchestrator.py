@@ -16,6 +16,7 @@ from app.agent.agentic_research import generate_candidates, select_tools
 from app.agent.candidate_funnel import select_finalists
 from app.agent.dynamic_evaluation import (
     apply_llm_scores,
+    canonical_criterion_name,
     canonicalize_criterion_weights,
     check_geocoded_constraints,
     evaluate_candidates,
@@ -234,10 +235,11 @@ class Orchestrator:
         """Prioritize user-weighted evidence; ties remain deterministic by tool name."""
         priorities = {tool_name: 0.1 for tool_name in tool_names}
         canonical_weights = canonicalize_criterion_weights(profile.inferred_weights)
+        relevant = {canonical_criterion_name(c) for c in profile.relevant_criteria}
         for criterion, criterion_tools in _CRITERION_TO_TOOLS.items():
             weight = canonical_weights.get(
                 criterion,
-                0.5 if criterion in profile.relevant_criteria else 0.0,
+                0.5 if criterion in relevant else 0.0,
             )
             for tool_name in criterion_tools & tool_names:
                 priorities[tool_name] = max(priorities[tool_name], weight)
@@ -640,9 +642,9 @@ class Orchestrator:
                     gap_places = {m.place for m in validation.missing_research}
                     gap_tool_names = set().union(
                         *(
-                            _CRITERION_TO_TOOLS[item.criterion]
+                            _CRITERION_TO_TOOLS[canonical_criterion_name(item.criterion)]
                             for item in validation.missing_research
-                            if item.criterion in _CRITERION_TO_TOOLS
+                            if canonical_criterion_name(item.criterion) in _CRITERION_TO_TOOLS
                         )
                     )
                     gap_candidates = [c for c in candidates if c.place_name in gap_places]

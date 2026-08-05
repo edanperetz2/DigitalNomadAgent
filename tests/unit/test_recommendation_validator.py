@@ -45,6 +45,55 @@ def test_requests_gap_research_when_high_weight_criterion_missing():
     assert any(m.place == "A" and m.criterion == "climate" for m in result.missing_research)
 
 
+def test_gap_research_matches_free_form_weight_keys_against_missing_evidence():
+    """P05's real weight keys never matched its missing_evidence entries.
+
+    Both lists are interpreter prose, so whether a gap iteration fired depended
+    on the LLM happening to spell one criterion the same way twice.
+    """
+    profile = PlaceRequestProfile(
+        purpose="remote_work", inferred_weights={"time_zone_overlap": 1.0}
+    )
+    evaluations = [
+        _evaluation("A", 0.9, missing_evidence=["timezone"]),
+        _evaluation("B", 0.7),
+        _evaluation("C", 0.5),
+    ]
+    result = validate_recommendations(evaluations, profile, gap_iteration_used=False)
+    assert result.should_research_again is True
+    assert any(m.place == "A" and m.criterion == "timezone" for m in result.missing_research)
+
+
+def test_no_gap_research_when_a_high_weight_criterion_is_already_evidenced():
+    """The evidenced case: nothing is missing, so no iteration should be spent."""
+    profile = PlaceRequestProfile(
+        purpose="remote_work",
+        inferred_weights={"time_zone_overlap": 1.0, "internet_quality": 0.9},
+    )
+    evaluations = [_evaluation(p, s) for p, s in (("A", 0.9), ("B", 0.7), ("C", 0.5))]
+    result = validate_recommendations(evaluations, profile, gap_iteration_used=False)
+    assert result.should_research_again is False
+    assert result.missing_research == []
+
+
+def test_awaiting_llm_reasoning_is_recognized_across_vocabularies():
+    """unscored_evidence is tool-layer wording; missing_evidence is the user's."""
+    profile = PlaceRequestProfile(
+        purpose="study", inferred_weights={"public_transport_quality": 0.9}
+    )
+    evaluations = [
+        _evaluation(
+            place,
+            score,
+            missing_evidence=["public transport"],
+            unscored_evidence=["transportation"],
+        )
+        for place, score in (("A", 0.9), ("B", 0.7), ("C", 0.5))
+    ]
+    result = validate_recommendations(evaluations, profile, gap_iteration_used=False)
+    assert result.should_research_again is False
+
+
 def test_does_not_repeat_research_for_criterion_intentionally_awaiting_llm_reasoning():
     profile = PlaceRequestProfile(purpose="study", inferred_weights={"transportation": 0.9})
     evaluations = [

@@ -58,6 +58,25 @@ _WEIGHT_KEY_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
+def canonical_criterion_name(raw_key: str) -> str:
+    """Map one free-form criterion name onto the scoring vocabulary.
+
+    Unmapped names are returned verbatim, which is honest -- an unrecognized
+    priority is an unevidenced one. Every comparison between interpreter-authored
+    criterion names and the scoring vocabulary must go through here; the
+    2026-08-05 run found four sites that did not (see `unevidenced_criteria`).
+    """
+    normalized = " ".join(
+        raw_key.casefold().replace("_", " ").replace("-", " ").replace("/", " ").split()
+    )
+    if normalized in DEFAULT_WEIGHTS:
+        return normalized
+    for criterion, patterns in _WEIGHT_KEY_PATTERNS:
+        if any(pattern in normalized for pattern in patterns):
+            return criterion
+    return raw_key
+
+
 def canonicalize_criterion_weights(inferred_weights: dict[str, float]) -> dict[str, float]:
     """Map free-form interpreter weight keys onto the scoring vocabulary.
 
@@ -68,19 +87,32 @@ def canonicalize_criterion_weights(inferred_weights: dict[str, float]) -> dict[s
     """
     canonical: dict[str, float] = {}
     for raw_key, weight in inferred_weights.items():
-        normalized = " ".join(
-            raw_key.casefold().replace("_", " ").replace("-", " ").replace("/", " ").split()
-        )
-        target = raw_key
-        if normalized in DEFAULT_WEIGHTS:
-            target = normalized
-        else:
-            for criterion, patterns in _WEIGHT_KEY_PATTERNS:
-                if any(pattern in normalized for pattern in patterns):
-                    target = criterion
-                    break
+        target = canonical_criterion_name(raw_key)
         canonical[target] = max(canonical[target], weight) if target in canonical else weight
     return canonical
+
+
+def unevidenced_criteria(
+    relevant_criteria: list[str], criterion_scores: dict[str, float]
+) -> list[str]:
+    """The user's stated criteria that no evidence actually scored.
+
+    `relevant_criteria` is free-form interpreter prose ("cost of living",
+    "time_zone_overlap") while `criterion_scores` is keyed by the scoring
+    vocabulary, so a direct membership test reports *every* criterion missing
+    even when all of them are scored -- what the 2026-08-05 verification run
+    found on all three prompts. Compare canonically; report the user's own
+    wording, which is what the reader sees.
+    """
+    missing: list[str] = []
+    seen: set[str] = set()
+    for raw in relevant_criteria:
+        canonical = canonical_criterion_name(raw)
+        if canonical in criterion_scores or canonical in seen:
+            continue
+        seen.add(canonical)
+        missing.append(raw)
+    return missing
 
 
 REQUIRED_TIMEZONE_OVERLAP_HOURS = 4.0
@@ -643,7 +675,7 @@ def apply_llm_scores(
         else:
             eliminated, elimination_reason, hard_constraint_results = False, None, {}
 
-        missing_evidence = [c for c in profile.relevant_criteria if c not in criterion_scores]
+        missing_evidence = unevidenced_criteria(profile.relevant_criteria, criterion_scores)
 
         updated.append(
             evaluation.model_copy(
@@ -688,7 +720,7 @@ def evaluate_candidates(
             profile, criterion_scores, candidate
         )
 
-        missing_evidence = [c for c in profile.relevant_criteria if c not in criterion_scores]
+        missing_evidence = unevidenced_criteria(profile.relevant_criteria, criterion_scores)
         unscored_evidence = sorted(
             {
                 _UNRESOLVED_TOOL_CRITERIA[result.tool_name]
