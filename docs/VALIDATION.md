@@ -23,7 +23,7 @@ Last updated: **2026-08-05**.
 **Every defect on the ledger is closed**, including D28 and D29, which the full paid run of
 2026-08-05 exposed and which were fixed the same day. D19's original finding turned out to be wrong in
 the other direction: there *is* a provider-side cap, on the account rather than the key. The
-offline gate is green (**545 passed, 1 skipped**, `ruff` clean) and **$11.67 of the $13.00 budget remains**
+offline gate is green (**545 passed, 1 skipped**, `ruff` clean) and **$11.58 of the $13.00 budget remains**
 (account-authoritative — see the D19 note for why the account figure, not the key's, is the one
 that binds).
 
@@ -33,10 +33,11 @@ that binds).
 ceiling), then the **full ten-prompt suite** (`20260805T122313Z-real-api-full`, $0.3525), which
 confirmed E4 and D27 and exposed **D28** and **D29**.
 
-**What is unverified is now narrow and specific: D28 and D29 themselves.** Both were fixed after
-that run and verified offline and in mock mode, but neither has met the real provider. Re-running
-P08 and P09 alone would cost about $0.07 and would close it. Nothing else on the ledger is waiting
-on a run.
+**Nothing on the ledger is waiting on a run.** D28 and D29 were confirmed against the real
+provider straight after being fixed (`20260805T145400Z-real-api-d28-d29`, $0.0944): **P08 returns
+`ok`** where it had errored two hours earlier, with eight Scandinavian finalists and the budget
+disclosure firing on its own, and **P09 returns Lisbon at rank 2** under the exact
+`preferred_regions: ["Portugal", "Europe"]` that had been eliminating it.
 
 ### Defect status
 
@@ -153,8 +154,8 @@ evidence-mapping gap rather than an Overpass one.
 - **Provider pricing is $0.75 / $4.50 per 1M** (input/output), from `/model/info` and confirmed
   against a billed call — *not* the $0.1438 / $5.7205 in the course handout. `.env` deliberately
   carries the higher of each figure so the pre-call guard cannot under-estimate.
-- **Spend so far: $1.3276 of $13.00** (account-authoritative, after all three 2026-08-05 runs),
-  leaving **$11.67** — about 33 more full suite runs. Read this from `/user/info`, not `/key/info`: this
+- **Spend so far: $1.4220 of $13.00** (account-authoritative, after all four 2026-08-05 runs),
+  leaving **$11.58** — about 32 more full suite runs. Read this from `/user/info`, not `/key/info`: this
   key alone shows $0.8622, and the $0.136 difference is account spend not attributable to it.
 - **The ledger has a pre-existing baseline** of 62 mock rows at $0.00, plus 214 fake evidence rows
   and some phantom search-history entries, all written by the test suite before D5 was fixed.
@@ -324,6 +325,28 @@ payload and nothing anywhere reports what it failed.
   it — a named destination, created with `country=""` — stayed countryless and matched no region.
   Pre-existing, but D27 made it bite because regions now genuinely filter. D18 pinned the named
   destination through the *funnel*; nothing protected it at *evaluation*.
+
+### D28/D29 confirmed — DONE (2026-08-05, `validation_runs/20260805T145400Z-real-api-d28-d29`)
+
+P08 and P09 re-run against the real provider after the fixes: 9 calls, **$0.0944**, both `ok`.
+
+- **P08** — `error` → `ok`. Eight Scandinavian finalists (Stockholm, Trondheim, Oslo, Copenhagen,
+  Bergen, Malmö, Aarhus, Uppsala) and the disclosure fires unprompted: *"None of the 8 places
+  researched can be done for 400 USD monthly including accommodation. The cheapest evidenced
+  option is Stockholm at about 1,565 USD a month."* Every row's drawback reads "Fails budget hard
+  constraint by a large margin." This is the first time the prompt's stated requirement — degrade
+  gracefully, do not fabricate, do not silently drop a constraint — is actually met.
+- **P09** — Lisbon is back, at rank 2, under the exact `preferred_regions: ["Portugal", "Europe"]`
+  that had been eliminating it, with `country` correctly resolved to Portugal. The verdict is
+  specific and useful: *"Excellent work infrastructure and very strong transport; fits the budget
+  if staying outside the center… Center estimate appears above budget, so location choice within
+  the city matters."*
+
+One residual quality point, not a defect: the generator's opening line reads "You asked for
+remote-work-friendly destinations" rather than acknowledging that a *specific* place was put up
+for assessment. Lisbon ranking 2nd behind Seville is honest — Seville scores higher — but a
+request phrased as "I've settled on X, sanity-check it" would read better if the interpretation
+said so. Worth a look if the named-destination path gets attention again.
 
 ### Follow-ups this report does not cover
 
@@ -907,14 +930,15 @@ user-visible impact per unit of effort. Cost impact noted because the $13 cap is
 | 2026-08-05 | **Subset re-validation** — P01, P03, P05 real, API | 13 | 46,358 | 18,411 | $0.1130 |
 | 2026-08-05 | **Confirmation run** — P03, P04, P05 real, API | 12 | 47,171 | 16,545 | $0.1098 |
 | 2026-08-05 | **Full suite** — P01–P10 real, API (P08 errored) | 39 | 156,868 | 51,113 | $0.3525 |
+| 2026-08-05 | **D28/D29 confirmation** — P08, P09 real, API | 9 | 44,584 | 15,116 | $0.0944 |
 
 | | |
 |---|---:|
-| Local ledger total | **$1.2616** |
-| Provider `/key/info` — this key only | **$1.1913** |
-| **Provider `/user/info` (authoritative — the capped account)** | **$1.3276** |
-| Remaining of the $13.00 account cap | **$11.67** |
-| Budget consumed | **10.2 %** |
+| Local ledger total | **$1.3559** |
+| Provider `/key/info` — this key only | **$1.2857** |
+| **Provider `/user/info` (authoritative — the capped account)** | **$1.4220** |
+| Remaining of the $13.00 account cap | **$11.58** |
+| Budget consumed | **10.9 %** |
 
 The three figures differ for two unrelated reasons, and both are worth knowing. The ledger sits
 $0.0468 *above* the key because of conservatively-estimated failed calls (below). The account sits
