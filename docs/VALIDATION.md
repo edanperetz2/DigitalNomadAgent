@@ -6,12 +6,13 @@ fixing. Two things are kept deliberately separate: **defects** (it does not work
 
 Last updated: **2026-08-05**.
 
-> **Reading order.** Section 0 is the current status, including the results of both real-provider
-> runs — the post-fix verification run (2026-08-04) and the subset re-validation (2026-08-05) —
-> and the fixes that followed each. Sections 2–9 are the original findings, written before the
-> fixes landed — they still describe several defects as open. Section 0 is authoritative on what
-> is fixed; the detail below explains *why* each one mattered and is worth keeping for that
-> reason.
+> **Reading order.** Section 0 is the current status, including the results of all three
+> real-provider runs — the post-fix verification run (2026-08-04), the subset re-validation and
+> the confirmation run (both 2026-08-05) — and the fixes that followed each. Sections 2–9 are the
+> original findings, written before the fixes landed — they still describe several defects as
+> open, and section 8's enhancement list is partly superseded (see "Follow-ups"). Section 0 is
+> authoritative on what is fixed; the detail below explains *why* each one mattered and is worth
+> keeping for that reason.
 
 ---
 
@@ -20,15 +21,20 @@ Last updated: **2026-08-05**.
 ### Where this stands, in one paragraph
 
 Every defect on the ledger is closed except **D19**, which cannot be fixed from this repository —
-the API key's budget cap is administered by the course provider. The offline gate is green (**493
-passed, 1 skipped**, `ruff` clean) and $12.25 of the $13.00 budget remains.
+the API key's budget cap is administered by the course provider. The offline gate is green (**502
+passed, 1 skipped**, `ruff` clean) and $12.14 of the $13.00 budget remains.
 
-The outstanding risk named here previously — that the post-`6da2464` fix commits had never met the
-real LLM — **is closed.** The 2026-08-05 subset run
-(`validation_runs/20260805T051351Z-real-api-postfix-2`, $0.1130) confirmed **D8b, D20 and D21 all
-hold in real mode**, and turned up two new defects, **D23 and D24**, both since fixed. Those two
-fixes have themselves been verified offline and in mock mode but *not* against the real provider;
-that is now the outstanding gap, and it is a much smaller one. See "Suggested next session".
+**Every fix on the ledger has now been confirmed against the real provider.** Two subset runs on
+2026-08-05 did it: the first (`20260805T051351Z-real-api-postfix-2`, $0.1130) confirmed D8b, D20
+and D21 and found **D23** and **D24**; the second (`20260805T061515Z-real-api-d23-d24-e3`,
+$0.1098) confirmed those two plus **E3** and the input-token ceiling. Nothing on the ledger is
+now waiting on a run.
+
+What *is* still unverified against the real provider is narrower and worth stating plainly: the
+seven prompts not in either subset (P01, P02, P06–P10) were last exercised on **2026-08-04**, and
+six code commits have landed since. Nothing suggests they are broken — the shared paths all three
+subset prompts exercise are the ones that changed — but a full-suite run (~$0.35) is what would
+actually close it, and it would also re-check **P08**, whose 2026-08-04 PARTIAL was never resolved.
 
 ### Defect status
 
@@ -62,6 +68,7 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D22 | Mock scorer rendered a failed count lookup as a scored `count (0)` — absence of evidence as evidence of absence | **Fixed** | `d6b2939` |
 | D23 | `missing_evidence` compared free-form interpreter criterion names against the canonical scoring vocabulary, so every criterion was reported missing even when scored — and the same mismatch made the gap-research iteration select no tools | **Fixed** (2026-08-05) | `7a99f1a` |
 | D24 | A stated working-hours overlap minimum ("at least four hours with US Eastern") was never checked, so a candidate missing it ranked #1 | **Fixed** (2026-08-05) | `5606431` |
+| D25 | `llm_max_input_tokens` was declared, set in `.env`, and read nowhere — a configured guard that could never fire, and set to a value (4000) that real calls exceed anyway | **Fixed** (2026-08-05) | `27586eb` |
 
 One deliberate non-change, flagged rather than decided unilaterally:
 
@@ -118,8 +125,8 @@ evidence-mapping gap rather than an Overpass one.
 - **Provider pricing is $0.75 / $4.50 per 1M** (input/output), from `/model/info` and confirmed
   against a billed call — *not* the $0.1438 / $5.7205 in the course handout. `.env` deliberately
   carries the higher of each figure so the pre-call guard cannot under-estimate.
-- **Spend so far: $0.7524 of $13.00** (provider-authoritative, after the 2026-08-05 subset run).
-  About 37 more full suite runs fit in the remaining $12.25.
+- **Spend so far: $0.8622 of $13.00** (provider-authoritative, after both 2026-08-05 runs).
+  About 34 more full suite runs fit in the remaining $12.14.
 - **The ledger has a pre-existing baseline** of 62 mock rows at $0.00, plus 214 fake evidence rows
   and some phantom search-history entries, all written by the test suite before D5 was fixed.
   Harmless for cost reporting; the history entries are user-visible and can be cleared with
@@ -208,10 +215,58 @@ Two new defects came out of reading the traces, both fixed the same day.
   mode at $0: `status: error` → `status: ok`, Lisbon first on the best available 3.0h, Taipei last
   at 0.0h, every candidate stating how far short it falls.
 
+### The confirmation run — DONE (2026-08-05, `validation_runs/20260805T061515Z-real-api-d23-d24-e3`)
+
+P03, P04 and P05 against the real provider: 12 calls, **$0.1098**. All three `status: ok`. P04 was
+added over the planned P03+P05 subset because it is the only prompt that really exercises E3's
+activities selection.
+
+- **D23 — PASS.** `missing_evidence` is now accurate per candidate rather than listing everything.
+  P05's candidates report `[]` where all four criteria are scored, and Madrid and Istanbul report
+  exactly `["internet speed/reliability"]`, which genuinely is unscored. P03's Wroclaw reports
+  `["student life", "English-taught programs"]` and correctly drops `student life` for Warsaw,
+  which has it. P03's spurious "high-priority criteria remain unverified" issue is gone. P05 still
+  carries that issue — correctly this time: it has one genuinely unevidenced high-weight criterion,
+  and the gap iteration now selects a real tool for it (`internet` canonicalizes to
+  `work_infrastructure` → `AmenitiesTool`) instead of selecting nothing. No tool can measure
+  internet speed, so the disclosure is honest.
+- **D24 — PASS, and the relaxation was load-bearing.** `hard_constraint_results` carries a
+  `timezone` entry for every candidate, which it never had before. This run's candidate set came
+  back entirely European — Lisbon 3.0h, Barcelona 2.0h, Sofia 1.0h — so **all eight failed the
+  four-hour minimum**. Without the relaxation path this real request would have died with "All
+  candidate destinations were eliminated by hard constraints". Instead every row of the table names
+  the shortfall: "Still short of the required 4-hour Eastern overlap", "Only about 2 hours of
+  overlap, below the requirement".
+- **E3 — PASS.** Excerpts are 1,206–1,254 chars and varied, against a uniform 599 in the previous
+  run — direct evidence that every excerpt used to be cut at the preview boundary. The scoring
+  LLM's rationales now cite specific subsections: Hong Kong's names "culinary tours, guided walks,
+  and major viewpoints like Victoria Peak", drawn from `[See] [Itineraries] [Guided walks]
+  [Victoria Peak]`.
+- **D25 — PASS.** The largest payload was ~7,600 tokens against the new 16,000 ceiling, so the
+  enforced cap does not interfere with ordinary traffic.
+
+The run also found the gap fixed in `68907e3`: P04 asks for "a really good food scene, ideally with
+strong street food or market culture" and the real interpreter filed all of it under
+`soft_preferences`, leaving `activity_preferences` empty — so E3's relevance selection had nothing
+to match on for the most activity-driven prompt in the set, and fell back to opening-chunk order.
+Interests are now drawn from `soft_preferences` as well; replayed against that captured profile the
+activities interests go from `[]` to `["food", "scene", "street", "culture", "market"]`.
+
 ### Follow-ups this report does not cover
 
-- The enhancement backlog (section 8) is untouched. E1 (boilerplate justifications) and E3
-  (Wikivoyage prose collected then discarded) are the most valuable.
+- The enhancement backlog (section 8) is partly stale. **E3 is done** (`c1fd0ae`, `68907e3`).
+  **E1 and E2 are resolved in real mode** — E1's own entry predicted this ("configuration 3 will
+  show whether the real LLM fixes it") and the real runs bear it out: P01's rank 1 reads
+  "Strongest overall balance: excellent work infrastructure, clear fit for a car-free stay…", rank
+  2 something else, and confidence varies within result sets. Both remain mock-renderer
+  limitations only. **E6 is D18**, fixed in `2c5c9bf`. Still open and real: **E4** (sources are a
+  flat list, not attached to claims), **E5** (vacuous trade-offs), **E7** (UI progress is still
+  driven by `setInterval` timers in `app/static/app.js`, not by real `steps`), **E8** (golden case
+  for a positive region constraint).
+- **P08's 2026-08-04 PARTIAL was never resolved or numbered.** It recommends Tallinn on a
+  $400/month Scandinavia request and discloses that Scandinavia was not hard-filtered, but never
+  states plainly that $400/month contradicts Scandinavia. It is the one known-unresolved finding
+  that is not on the defect ledger.
 - There is still **no CI**, no coverage measurement, and no frontend test tooling.
 - **Region preferences still never filter.** Both P01 and P05 disclose "the stated region
   preference (Europe) could not be matched against any candidate's country, so it was treated as
@@ -223,16 +278,16 @@ Two new defects came out of reading the traces, both fixed the same day.
 
 ### Suggested next session
 
-Ranked. The first item is the only one with a correctness argument behind it; the rest are
-improvements.
+Ranked. No item here has a *known* correctness defect behind it — the ledger is closed and
+confirmed. The first is about coverage, the rest are improvements.
 
-**1. Confirm D23 and D24 against the real provider (~$0.08 for P05 + P03, ~$0.34 full suite).**
-Both were verified offline and in mock mode, but neither has met the real LLM. **P05** is the
-one that matters: it should now show *no* spurious `missing_evidence`, spend *no* wasted gap
-research iteration, and either eliminate the sub-four-hour candidates outright or — if the
-candidate set has no qualifying city — rank them with the shortfall stated. **P03** is the
-cheap confirmation that the gap iteration it wasted last time is gone. Full suite only if you
-want the complete picture; nothing else is known to be at risk.
+**1. Full-suite run against the real provider (~$0.35, leaves ~$11.8).** Not chasing a known bug:
+closing the coverage gap. Seven prompts (P01, P02, P06–P10) were last exercised on 2026-08-04 and
+six code commits have landed since, all touching paths every request flows through — evidence
+selection, the validator's gap decision, hard-constraint checking, tool priority. The three subset
+prompts exercise those paths and pass, so the risk is low, but "low" is an argument, not a
+measurement. This run would also re-check **P08**, whose PARTIAL is the one known-unresolved
+finding not on the ledger.
 
 ```bash
 # 1. Offline gate -- must be green before spending anything
@@ -247,27 +302,30 @@ python scripts/probe_llmod_account.py
 MOCK_LLM=false uvicorn app.main:app --port 8000
 
 # 4. Second shell -- captures to validation_runs/, judges nothing
-python scripts/run_e2e_suite.py --label real-api-d23-d24 --only P03,P05
+python scripts/run_e2e_suite.py --label real-api-full
 
 # 5. Reconcile spend
 python scripts/show_llm_usage.py --calls && python scripts/probe_llmod_account.py
 ```
 
-What to look for in the captured `steps`, beyond `status: ok`: each candidate's
-`missing_evidence` should list only criteria that genuinely have no score (compare against its
-`criterion_scores`); `validation_issues` should no longer claim high-priority criteria are
-unverified when they are scored; and P05's `hard_constraint_results` should carry a `timezone`
-entry, which it never did before.
+Read it against the per-prompt table in the 2026-08-04 verification-run section, which is still
+the reference for the seven prompts not since re-run. Beyond `status: ok`: `missing_evidence`
+should name only criteria with no score in the same candidate's `criterion_scores`; no
+`validation_issues` entry should claim a scored criterion is unverified; and P08 should say
+plainly that $400/month and Scandinavia are in conflict.
 
-**2. E1 — boilerplate justifications.** The single most visible quality gap: "Cost evidence
-compared against the stated budget informs this score" appears as the *why it fits* for most
-candidates, so a reader cannot tell why rank 1 beat rank 4. Mock-renderer work, no LLM cost.
+**2. P08 — state the contradiction.** The system has the evidence that $400/month rules out
+Scandinavia and discloses the thin candidate set, but never connects the two for the reader. The
+nearest fixed precedent is D11 (report missing data as missing, not as a negative property);
+this is its positive counterpart — report a conflict the evidence supports.
 
-**3. E3 — Wikivoyage prose is fetched then discarded.** Rich See/Do prose is collected and never
-scored. Now more valuable than before: D8b's degradation path deliberately returns
-context-only evidence, so wiring the prose into scoring turns a fallback into a real answer.
+**3. E4 — attach sources to the claims they support.** 33 undifferentiated citations is a list,
+not an evidence chain. The most valuable remaining enhancement now that E3 is done.
 
-**4. Decide the budget-refusal `steps` question** (the one deliberate non-change above), and
+**4. E7 — drive UI progress from real `steps`** instead of the `setInterval` timers still in
+`app/static/app.js`, and **E5** — replace the trade-offs paragraph that is true of any ranked list.
+
+**5. Decide the budget-refusal `steps` question** (the one deliberate non-change above), and
 **E8** — add a golden case for a positive region constraint, the gap that let D7 survive.
 
 ---
@@ -728,23 +786,27 @@ user-visible impact per unit of effort. Cost impact noted because the $13 cap is
 | 2026-08-04 | Config 3 — P02–P10 real, API | 35 | 88,391 | 42,745 | $0.2635 |
 | 2026-08-04 | Config 4 — P02 real, UI | 4 | ~7,000 | ~3,500 | ~$0.0364 |
 | 2026-08-04 | **Post-fix verification run** — P01–P10 real, API | 41 | 120,881 | 52,308 | $0.3252 |
+| 2026-08-05 | **Subset re-validation** — P01, P03, P05 real, API | 13 | 46,358 | 18,411 | $0.1130 |
+| 2026-08-05 | **Confirmation run** — P03, P04, P05 real, API | 12 | 47,171 | 16,545 | $0.1098 |
 
 | | |
 |---|---:|
-| Local ledger total | **$0.6862** |
-| **Provider `/key/info` (authoritative)** | **$0.6395** |
-| Remaining of $13.00 | **$12.36** |
-| Budget consumed | **4.9 %** |
+| Local ledger total | **$0.9090** |
+| **Provider `/key/info` (authoritative)** | **$0.8622** |
+| Remaining of $13.00 | **$12.14** |
+| Budget consumed | **6.6 %** |
 
-**The $0.0467 gap reconciles exactly.** It is two failed Request Interpreter calls on P10 — one
-per real run — each locally estimated at ~$0.0234 using deliberately conservative worst-case
+**The $0.0468 gap reconciles exactly.** It is two failed Request Interpreter calls on P10 — one
+per full real run — each locally estimated at ~$0.0234 using deliberately conservative worst-case
 pricing and not billed by the provider. The ledger is correct and errs on the safe side, which is
-the behaviour you want from a spend guard.
+the behaviour you want from a spend guard. Neither 2026-08-05 subset run included P10, and both
+reconciled to the tenth of a cent, which is the expected result when no call fails.
 
-**Actual cost per full prompt: ~$0.022–0.029** — roughly a third of the pre-run estimate, because
-real output tokens came in well below the 2.2× multiplier assumed from the single historical
-datapoint. At this rate the entire ten-prompt suite can be re-run **~45 more times** within budget,
-so iterating on the open defects and re-validating is comfortably affordable.
+**Actual cost per full prompt: ~$0.022–0.037** — the upper end from the 2026-08-05 runs, whose
+richer evidence payloads cost more input tokens. Still roughly a third of the pre-run estimate,
+because real output tokens came in well below the 2.2× multiplier assumed from the single
+historical datapoint. At this rate the ten-prompt suite can be re-run **~34 more times** within
+budget, so re-validating after each change is comfortably affordable.
 
 Note the pricing asymmetry: output is **6× input** ($4.50 vs $0.75 per 1M), so spend is dominated
 by generated tokens and `LLM_MAX_OUTPUT_TOKENS` is the effective cost lever.
