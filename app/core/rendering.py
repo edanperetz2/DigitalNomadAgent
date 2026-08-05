@@ -85,12 +85,24 @@ def _named_destination_verdict(named: list[str], candidates: list[dict]) -> str:
             continue
         candidate = candidates[rank]
         drawback = (candidate.get("drawbacks") or [""])[0]
-        if rank == 0:
+        unmet = [
+            criterion
+            for criterion, passed in (candidate.get("hard_constraint_results") or {}).items()
+            if passed is not True
+        ]
+        # A verdict has to distinguish. "Yes with conditions" was returned for
+        # six of eight candidates in P01, seven of eight in P02 and all of them
+        # in P07 and P08 -- a label that carries no information (D43). So the
+        # condition is named, or there is no condition.
+        if unmet:
+            requirement = ", ".join(sorted(unmet)).replace("_", " ")
+            verdict = f"yes only if you can live with {requirement} being unconfirmed"
+        elif rank == 0:
             verdict = "yes — it ranks first here on your stated criteria"
         else:
             verdict = (
-                f"a reasonable fit, ranked {rank + 1} of {len(candidates)}; "
-                f"{candidates[0].get('place')} scored higher"
+                f"yes, though {candidates[0].get('place')} fits your criteria better; "
+                f"this ranks {rank + 1} of {len(candidates)}"
             )
         lines.append(f"**{place}:** {verdict}." + (f" {drawback}" if drawback else ""))
 

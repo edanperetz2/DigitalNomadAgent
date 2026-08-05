@@ -321,7 +321,8 @@ def test_a_named_place_gets_its_verdict_before_the_ranking():
     )
 
     assert "On the place you asked about" in markdown
-    assert "**Lisbon:** a reasonable fit, ranked 2 of 2; Seville scored higher" in markdown
+    # D43: "a reasonable fit" was the same non-verdict every candidate got.
+    assert "**Lisbon:** yes, though Seville fits your criteria better; this ranks 2 of 2" in markdown
     assert "Centre is over budget." in markdown
     # The verdict leads; the table still follows.
     assert markdown.index("On the place you asked about") < markdown.index("Best matches")
@@ -357,3 +358,25 @@ def test_no_verdict_section_when_no_place_was_named():
         }
     )
     assert "On the place you asked about" not in markdown
+
+
+def test_a_named_place_with_an_unconfirmed_requirement_names_the_condition():
+    """D43: "yes with conditions" went to six of eight candidates in P01, seven
+    of eight in P02 and every one of them in P07 and P08. A verdict that fits
+    everything distinguishes nothing, so the condition has to be named."""
+    from app.core.rendering import render_recommendation_markdown
+
+    markdown = render_recommendation_markdown(
+        _named_payload(
+            ["Madeira"],
+            [
+                {
+                    **_ranked("Madeira", 0.9, {"cost": 0.9}),
+                    "hard_constraint_results": {"flight_duration": None},
+                    "drawbacks": [],
+                }
+            ],
+        )
+    )
+
+    assert "yes only if you can live with flight duration being unconfirmed" in markdown
