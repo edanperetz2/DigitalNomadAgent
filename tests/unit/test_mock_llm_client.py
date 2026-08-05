@@ -116,9 +116,14 @@ async def test_mock_client_never_reports_nonzero_cost():
     assert response.provider_cost_usd == 0.0
 
 
-def test_missing_count_evidence_is_left_unassessed_not_scored_zero():
-    """A failed count lookup must not surface as 'count (0)' -- absent counts
-    leave the criterion unscored so it renders as 'not assessed' downstream."""
+def test_missing_count_evidence_is_never_scored_as_a_zero_count():
+    """A failed count lookup must not surface as a scored 'count (0)' (D22).
+
+    With nothing else to go on the criterion stays unassessed. Where the tool
+    also collected descriptive prose, that prose is scored on its own terms
+    (E3) -- which is the opposite of inventing a zero, so the D22 guarantee is
+    asserted directly here rather than via an empty result.
+    """
     from app.llm.mock import score_unresolved_mock
 
     scores = score_unresolved_mock(
@@ -140,7 +145,16 @@ def test_missing_count_evidence_is_left_unassessed_not_scored_zero():
         }
     )
 
-    assert scores == []
+    by_criterion = {s["criterion"]: s for s in scores}
+    # No count was obtained, so no score may be justified by a count.
+    assert all(s["score"] != 0.0 for s in scores)
+    assert not any("count (0)" in s["rationale"] for s in scores)
+    # Prose is evidence and is read as such, clearly labelled.
+    assert by_criterion["transportation"]["score"] == 0.4
+    assert "descriptive rather than counted" in by_criterion["transportation"]["rationale"]
+    # Nothing at all was collected for these two, so they stay unassessed.
+    assert "accessibility" not in by_criterion
+    assert "activities" not in by_criterion
 
 
 def test_genuine_zero_counts_still_score_as_evidence_of_absence():

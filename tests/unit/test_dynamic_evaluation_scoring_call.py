@@ -3,7 +3,11 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.agent.dynamic_evaluation import build_unresolved_scoring_payload, score_unresolved_criteria
+from app.agent.dynamic_evaluation import (
+    WIKIVOYAGE_EVIDENCE_CHARS,
+    build_unresolved_scoring_payload,
+    score_unresolved_criteria,
+)
 from app.agent.models import Budget, CandidateEvaluation, PlaceRequestProfile
 from app.evidence.models import ToolResult
 from app.llm.base import BaseLLMClient, LLMRawResponse
@@ -58,6 +62,132 @@ def test_build_unresolved_scoring_payload_skips_eliminated_and_fully_resolved():
     payload = build_unresolved_scoring_payload(evaluations, profile, evidence_by_place)
     assert [item["place"] for item in payload] == ["Pending"]
     assert "cost" in payload[0]["criteria"]
+
+
+def _section(*chunks: tuple[str, str]) -> dict:
+    """A Wikivoyage section context as the tools emit it."""
+    return {
+        "preview_excerpt": chunks[0][1][:600],
+        "context_chunks": [
+            {"subsection": subsection, "text": text, "subsection_truncated": False}
+            for subsection, text in chunks
+        ],
+    }
+
+
+def _activities_evidence(place: str, normalized_data: dict) -> dict[str, list[ToolResult]]:
+    return {
+        place: [
+            ToolResult(
+                tool_name="ActivitiesTool",
+                place=place,
+                normalized_data=normalized_data,
+                source_name="OpenStreetMap and Wikivoyage",
+                retrieved_at=datetime.now(UTC),
+                confidence="medium",
+            )
+        ]
+    }
+
+
+def test_scoring_payload_carries_the_do_section_not_only_see():
+    """"Do" is where hiking and nightlife live, and it used to be dropped
+    whenever a "See" section existed."""
+    profile = PlaceRequestProfile(purpose="vacation", activity_preferences=["hiking"])
+    evidence = _activities_evidence(
+        "Innsbruck",
+        {
+            "counts_by_category": {},
+            "wikivoyage_see_context": _section(("Museums", "The regional museum has a folk art collection.")),
+            "wikivoyage_do_context": _section(("Outdoors", "Countless hiking trails start from the funicular.")),
+        },
+    )
+    payload = build_unresolved_scoring_payload(
+        [_evaluation("Innsbruck", unscored_evidence=["activities"])], profile, evidence
+    )
+    excerpt = payload[0]["criteria"]["activities"]["wikivoyage_excerpt"]
+    assert "hiking trails" in excerpt
+    assert "folk art" in excerpt
+    assert payload[0]["criteria"]["activities"]["wikivoyage_matched_interests"] == ["hiking"]
+
+
+def test_scoring_payload_leads_with_the_prose_that_matches_a_stated_interest():
+    """Selection is by relevance; it used to be the section's opening 600 chars."""
+    profile = PlaceRequestProfile(purpose="vacation", activity_preferences=["nightlife"])
+    filler = "A cathedral, a bridge and a square. " * 40
+    evidence = _activities_evidence(
+        "Porto",
+        {
+            "counts_by_category": {},
+            "wikivoyage_see_context": _section(
+                ("Landmarks", filler),
+                ("After dark", "Nightlife concentrates around the Galerias de Paris."),
+            ),
+        },
+    )
+    payload = build_unresolved_scoring_payload(
+        [_evaluation("Porto", unscored_evidence=["activities"])], profile, evidence
+    )
+    excerpt = payload[0]["criteria"]["activities"]["wikivoyage_excerpt"]
+    assert excerpt.startswith("[After dark]")
+    # The filler alone would have exhausted the budget and buried this.
+    assert "Galerias de Paris" in excerpt
+
+
+def test_scoring_payload_stays_within_its_char_budget():
+    profile = PlaceRequestProfile(purpose="vacation")
+    evidence = _activities_evidence(
+        "Rome",
+        {
+            "counts_by_category": {},
+            "wikivoyage_see_context": _section(("Ancient", "x" * 5_000), ("Baroque", "y" * 5_000)),
+        },
+    )
+    payload = build_unresolved_scoring_payload(
+        [_evaluation("Rome", unscored_evidence=["activities"])], profile, evidence
+    )
+    excerpt = payload[0]["criteria"]["activities"]["wikivoyage_excerpt"]
+    assert len(excerpt) <= WIKIVOYAGE_EVIDENCE_CHARS + 40  # + subsection labels
+
+
+def test_a_stray_word_from_a_preference_phrase_is_not_treated_as_a_match():
+    """"car-free livability" once matched a line about a "free PDF guide"."""
+    profile = PlaceRequestProfile(purpose="remote_work", mobility_requirements=["car-free livability"])
+    evidence = {
+        "Tirana": [
+            ToolResult(
+                tool_name="LocalMobilityTool",
+                place="Tirana",
+                normalized_data={
+                    "counts_by_component": {},
+                    "wikivoyage_context": _section(
+                        ("By bike", "Bikes can be rented for self tours with free PDF guide provided.")
+                    ),
+                },
+                source_name="Wikivoyage",
+                retrieved_at=datetime.now(UTC),
+                confidence="medium",
+            )
+        ]
+    }
+    payload = build_unresolved_scoring_payload(
+        [_evaluation("Tirana", unscored_evidence=["transportation"])], profile, evidence
+    )
+    transportation = payload[0]["criteria"]["transportation"]
+    # The prose is still sent -- it just does not count as a matched interest.
+    assert "free PDF guide" in transportation["wikivoyage_excerpt"]
+    assert "wikivoyage_matched_interests" not in transportation
+
+
+def test_scoring_payload_omits_prose_when_a_tool_collected_none():
+    profile = PlaceRequestProfile(purpose="vacation")
+    evidence = _activities_evidence("Nowhere", {"counts_by_category": {"culture": 3}})
+    payload = build_unresolved_scoring_payload(
+        [_evaluation("Nowhere", unscored_evidence=["activities"])], profile, evidence
+    )
+    activities = payload[0]["criteria"]["activities"]
+    assert activities["wikivoyage_excerpt"] is None
+    assert "wikivoyage_matched_interests" not in activities
 
 
 @pytest.mark.asyncio

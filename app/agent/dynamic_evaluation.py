@@ -120,6 +120,18 @@ REQUIRED_TIMEZONE_OVERLAP_HOURS = 4.0
 WIKIVOYAGE_CLIMATE_WEIGHT = 0.20
 CLIMATE_CONTRADICTION_GAP = 0.50
 WORK_AMENITY_SATURATION = {"coworking": 5.0, "cafe": 25.0}
+# Per criterion, per candidate. Wikivoyage sections are collected at up to
+# 20,000 chars; this is what the batched scoring call can afford to carry.
+WIKIVOYAGE_EVIDENCE_CHARS = 1_200
+# "free" is here because it is the residue of "car-free": on its own it matched
+# a Wikivoyage line about a "free PDF guide" and counted that as evidence of
+# car-free livability. A term has to carry the meaning by itself to be useful.
+_INTEREST_STOPWORDS = frozenset(
+    {
+        "good", "easy", "great", "nice", "with", "from", "that", "this", "very", "some",
+        "must", "need", "free", "want", "like", "well", "more", "less", "than",
+    }
+)
 STUDENT_AMENITY_SATURATION = {"university": 3.0, "library": 8.0}
 HARD_CONSTRAINT_ELIMINATION_THRESHOLD = 0.2
 
@@ -617,11 +629,79 @@ def _score_totals(
     return normalized_weights, round(total_score, 4), round(min(1.0, confidence_score), 4)
 
 
-def _compact_unresolved_evidence(tool_name: str, normalized_data: dict) -> dict:
+def _interest_terms(values: list[str]) -> list[str]:
+    """Single words worth matching prose against, from stated preference phrases.
+
+    "car-free livability" contributes "free" and "livability"; the stopword set
+    exists so "good public transport" does not match on "good".
+    """
+    terms: list[str] = []
+    for value in values:
+        for word in re.split(r"[^a-z]+", str(value).casefold()):
+            if len(word) > 3 and word not in _INTEREST_STOPWORDS and word not in terms:
+                terms.append(word)
+    return terms
+
+
+def _selected_wikivoyage_text(contexts: list[dict | None], interests: list[str]) -> tuple[str | None, list[str]]:
+    """Choose the collected prose that speaks to what the traveller asked about.
+
+    Each Wikivoyage section is parsed into subsection-balanced `context_chunks`
+    under a 20,000-char budget, explicitly "for reasoning" -- and the scoring
+    call was sending `preview_excerpt` instead, the section's opening 600
+    characters, chosen by position rather than by relevance (E3: prose fetched
+    and thrown away). Chunks mentioning a stated interest go first, the opening
+    chunks fill the remainder so a request that states no interests is no worse
+    off, and the whole thing stays inside a char budget the batched call can
+    afford at max_finalists candidates.
+    """
+    chunks: list[tuple[str, str]] = []
+    for context in contexts:
+        if not isinstance(context, dict):
+            continue
+        raw_chunks = context.get("context_chunks")
+        if isinstance(raw_chunks, list) and raw_chunks:
+            for chunk in raw_chunks:
+                if isinstance(chunk, dict) and isinstance(chunk.get("text"), str):
+                    chunks.append((str(chunk.get("subsection") or ""), chunk["text"]))
+        elif isinstance(context.get("preview_excerpt"), str):
+            chunks.append(("", context["preview_excerpt"]))
+
+    if not chunks:
+        return None, []
+
+    matched: list[str] = []
+    preferred: list[tuple[str, str]] = []
+    remainder: list[tuple[str, str]] = []
+    for subsection, text in chunks:
+        haystack = f"{subsection} {text}".casefold()
+        hits = [term for term in interests if term in haystack]
+        if hits:
+            preferred.append((subsection, text))
+            matched.extend(term for term in hits if term not in matched)
+        else:
+            remainder.append((subsection, text))
+
+    selected: list[str] = []
+    used = 0
+    for subsection, text in preferred + remainder:
+        if used >= WIKIVOYAGE_EVIDENCE_CHARS:
+            break
+        body = text[: WIKIVOYAGE_EVIDENCE_CHARS - used].strip()
+        if not body:
+            continue
+        selected.append(f"[{subsection}] {body}" if subsection else body)
+        used += len(body)
+
+    return ("\n".join(selected) or None), matched
+
+
+def _compact_unresolved_evidence(tool_name: str, normalized_data: dict, profile: PlaceRequestProfile) -> dict:
     """Trim an unresolved tool's normalized_data to what the scoring LLM needs.
 
-    Drops verbose per-item price baskets and full Wikivoyage text chunks to
-    keep the single batched call cheap even at max_finalists candidates.
+    Drops verbose per-item price baskets, and selects Wikivoyage prose by
+    relevance to the request rather than sending whole sections, to keep the
+    single batched call cheap even at max_finalists candidates.
     """
     if tool_name == "BudgetFitTool":
         return {
@@ -631,26 +711,55 @@ def _compact_unresolved_evidence(tool_name: str, normalized_data: dict) -> dict:
             "budget_context": normalized_data.get("budget_context"),
         }
     if tool_name == "ActivitiesTool":
-        see = normalized_data.get("wikivoyage_see_context") or {}
-        do = normalized_data.get("wikivoyage_do_context") or {}
-        return {
-            "counts_by_category": normalized_data.get("counts_by_category"),
-            "wikivoyage_excerpt": see.get("preview_excerpt") or do.get("preview_excerpt"),
-        }
+        # Both halves: "Do" is where hiking, nightlife and beaches live, and it
+        # used to be dropped outright whenever a "See" section existed.
+        excerpt, matched = _selected_wikivoyage_text(
+            [
+                normalized_data.get("wikivoyage_see_context"),
+                normalized_data.get("wikivoyage_do_context"),
+            ],
+            _interest_terms(profile.activity_preferences),
+        )
+        return _with_matches(
+            {
+                "counts_by_category": normalized_data.get("counts_by_category"),
+                "wikivoyage_excerpt": excerpt,
+            },
+            matched,
+        )
     if tool_name == "TransportAccessTool":
-        wikivoyage = normalized_data.get("wikivoyage_context") or {}
-        return {
-            "counts_by_component": normalized_data.get("counts_by_component"),
-            "straight_line_distance_km": normalized_data.get("straight_line_distance_km"),
-            "wikivoyage_excerpt": wikivoyage.get("preview_excerpt"),
-        }
+        excerpt, matched = _selected_wikivoyage_text(
+            [normalized_data.get("wikivoyage_context")],
+            _interest_terms(profile.mobility_requirements),
+        )
+        return _with_matches(
+            {
+                "counts_by_component": normalized_data.get("counts_by_component"),
+                "straight_line_distance_km": normalized_data.get("straight_line_distance_km"),
+                "wikivoyage_excerpt": excerpt,
+            },
+            matched,
+        )
     if tool_name == "LocalMobilityTool":
-        wikivoyage = normalized_data.get("wikivoyage_context") or {}
-        return {
-            "counts_by_component": normalized_data.get("counts_by_component"),
-            "wikivoyage_excerpt": wikivoyage.get("preview_excerpt"),
-        }
+        excerpt, matched = _selected_wikivoyage_text(
+            [normalized_data.get("wikivoyage_context")],
+            _interest_terms(profile.mobility_requirements),
+        )
+        return _with_matches(
+            {
+                "counts_by_component": normalized_data.get("counts_by_component"),
+                "wikivoyage_excerpt": excerpt,
+            },
+            matched,
+        )
     return {}
+
+
+def _with_matches(evidence: dict, matched: list[str]) -> dict:
+    """Name which stated interests the prose actually mentions, when any do."""
+    if matched:
+        evidence["wikivoyage_matched_interests"] = matched
+    return evidence
 
 
 def build_unresolved_scoring_payload(
@@ -668,7 +777,7 @@ def build_unresolved_scoring_payload(
             criterion = _UNRESOLVED_TOOL_CRITERIA.get(result.tool_name)
             if criterion in evaluation.unscored_evidence and not result.error:
                 evidence_by_criterion[criterion] = _compact_unresolved_evidence(
-                    result.tool_name, result.normalized_data
+                    result.tool_name, result.normalized_data, profile
                 )
         if evidence_by_criterion:
             payload.append(

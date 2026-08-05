@@ -1202,15 +1202,38 @@ def _counts_sum(counts: dict | None) -> float:
     return sum(v for v in counts.values() if isinstance(v, (int, float)))
 
 
-# A criterion with no numeric evidence returns None rather than a fabricated
-# zero: a failed count lookup must surface as "not assessed", never as
-# "count (0)" -- a genuine dict of zero counts is real evidence and still scores.
+# A failed count lookup must never surface as "count (0)" -- a genuine dict of
+# zero counts is real evidence and still scores, but an absent one is not.
+# Descriptive prose is also real evidence, just not countable: when the OSM half
+# of a tool stalls the Wikivoyage half still arrives, and since the D8b fix
+# deliberately degrades to context-only rather than losing the run, leaving that
+# unscored discards the very evidence the degradation preserved. So prose scores
+# below counts, the rationale always says the reading is descriptive, and a
+# criterion with neither still returns None and renders as "not assessed".
+_PROSE_BASE_SCORE = 0.4
+_PROSE_INTEREST_BONUS = 0.15
+_PROSE_MAX_SCORE = 0.9
+
+
+def _score_from_prose(evidence: dict, subject: str) -> tuple[float, str] | None:
+    text = evidence.get("wikivoyage_excerpt")
+    if not isinstance(text, str) or not text.strip():
+        return None
+    matched = evidence.get("wikivoyage_matched_interests")
+    matched = [str(m) for m in matched] if isinstance(matched, list) else []
+    score = min(_PROSE_MAX_SCORE, _PROSE_BASE_SCORE + _PROSE_INTEREST_BONUS * len(matched))
+    if matched:
+        return score, (
+            f"{subject} evidence is descriptive rather than counted; the text mentions "
+            f"{', '.join(matched)}."
+        )
+    return score, f"{subject} evidence is descriptive rather than counted, so this score is approximate."
 
 
 def _score_transportation(evidence: dict) -> tuple[float, str] | None:
     counts = evidence.get("counts_by_component")
     if not isinstance(counts, dict) or not counts:
-        return None
+        return _score_from_prose(evidence, "Local mobility")
     total = _counts_sum(counts)
     score = min(1.0, total / _COUNT_SATURATION)
     return score, f"Local mobility infrastructure count ({total:g}) informs this score."
@@ -1219,11 +1242,12 @@ def _score_transportation(evidence: dict) -> tuple[float, str] | None:
 def _score_accessibility(evidence: dict) -> tuple[float, str] | None:
     distance_km = evidence.get("straight_line_distance_km")
     if isinstance(distance_km, (int, float)):
-        score = max(0.0, min(1.0, 1.0 - distance_km / 3000.0))
-        return score, f"Straight-line distance from origin (~{distance_km:g}km) informs this score."
+        return max(0.0, min(1.0, 1.0 - distance_km / 3000.0)), (
+            f"Straight-line distance from origin (~{distance_km:g}km) informs this score."
+        )
     counts = evidence.get("counts_by_component")
     if not isinstance(counts, dict) or not counts:
-        return None
+        return _score_from_prose(evidence, "Arrival-infrastructure")
     total = _counts_sum(counts)
     score = min(1.0, total / _COUNT_SATURATION)
     return score, f"Arrival-infrastructure count ({total:g}) informs this score, no origin distance available."
@@ -1232,7 +1256,7 @@ def _score_accessibility(evidence: dict) -> tuple[float, str] | None:
 def _score_activities(evidence: dict, activity_preferences: list) -> tuple[float, str] | None:
     counts = evidence.get("counts_by_category")
     if not isinstance(counts, dict) or not counts:
-        return None
+        return _score_from_prose(evidence, "Activity")
     total = _counts_sum(counts)
     matched = [pref for pref in activity_preferences if counts.get(pref)]
     base = min(1.0, total / _COUNT_SATURATION)
