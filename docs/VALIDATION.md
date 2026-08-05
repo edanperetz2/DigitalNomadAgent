@@ -62,7 +62,7 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D16 | Continental region preference eliminated every candidate | **Fixed** | `5e8623b` |
 | D17 | A failed LLM module vanished from `steps` | **Fixed** | `df24a78` |
 | D18 | A named destination ("is Lisbon a good fit?") was dropped | **Fixed** | `2c5c9bf` |
-| D19 | ~~No provider-side budget cap~~ — **the original finding was wrong.** The cap is on the *account* (`/user/info` → `max_budget: 13.0`), not the key (`/key/info` → `max_budget: None`); the probe read only the key, so the authoritative balance was fetched on every run and never shown | **Fixed** (2026-08-05) | `14d582e`, corrected in `0fc0a09` |
+| D19 | ~~No provider-side budget cap~~ — **the original finding was wrong.** The cap is on the *account* (`/user/info` → `max_budget: 13.0`), not the key (`/key/info` → `max_budget: None`); the probe read only the key, so the authoritative balance was fetched on every run and never shown | **Fixed** (2026-08-05) | `14d582e`, corrected in `5249442` |
 | D20 | Time-zone criterion never scored when the reference timezone is named ("overlap with US Eastern") rather than implied by an origin | **Fixed** | `8d1f6b5`, `03ce480` |
 | D21 | Free-form interpreter weight keys (`time_zone_overlap`) never matched the scoring vocabulary, so every user-stated weight fell back to the 0.5 default | **Fixed** | `17927a0` |
 | D8b | Residual of D8: global `Semaphore(2)` starved Amenities/LocalMobility jobs, and a killed LocalMobilityTool lost its already-fetched Wikivoyage prose | **Fixed** | `9405937` |
