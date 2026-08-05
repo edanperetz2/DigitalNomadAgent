@@ -804,10 +804,17 @@ def test_canonicalize_maps_observed_real_interpreter_keys():
 
 
 def test_canonicalize_keeps_exact_and_unknown_keys():
-    weights = canonicalize_criterion_weights({"nightlife": 0.0, "city_size": 0.5, "english_prevalence": 0.9})
+    weights = canonicalize_criterion_weights({"nightlife": 0.0, "city_size": 0.5})
     assert weights["nightlife"] == 0.0
+    # Still genuinely unmapped: nothing measures how big a city is, so the key
+    # stays verbatim and counts as an unevidenced priority.
     assert weights["city_size"] == 0.5
-    assert weights["english_prevalence"] == 0.9
+
+
+def test_english_prevalence_now_maps_to_a_criterion_that_can_be_evidenced():
+    """D34: this was an unknown key, because nothing measured language. P06
+    stated it as non-negotiable and every candidate reported it unmeasured."""
+    assert canonicalize_criterion_weights({"english_prevalence": 0.9}) == {"language_spoken": 0.9}
 
 
 def test_canonicalize_takes_strongest_weight_on_collision():

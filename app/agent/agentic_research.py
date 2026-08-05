@@ -117,6 +117,28 @@ _ACCESSIBILITY_TRIGGER_WORDS = [
     "remoteness",
 ]
 _SAFETY_TRIGGER_WORDS = ["safety", "safe", "crime", "danger", "security"]
+# Both criteria used to have no tool at all, so a stated requirement went
+# unmeasured for every candidate and cost nothing (D34).
+_LANGUAGE_TRIGGER_WORDS = [
+    "language",
+    "english",
+    "english-speaking",
+    "english speaking",
+    "widely spoken",
+    "speak the language",
+]
+_TERRAIN_TRIGGER_WORDS = [
+    "wheelchair",
+    "step-free",
+    "step free",
+    "flat terrain",
+    "flat",
+    "hilly",
+    "hills",
+    "mobility",
+    "accessible",
+    "accessibility",
+]
 
 
 def select_tools(profile: PlaceRequestProfile) -> set[str]:
@@ -162,6 +184,11 @@ def select_tools(profile: PlaceRequestProfile) -> set[str]:
 
     if any(w in haystack for w in _LOCAL_MOBILITY_TRIGGER_WORDS):
         tools.add("LocalMobilityTool")
+
+    if profile.preferred_languages or any(w in haystack for w in _LANGUAGE_TRIGGER_WORDS):
+        tools.add("LanguageTool")
+    if any(w in haystack for w in _TERRAIN_TRIGGER_WORDS):
+        tools.add("TerrainTool")
 
     if any(w in haystack for w in _ACCESSIBILITY_TRIGGER_WORDS):
         tools.add("TransportAccessTool")

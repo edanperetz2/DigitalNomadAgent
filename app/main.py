@@ -36,6 +36,7 @@ from app.tools.amenities import AmenitiesTool
 from app.tools.budget_fit import BudgetFitTool
 from app.tools.geocoding import GeocodingTool
 from app.tools.http_client import JsonHttpClient
+from app.tools.language import LanguageTool
 from app.tools.local_mobility import LocalMobilityTool
 from app.tools.mediawiki_client import WIKIVOYAGE_API, MediaWikiClient
 from app.tools.origin_resolution import OriginResolver
@@ -43,6 +44,7 @@ from app.tools.overpass_client import OverpassClient
 from app.tools.place_context import PlaceContextTool
 from app.tools.registry import ToolRegistry
 from app.tools.safety import SafetyTool
+from app.tools.terrain import TerrainTool
 from app.tools.timezone_fit import TimezoneFitTool
 from app.tools.transport_access import TransportAccessTool
 from app.tools.weather import WeatherTool
@@ -144,6 +146,8 @@ def _build_tool_registry(
             http=http,
             wikivoyage=wikivoyage_sections,
         ),
+        "LanguageTool": LanguageTool(),
+        "TerrainTool": TerrainTool(cache, timeout, http=http),
     }
     return ToolRegistry(
         tools,

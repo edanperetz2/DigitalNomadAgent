@@ -34,6 +34,8 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "education": 0.6,
     "accessibility": 0.4,
     "flight_duration": 0.5,
+    "language_spoken": 0.5,
+    "terrain": 0.4,
     "culture": 0.3,
     "nightlife": 0.3,
     "safety": 0.6,
@@ -50,6 +52,8 @@ _WEIGHT_KEY_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # otherwise swallow a stated flight-time limit into a criterion that cannot
     # express hours (D33).
     ("flight_duration", ("flight time", "flight duration", "flying time", "flight length", "flight")),
+    ("language_spoken", ("language", "english", "speak")),
+    ("terrain", ("terrain", "flat", "hilly", "step free", "step-free", "wheelchair", "gradient")),
     ("timezone", ("timezone", "time zone", "overlap", "working hours")),
     ("work_infrastructure", ("work infrastructure", "internet", "wifi", "cowork", "remote work")),
     ("cost", ("budget", "cost", "afford", "price", "expense")),
@@ -171,6 +175,8 @@ _TOOL_CRITERIA: dict[str, tuple[str, ...]] = {
     "SafetyTool": ("safety",),
     "WeatherTool": ("climate",),
     "WikivoyageClimateTool": ("climate",),
+    "LanguageTool": ("language_spoken",),
+    "TerrainTool": ("terrain",),
 }
 
 
@@ -208,6 +214,8 @@ _HARD_CONSTRAINT_KEYWORDS: dict[str, tuple[str, ...]] = {
     "activities": ("activit", "hiking", "beach", "culture", "nightlife"),
     "safety": ("safety", "safe", "crime", "danger", "security"),
     "flight_duration": ("flight time", "flight duration", "flying time", "hours of flying", "hour flight"),
+    "language_spoken": ("english", "language", "speak"),
+    "terrain": ("flat terrain", "step free", "step-free", "wheelchair", "hilly", "flat"),
 }
 
 # What to call each criterion when telling the reader a stated requirement went
@@ -219,6 +227,8 @@ _CONSTRAINT_LABELS: dict[str, str] = {
     "activities": "the activities asked for",
     "safety": "safety",
     "flight_duration": "the flight-time limit",
+    "language_spoken": "whether the language works for you",
+    "terrain": "how flat the ground is",
     "timezone": "the working-hours overlap",
 }
 
@@ -395,6 +405,37 @@ def _climate_evaluation(
     return combined, advantages, drawbacks, support_factor
 
 
+def _language_evaluation(
+    normalized_data: dict, profile: PlaceRequestProfile
+) -> tuple[float | None, str]:
+    """Score a stated language requirement against what the country speaks.
+
+    A named preferred language is answered directly; otherwise the request is
+    read as the far commoner "will English do?", which P06 stated outright and
+    nothing ever checked (D34).
+    """
+    spoken = normalized_data.get("spoken_languages") or []
+    matched = normalized_data.get("matched_languages") or []
+    requested = normalized_data.get("requested_languages") or []
+    spoken_text = ", ".join(str(language) for language in spoken)
+
+    if requested:
+        if matched:
+            return 1.0, f"Speaks {', '.join(str(m) for m in matched)} ({spoken_text})."
+        return 0.0, f"None of the languages you asked for is spoken here; the local languages are {spoken_text}."
+
+    reach = normalized_data.get("english_reach")
+    score = normalized_data.get("english_score")
+    if reach is None or not isinstance(score, int | float):
+        return None, ""
+    phrasing = {
+        "native": "English is a first language here",
+        "widespread": "English is widely usable in the city",
+        "limited": "English alone will not get you far day to day",
+    }[reach]
+    return float(score), f"{phrasing} (local languages: {spoken_text})."
+
+
 def _extract_criterion_scores(
     results: list[ToolResult], profile: PlaceRequestProfile
 ) -> tuple[dict[str, float], dict[str, dict[str, float]], list[str], list[str], dict[str, float]]:
@@ -415,6 +456,28 @@ def _extract_criterion_scores(
     # A stated flight ceiling makes distance a ranked criterion, not only a
     # gate: among candidates that all clear five hours, the shorter flight is
     # genuinely the better answer for a six-year-old (P02).
+    for result in results:
+        if result.error:
+            continue
+        if result.tool_name == "LanguageTool":
+            score, note = _language_evaluation(result.normalized_data, profile)
+            if score is not None:
+                scores["language_spoken"] = score
+                confidence_factors["language_spoken"] = 0.75
+                (advantages if score >= 0.7 else drawbacks).append(note)
+        elif result.tool_name == "TerrainTool":
+            flatness = result.normalized_data.get("flatness_score")
+            if isinstance(flatness, int | float) and not isinstance(flatness, bool):
+                scores["terrain"] = clamp(float(flatness))
+                confidence_factors["terrain"] = 0.75
+                spread = result.normalized_data.get("elevation_spread_m")
+                label = result.normalized_data.get("terrain", "unknown")
+                note = (
+                    f"Terrain around the centre is {label} "
+                    f"({spread} m of elevation spread across a 2 km ring)."
+                )
+                (advantages if flatness >= 0.7 else drawbacks).append(note)
+
     flight_ceiling = _stated_flight_hours(profile)
     flight_hours = _measured_flight_hours(results)
     if flight_ceiling is not None and flight_hours is not None:
