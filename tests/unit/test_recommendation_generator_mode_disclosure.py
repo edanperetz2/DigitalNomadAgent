@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app.agent.models import PlaceRequestProfile, ValidationResult
+from app.agent.models import CandidateEvaluation, PlaceRequestProfile, ValidationResult
 from app.agent.recommendation_generator import generate_recommendation, render_recommendation_fallback
 from app.llm.base import BaseLLMClient, LLMRawResponse
 from app.llm.mock import MockLLMClient
@@ -174,3 +174,52 @@ async def test_a_priority_nothing_could_measure_is_stated_not_footnoted():
     assert "Not used in this ranking" in markdown
     assert "food scene" in markdown
     assert "street food" in markdown
+
+
+def test_the_model_is_handed_labels_not_internal_scores():
+    """D41: the generator received model_dump() and copied the floats into
+    prose -- "Total score is 0.8145", "Confidence 0.61" -- which is meaningless
+    to a traveller and, in P05, identical for six of seven candidates."""
+    from app.agent.recommendation_generator import _llm_payload
+
+    raw = {
+        "candidates": [
+            {
+                "place": "Sofia",
+                "country": "Bulgaria",
+                "total_score": 0.939,
+                "confidence_score": 0.82,
+                "criterion_scores": {"cost": 0.98, "transportation": 0.4},
+                "hard_constraint_results": {"cost": True, "timezone": None},
+                "advantages": ["8 coworking, 300 cafe nearby."],
+                "drawbacks": [],
+                "missing_evidence": [],
+                "criterion_sources": {"cost": ["WhereNext"]},
+            }
+        ]
+    }
+
+    presented = _llm_payload(raw)["candidates"][0]
+
+    assert "total_score" not in presented
+    assert "confidence_score" not in presented
+    assert presented["confidence"] == "High"
+    assert presented["criterion_strength"] == {"cost": "strong", "transportation": "weak"}
+    assert presented["hard_constraints"] == {"cost": "met", "timezone": "could not be checked"}
+    assert presented["rank"] == 1
+    assert "8 coworking, 300 cafe nearby." in presented["advantages"]
+
+
+def test_the_deterministic_renderer_still_gets_the_numbers_it_needs():
+    """It compares scores to name the real trade-off between the top two, so it
+    must keep the raw payload."""
+    from app.agent.recommendation_generator import _build_payload
+
+    profile, validation = _profile_and_validation()
+    evaluation = CandidateEvaluation(
+        place="Sofia", country="Bulgaria", total_score=0.9, confidence_score=0.8
+    )
+
+    payload = _build_payload(profile, [evaluation], validation, [], 3)
+
+    assert payload["candidates"][0]["total_score"] == 0.9

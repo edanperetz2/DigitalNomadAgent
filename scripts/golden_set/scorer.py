@@ -41,6 +41,29 @@ _STALE_PLACEHOLDER = "awaits the LLM reasoning contract"
 # real recommendation (with the ambiguity disclosed) rather than silently guessing.
 _AMBIGUITY_DISCLOSURE = "proceeding with a broad default"
 
+# A 0-1 internal score written into user-facing prose (D41). Matches "0.61",
+# "0.8145" and "1.00" but not a price ("1,286"), a temperature ("22.5C"), a
+# distance ("7 km") or an hour count ("4.5h"), which are real facts the answer
+# should carry -- so the pattern is anchored to a leading 0 or 1 and a decimal
+# point, and requires no unit to follow.
+_INTERNAL_SCORE = re.compile(r"(?<![\d.,])[01]\.\d{2,4}(?![\d]*\s*(?:%|h\b|km|C\b|kg|m\b))")
+
+# Field and module names that belong to the pipeline, not to the reader (D42).
+_PIPELINE_VOCABULARY = (
+    "named_destinations",
+    "criterion_scores",
+    "hard_constraint_results",
+    "total_score",
+    "confidence_score",
+    "missing_evidence",
+    "evidence_level",
+    "scoring_status",
+    "unresolved_pending_llm",
+    "max_finalists",
+    "candidate set",
+    "time budget",
+)
+
 
 @dataclass(frozen=True)
 class CheckResult:
@@ -129,7 +152,21 @@ def score_case(case: GoldenCase, response_data: dict, *, max_finalists: int) -> 
         )
     )
 
+    internal_scores = _INTERNAL_SCORE.findall(response_text)
+    checks.append(
+        CheckResult(
+            "no_internal_scores_in_prose",
+            not internal_scores,
+            f"found {internal_scores[:5]}",
+        )
+    )
+
     lowered = response_text.casefold()
+    leaked = [term for term in _PIPELINE_VOCABULARY if term in lowered]
+    checks.append(
+        CheckResult("no_pipeline_vocabulary", not leaked, f"found {leaked}")
+    )
+
     for phrase in _BANNED_CLAIM_PHRASES:
         checks.append(CheckResult(f"no_banned_claim:{phrase}", phrase not in lowered))
     for phrase in case.forbidden_phrases:

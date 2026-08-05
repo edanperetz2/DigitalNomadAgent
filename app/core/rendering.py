@@ -46,8 +46,7 @@ def _trade_off(candidates: list[dict]) -> str:
             widest = max(losses, key=lambda c: losses[c])
             return (
                 f"{lead} beats {runner_up} on every criterion both were scored on, most clearly "
-                f"on {widest} ({first_scores[widest]:.2f} vs {second_scores[widest]:.2f}), so "
-                "there is no real trade-off between the top two.\n"
+                f"on {widest}, so there is no real trade-off between the top two.\n"
             )
         return (
             f"{lead} and {runner_up} were scored on different criteria, so they cannot be "
@@ -55,12 +54,11 @@ def _trade_off(candidates: list[dict]) -> str:
         )
 
     criterion = max(gains, key=lambda c: gains[c])
+    margin = "clearly" if gains[criterion] >= 0.25 else "somewhat"
     return (
-        f"Taking {lead} over {runner_up} costs you {criterion}: "
-        f"{first_scores[criterion]:.2f} against {second_scores[criterion]:.2f}. "
-        f"{lead} leads overall ({first.get('total_score', 0):.2f} vs "
-        f"{second.get('total_score', 0):.2f}); if {criterion} matters more to you than the "
-        f"balance of everything else, {runner_up} is the better pick.\n"
+        f"Taking {lead} over {runner_up} costs you {criterion}, where {runner_up} is "
+        f"{margin} better. {lead} still leads on the balance of everything else; if "
+        f"{criterion} matters more to you than that balance, {runner_up} is the better pick.\n"
     )
 
 

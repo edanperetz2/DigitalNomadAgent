@@ -1044,8 +1044,8 @@ def test_amenity_and_safety_justifications_differ_between_places():
         )
 
     evidence = {
-        "Krakow": [amenities("Krakow", 4, 337), safety("Krakow", 0.82)],
-        "Barcelona": [amenities("Barcelona", 53, 967), safety("Barcelona", 0.74)],
+        "Krakow": [amenities("Krakow", 4, 337), safety("Krakow", 0.92)],
+        "Barcelona": [amenities("Barcelona", 53, 967), safety("Barcelona", 0.72)],
     }
     evaluations = {
         e.place: e
@@ -1057,7 +1057,10 @@ def test_amenity_and_safety_justifications_differ_between_places():
 
     assert "4 coworking, 337 cafe" in krakow
     assert "53 coworking, 967 cafe" in barcelona
-    assert "0.82" in krakow and "0.74" in barcelona
+    # D41: graded in words, not with a 0-1 figure the traveller cannot use --
+    # but still different per place, which is what E1 fixed here.
+    assert "among the strongest in this set" in krakow
+    assert "solid" in barcelona
     assert "advisory" in krakow and "crime index" in krakow
     # The whole point: a reader can tell the two apart.
     assert krakow != barcelona

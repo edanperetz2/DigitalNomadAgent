@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict
 from app.agent.models import CandidateEvaluation, PlaceRequestProfile, ValidationResult
 from app.core.exceptions import BudgetExceededError, LLMOutputError
 from app.core.module_names import RECOMMENDATION_GENERATOR
-from app.core.rendering import render_recommendation_markdown
+from app.core.rendering import _confidence_label, render_recommendation_markdown
 from app.llm.base import BaseLLMClient
 from app.llm.budget import BudgetManager
 from app.llm.traced_client import traced_llm_call
@@ -32,6 +32,11 @@ assumptions/limitations, and a numbered sources list. Never claim live flight/ho
 guaranteed safety, guaranteed visa eligibility, guaranteed university admission, exact current \
 housing costs, exact travel times, or current program availability without verified evidence -- \
 use cautious, disclosed-uncertainty wording instead.
+
+Write for a traveller, not for a scoring system. Never print a numeric score, a rank number as a \
+score, or a decimal of any kind that the traveller did not supply -- describe strength in words. \
+Counts, distances, hours and prices from the evidence are facts and belong in the answer; \
+"confidence 0.61" and "total score 0.8145" are working notes and do not.
 
 Absent evidence is not a finding. Never write that a place has none of something, or exclude it \
 for having none, when the truth is that nothing measured it -- say it was not established. \
@@ -70,6 +75,49 @@ def _purpose_summary(profile: PlaceRequestProfile) -> str:
     return f"a {profile.purpose.replace('_', ' ')} request"
 
 
+def _strength_label(score: float) -> str:
+    if score >= 0.75:
+        return "strong"
+    if score >= 0.45:
+        return "adequate"
+    return "weak"
+
+
+_CONSTRAINT_LABELS = {True: "met", False: "not met", None: "could not be checked"}
+
+
+def _present_candidate(candidate: dict, rank: int) -> dict:
+    """A candidate as the reader should meet it: labels, not internal numbers.
+
+    The generator used to receive `model_dump()` and copied the floats straight
+    into prose -- "Total score is 0.8145", "Confidence 0.61" -- which is both
+    meaningless to a traveller and, worse, non-discriminating: P05 printed 0.61
+    for six of seven candidates and P10 "High" for all eight. Rank already
+    carries the ordering; the numbers behind it are working notes (D41).
+    """
+    return {
+        "rank": rank,
+        "place": candidate.get("place"),
+        "country": candidate.get("country"),
+        "confidence": _confidence_label(candidate.get("confidence_score", 0.0)),
+        "criterion_strength": {
+            criterion: _strength_label(score)
+            for criterion, score in sorted((candidate.get("criterion_scores") or {}).items())
+        },
+        "criterion_sources": candidate.get("criterion_sources") or {},
+        "hard_constraints": {
+            criterion: _CONSTRAINT_LABELS[passed]
+            for criterion, passed in sorted(
+                (candidate.get("hard_constraint_results") or {}).items(),
+                key=lambda item: item[0],
+            )
+        },
+        "advantages": candidate.get("advantages") or [],
+        "drawbacks": candidate.get("drawbacks") or [],
+        "missing_evidence": candidate.get("missing_evidence") or [],
+    }
+
+
 def _build_payload(
     profile: PlaceRequestProfile,
     evaluations: list[CandidateEvaluation],
@@ -93,6 +141,22 @@ def _build_payload(
     if profile.named_destinations:
         payload["named_destinations"] = list(profile.named_destinations)
     return payload
+
+
+def _llm_payload(payload: dict) -> dict:
+    """The same payload with every candidate presented rather than dumped.
+
+    The deterministic renderer needs the raw scores -- it compares them to name
+    the real trade-off between the top two. The model does not, and given them
+    it copies them into prose (D41).
+    """
+    return {
+        **payload,
+        "candidates": [
+            _present_candidate(candidate, rank)
+            for rank, candidate in enumerate(payload.get("candidates", []), start=1)
+        ],
+    }
 
 
 def _mode_disclosure_line(client: BaseLLMClient) -> str:
@@ -227,7 +291,7 @@ async def generate_recommendation(
     try:
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": json.dumps(payload)},
+            {"role": "user", "content": json.dumps(_llm_payload(payload))},
         ]
         call = traced_llm_call(
             module_name=RECOMMENDATION_GENERATOR,

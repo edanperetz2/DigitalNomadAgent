@@ -344,6 +344,17 @@ def credible_amenity_counts(counts: dict) -> tuple[dict, list[str]]:
     return credible, sorted(uncredible)
 
 
+def _safety_band(score: float) -> str:
+    """Where a safety composite sits, in words a traveller can act on."""
+    if score >= 0.9:
+        return "among the strongest in this set"
+    if score >= 0.7:
+        return "solid"
+    if score >= 0.5:
+        return "mixed"
+    return "the weakest in this set"
+
+
 def _amenity_detail(counts: dict, categories: tuple[str, ...]) -> str:
     """The counts behind an amenity score, so the sentence differs per place.
 
@@ -742,13 +753,18 @@ def _extract_criterion_scores(
                         if isinstance(value, (int, float))
                     }
                 confidence_factors["safety"] = 1.0 if r.confidence == "medium" else 0.5
-                verdict = "compares favorably" if score >= 0.7 else "raises concerns"
+                # Names the sources and grades them in words. The 0-1 figures
+                # ("fcdo advisory 1.00, homicide rate 0.97") read as precision
+                # the comparison does not have (D41) -- but dropping them
+                # outright would make every candidate's safety line identical
+                # again, which is the defect E1 fixed. The band keeps places
+                # distinguishable on the difference that is actually meaningful.
+                verdict = _safety_band(score)
                 sources = ", ".join(
-                    f"{name.replace('_', ' ')} {value:.2f}"
-                    for name, value in sorted(component_scores.get("safety", {}).items())
+                    name.replace("_", " ") for name in sorted(component_scores.get("safety", {}))
                 ) or f"{component_count} sources"
                 (advantages if score >= 0.7 else drawbacks).append(
-                    f"Safety evidence {verdict} at {score:.2f} ({sources}); comparative between "
+                    f"Safety evidence is {verdict} on {sources}; comparative between "
                     "candidates, not a universal city-safety rating."
                 )
 
@@ -1010,7 +1026,7 @@ def _check_hard_constraints(
             eliminated = True
             reason = (
                 f"{candidate.place_name} fails the stated hard constraint on {criterion} "
-                f"(score {criterion_scores[criterion]:.2f} is below the minimum threshold)."
+                "(the evidence puts it below the minimum this request sets)."
             )
 
     return eliminated, reason, hard_results

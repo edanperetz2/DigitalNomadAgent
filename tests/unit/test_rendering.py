@@ -256,7 +256,8 @@ def test_the_trade_off_names_the_criterion_actually_given_up():
         }
     )
 
-    assert "Taking Krakow over Berlin costs you safety: 0.60 against 0.95" in markdown
+    assert "Taking Krakow over Berlin costs you safety" in markdown
+    assert "Berlin is clearly better" in markdown
     assert "may be preferable if its advantages" not in markdown
 
 
