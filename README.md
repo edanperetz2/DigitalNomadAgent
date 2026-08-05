@@ -396,16 +396,21 @@ The course spec requires deploying on **Vercel** specifically (not a general hos
   read-only except `/tmp`, and `/tmp` resets on every cold start** — the local cache/evidence/
   budget-ledger SQLite database is not persistent across cold starts under Vercel.
 
-  **This matters more than it used to.** The claim that "the real budget backstop is the LLMod.ai
-  account balance itself" is **not true for the current project key**: `GET /key/info` reports
-  `max_budget: null`, `tpm_limit: null` and `rpm_limit: null`, so the provider imposes no ceiling
-  at all (verify with `python scripts/probe_llmod_account.py`, which is read-only and costs $0).
-  `MAX_PROJECT_BUDGET_USD` is therefore the only spend protection that exists — and because the
-  ledger it reads lives in `/tmp`, its running total resets on every cold start.
+  **This matters more than it used to.** The provider-side backstop is real but it is on the
+  **account**, not the key: `GET /key/info` reports `max_budget: null`, while `GET /user/info`
+  reports `max_budget: 13.0`. So there is a hard $13 ceiling, and it is the number that actually
+  binds — but note that account spend runs ahead of this key's spend, because the account is not
+  this key alone. Verify both with `python scripts/probe_llmod_account.py`, which is read-only,
+  costs $0, and now prints the account balance as the authoritative one.
 
-  Before deploying with `MOCK_LLM=false`, set a `max_budget` on the LLMod.ai key. That is the only
-  backstop that survives a cold start, and without it every visitor to the public URL — including
-  crawlers — spends real credit at roughly $0.02 per request.
+  What that ceiling does *not* give you is granularity. It stops the account at $13 total, not this
+  deployment at some smaller figure, and `MAX_PROJECT_BUDGET_USD` — the only per-deployment
+  guard — reads a ledger that lives in `/tmp` and resets on every cold start.
+
+  Before deploying with `MOCK_LLM=false`, set a `max_budget` on the LLMod.ai **key** as well. The
+  account cap will eventually stop runaway spend, but only after the whole $13 is gone; without a
+  key cap, every visitor to the public URL — including crawlers — spends real credit at roughly
+  $0.02 per request until it is.
 
 **To deploy:** connect this GitHub repo to a Vercel project (vercel.com → Add New Project → import
 the repo) and set these environment variables in the Vercel dashboard (secrets — never commit

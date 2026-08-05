@@ -92,9 +92,29 @@ async def test_key_info_spend_and_budget_are_summarized(captured):
     report = await probe(_Settings())
     rendered = format_report(report)
 
-    assert "Spend so far" in rendered
+    assert "Spend (this key)" in rendered
     assert "2.5" in rendered
     assert "10.5000" in rendered  # remaining
+
+
+@pytest.mark.asyncio
+async def test_the_account_budget_is_reported_when_the_key_carries_none(captured):
+    """The real shape, and the one D19 got wrong.
+
+    The key has no cap while the account carries the $13 one, so a probe that
+    summarizes /key/info alone shows no budget at all and concludes none exists.
+    Account spend also runs ahead of the key's, so it is the number to quote.
+    """
+    _, responses = captured
+    responses["/key/info"] = (200, {"info": {"spend": 0.8622, "max_budget": None}})
+    responses["/user/info"] = (200, {"user_info": {"spend": 0.9985, "max_budget": 13.0}})
+
+    rendered = format_report(await probe(_Settings()))
+
+    assert "Spend (this key)" in rendered and "0.8622" in rendered
+    assert "Spend (account)" in rendered and "0.9985" in rendered
+    assert "Account budget" in rendered and "13.0" in rendered
+    assert "12.0015" in rendered  # remaining, against the account cap
 
 
 @pytest.mark.asyncio

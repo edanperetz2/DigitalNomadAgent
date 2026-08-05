@@ -5,6 +5,11 @@ Sends only GET requests to metadata endpoints. It never calls
 before any paid work to learn the available models, the real per-token
 pricing, how much has been spent, and how much budget remains.
 
+The balance that matters is the **account's** (`/user/info`), not the key's:
+the key reports `max_budget: None` while the account carries the $13 cap, and
+account spend runs ahead of key spend because the account is not this key
+alone. Reading only /key/info is what produced D19's "no provider-side cap".
+
     python scripts/probe_llmod_account.py
     python scripts/probe_llmod_account.py --json
 
@@ -34,8 +39,8 @@ from app.core.logging import redact, register_secret  # noqa: E402
 PROBE_ENDPOINTS: tuple[tuple[str, str], ...] = (
     ("/v1/models", "models this key may use"),
     ("/model/info", "per-model metadata, often including input/output pricing"),
-    ("/key/info", "this key's spend and max_budget -- the authoritative balance"),
-    ("/user/info", "account-level spend"),
+    ("/key/info", "this key's own spend -- note the cap is NOT here, see /user/info"),
+    ("/user/info", "account spend and max_budget -- the authoritative balance"),
     ("/spend/logs", "per-request spend history"),
     ("/global/spend", "aggregate spend"),
 )
@@ -87,18 +92,36 @@ async def probe(settings) -> dict:
     return {"base_url": base_url, "configured_model": settings.llmod_model, "endpoints": results}
 
 
-def _summarize_key_info(body: dict) -> list[str]:
-    """Pull spend/budget out of a LiteLLM-shaped /key/info response."""
-    info = body.get("info") if isinstance(body.get("info"), dict) else body
-    if not isinstance(info, dict):
+def _budget_node(body: dict, *scopes: str) -> dict | None:
+    """LiteLLM nests the useful object differently per endpoint."""
+    for scope in scopes:
+        node = body.get(scope)
+        if isinstance(node, dict):
+            return node
+    return body if isinstance(body, dict) and "spend" in body else None
+
+
+def _summarize_budget(body: dict, *, scopes: tuple[str, ...], spend_label: str) -> list[str]:
+    """Spend, cap and remaining, for whichever object actually carries them.
+
+    The cap is on the *account*, not the key: /key/info reports
+    max_budget: None while /user/info reports max_budget: 13.0. This summary
+    used to run for /key/info only, so the authoritative number was fetched on
+    every probe and never shown, and the $13 cap was recorded as not existing
+    (D19). Print both, and say which one binds.
+    """
+    node = _budget_node(body, *scopes)
+    if node is None:
         return []
     lines = []
-    for label, key in (("Spend so far", "spend"), ("Key budget", "max_budget"), ("Budget resets", "budget_reset_at")):
-        if info.get(key) is not None:
-            lines.append(f"    {label:<16}: {info[key]}")
-    spend, budget = info.get("spend"), info.get("max_budget")
-    if isinstance(spend, (int, float)) and isinstance(budget, (int, float)):
-        lines.append(f"    {'Remaining':<16}: {budget - spend:.4f}")
+    if node.get("spend") is not None:
+        lines.append(f"    {spend_label:<18}: {node['spend']}")
+    for label, key in (("Account budget", "max_budget"), ("Budget resets", "budget_reset_at")):
+        if node.get(key) is not None:
+            lines.append(f"    {label:<18}: {node[key]}")
+    spend, budget = node.get("spend"), node.get("max_budget")
+    if isinstance(spend, int | float) and isinstance(budget, int | float):
+        lines.append(f"    {'Remaining':<18}: {budget - spend:.4f}   <-- the cap that binds")
     return lines
 
 
@@ -119,7 +142,11 @@ def format_report(report: dict) -> str:
             continue
         body = entry.get("body")
         if entry["path"] == "/key/info" and isinstance(body, dict):
-            lines.extend(_summarize_key_info(body))
+            lines.extend(_summarize_budget(body, scopes=("info",), spend_label="Spend (this key)"))
+        elif entry["path"] == "/user/info" and isinstance(body, dict):
+            lines.extend(
+                _summarize_budget(body, scopes=("user_info",), spend_label="Spend (account)")
+            )
         elif entry["path"] == "/v1/models" and isinstance(body, dict):
             models = [m.get("id") for m in body.get("data", []) if isinstance(m, dict)]
             for model_id in models[:40]:

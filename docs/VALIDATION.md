@@ -20,9 +20,10 @@ Last updated: **2026-08-05**.
 
 ### Where this stands, in one paragraph
 
-Every defect on the ledger is closed except **D19**, which cannot be fixed from this repository —
-the API key's budget cap is administered by the course provider. The offline gate is green (**502
-passed, 1 skipped**, `ruff` clean) and $12.14 of the $13.00 budget remains.
+**Every defect on the ledger is closed**, including D19, whose original finding turned out to be
+wrong: there *is* a provider-side cap, on the account rather than the key. The offline gate is
+green (**502 passed, 1 skipped**, `ruff` clean) and **$12.00 of the $13.00 budget remains**
+(account-authoritative — see the D19 note for why this is $0.14 lower than previously reported).
 
 **Every fix on the ledger has now been confirmed against the real provider.** Two subset runs on
 2026-08-05 did it: the first (`20260805T051351Z-real-api-postfix-2`, $0.1130) confirmed D8b, D20
@@ -61,7 +62,7 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D16 | Continental region preference eliminated every candidate | **Fixed** | `5e8623b` |
 | D17 | A failed LLM module vanished from `steps` | **Fixed** | `df24a78` |
 | D18 | A named destination ("is Lisbon a good fit?") was dropped | **Fixed** | `2c5c9bf` |
-| D19 | No provider-side budget cap; README claimed otherwise | **Documented** | `14d582e` |
+| D19 | ~~No provider-side budget cap~~ — **the original finding was wrong.** The cap is on the *account* (`/user/info` → `max_budget: 13.0`), not the key (`/key/info` → `max_budget: None`); the probe read only the key, so the authoritative balance was fetched on every run and never shown | **Fixed** (2026-08-05) | `14d582e`, corrected in `0fc0a09` |
 | D20 | Time-zone criterion never scored when the reference timezone is named ("overlap with US Eastern") rather than implied by an origin | **Fixed** | `8d1f6b5`, `03ce480` |
 | D21 | Free-form interpreter weight keys (`time_zone_overlap`) never matched the scoring vocabulary, so every user-stated weight fell back to the 0.5 default | **Fixed** | `17927a0` |
 | D8b | Residual of D8: global `Semaphore(2)` starved Amenities/LocalMobility jobs, and a killed LocalMobilityTool lost its already-fetched Wikivoyage prose | **Fixed** | `9405937` |
@@ -78,9 +79,31 @@ One deliberate non-change, flagged rather than decided unilaterally:
   orchestrator *does* fall back on `BudgetExceededError`, so the same hidden-degradation argument
   as D17 applies. Worth a decision.
 
-**D19 is not fixable from this repository.** The key's `max_budget` is administered by the course
-provider; `MAX_PROJECT_BUDGET_USD` plus the D0 fix is the entire spend guard, and both README and
-this report now say so.
+**D19 was recorded wrongly and is now corrected.** It said there was no provider-side budget cap
+and that `MAX_PROJECT_BUDGET_USD` plus the D0 fix was "the entire spend guard". There *is* a
+provider cap — LiteLLM carries it on the account, not the key:
+
+```
+/key/info    spend=0.8622   max_budget=None
+/user/info   spend=0.9985   max_budget=13.0
+```
+
+The original investigation looked only at `/key/info`, saw `max_budget: None`, and concluded no
+cap existed. `scripts/probe_llmod_account.py` had the same blind spot by construction: it called
+`/user/info` and labelled it "account-level spend", but only ever ran its budget summary for
+`/key/info` — so the authoritative number was fetched on every probe and never printed. Both are
+fixed; the probe now prints the account's spend, cap and remaining, marked as the one that binds.
+
+Two consequences worth carrying forward:
+
+- **The authoritative spend is the account's, and it runs ahead of this key's** — $0.9985 versus
+  $0.8622, a gap of $0.136 not attributable to this key. Every figure in this report before
+  2026-08-05 used the key number and therefore *understated* spend. All spend figures below are
+  now on the account basis.
+- **The cap is real but blunt.** It stops the whole account at $13, which is a backstop, not
+  per-deployment control. `MAX_PROJECT_BUDGET_USD` remains the only granular guard, and under
+  Vercel its ledger lives in `/tmp` and resets on every cold start — so the README's advice to set
+  a `max_budget` on the *key* before any public deployment still stands.
 
 ### The verification run — DONE (2026-08-04, `validation_runs/20260804T175107Z-real-api-postfix`)
 
@@ -125,8 +148,9 @@ evidence-mapping gap rather than an Overpass one.
 - **Provider pricing is $0.75 / $4.50 per 1M** (input/output), from `/model/info` and confirmed
   against a billed call — *not* the $0.1438 / $5.7205 in the course handout. `.env` deliberately
   carries the higher of each figure so the pre-call guard cannot under-estimate.
-- **Spend so far: $0.8622 of $13.00** (provider-authoritative, after both 2026-08-05 runs).
-  About 34 more full suite runs fit in the remaining $12.14.
+- **Spend so far: $0.9985 of $13.00** (account-authoritative, after both 2026-08-05 runs), leaving
+  **$12.00** — about 34 more full suite runs. Read this from `/user/info`, not `/key/info`: this
+  key alone shows $0.8622, and the $0.136 difference is account spend not attributable to it.
 - **The ledger has a pre-existing baseline** of 62 mock rows at $0.00, plus 214 fake evidence rows
   and some phantom search-history entries, all written by the test suite before D5 was fixed.
   Harmless for cost reporting; the history entries are user-visible and can be cleared with
@@ -281,7 +305,7 @@ activities interests go from `[]` to `["food", "scene", "street", "culture", "ma
 Ranked. No item here has a *known* correctness defect behind it — the ledger is closed and
 confirmed. The first is about coverage, the rest are improvements.
 
-**1. Full-suite run against the real provider (~$0.35, leaves ~$11.8).** Not chasing a known bug:
+**1. Full-suite run against the real provider (~$0.35, leaves ~$11.65).** Not chasing a known bug:
 closing the coverage gap. Seven prompts (P01, P02, P06–P10) were last exercised on 2026-08-04 and
 six code commits have landed since, all touching paths every request flows through — evidence
 selection, the validator's gap decision, hard-constraint checking, tool priority. The three subset
@@ -395,7 +419,7 @@ output tokens.
 | `LLM_TEMPERATURE` | **unset** — must not be pinned, see D15 |
 | Provider | LLMod.ai, confirmed to be a **LiteLLM proxy** (`/key/info`, `/model/info`, `/spend/logs` all respond) |
 | Provider pricing | $0.75 /1M input, $4.50 /1M output (from `/model/info`; verified against a billed call) |
-| Key budget | **`max_budget: None`** — no provider-side cap, see D19 |
+| Key budget | **`max_budget: None`** on the key — but the account carries **`max_budget: 13.0`**, which is the cap that binds. See the corrected D19 |
 
 Establish all of this with `python scripts/probe_llmod_account.py` (read-only, $0).
 
@@ -659,10 +683,18 @@ the consumer must handle the other cases.
 
 #### D19 — The key has no provider-side budget cap · **medium** · operational
 
+> **This finding was wrong and is superseded by the corrected D19 in section 0 (2026-08-05).** It
+> is kept because the mistake is instructive: the conclusion was drawn from one endpoint without
+> checking the neighbouring one, and the probe script encoded the same blind spot, so every
+> subsequent run reproduced the error rather than exposing it.
+
 `/key/info` reports `max_budget: None`, `tpm_limit: None`, `rpm_limit: None`. `README.md` states
 *"the real budget backstop is the LLMod.ai account balance itself"* — for this key that is **not
 true**. `MAX_PROJECT_BUDGET_USD` is the only spend protection in existence, which makes the D0 fix
 load-bearing rather than a nicety.
+
+*What was actually the case:* `/user/info` reports `max_budget: 13.0`. The account-level cap exists
+and LiteLLM enforces it. The README sentence this finding called false was substantially right.
 
 #### D12 — Assorted extraction defects · **medium**
 
@@ -792,9 +824,16 @@ user-visible impact per unit of effort. Cost impact noted because the $13 cap is
 | | |
 |---|---:|
 | Local ledger total | **$0.9090** |
-| **Provider `/key/info` (authoritative)** | **$0.8622** |
-| Remaining of $13.00 | **$12.14** |
-| Budget consumed | **6.6 %** |
+| Provider `/key/info` — this key only | **$0.8622** |
+| **Provider `/user/info` (authoritative — the capped account)** | **$0.9985** |
+| Remaining of the $13.00 account cap | **$12.00** |
+| Budget consumed | **7.7 %** |
+
+The three figures differ for two unrelated reasons, and both are worth knowing. The ledger sits
+$0.0468 *above* the key because of conservatively-estimated failed calls (below). The account sits
+$0.136 *above* the key because the account is not this key alone. Only the account figure is
+measured against the cap — earlier revisions of this report quoted the key and so understated
+spend throughout (see the corrected D19).
 
 **The $0.0468 gap reconciles exactly.** It is two failed Request Interpreter calls on P10 — one
 per full real run — each locally estimated at ~$0.0234 using deliberately conservative worst-case
@@ -841,5 +880,10 @@ python scripts/probe_llmod_account.py
 Superseded by **section 0**, which carries the current defect status and the handover for the next
 session. The items that were listed here — D8, D6/D7/D10, D17, D18 — have since been fixed and
 **verified against the real provider on 2026-08-04**; D8's residual (D8b) and D13 were fixed
-afterwards. **Every defect on the ledger is now closed** except D19, which cannot be fixed from
-this repository (the key's budget cap is provider-administered).
+afterwards, and D20–D25 were found and fixed across the two 2026-08-05 runs. **Every defect on the
+ledger is now closed**, D19 included — its original "no provider-side cap" finding was itself
+wrong, and the correction is in section 0.
+
+What remains open is not on the ledger: **P08's 2026-08-04 PARTIAL** (it never states that
+$400/month contradicts Scandinavia), the **budget-refusal `steps` decision**, and enhancements
+**E4, E5, E7, E8**.
