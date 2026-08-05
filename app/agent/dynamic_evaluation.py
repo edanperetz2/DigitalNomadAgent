@@ -308,6 +308,10 @@ def _amenity_component(counts: dict, category: str, saturation: float) -> float 
 # demonstrably well mapped, so a lone zero is far likelier to be a tagging gap
 # than a true absence (D37).
 AMENITY_MAPPING_DENSITY_FLOOR = 50
+# Confidence multiplier for a cost estimate that is a national average rather
+# than a figure for the city. It still scores; it just cannot claim the standing
+# of a measurement that can tell two cities in one country apart (D39).
+COUNTRY_LEVEL_COST_CONFIDENCE = 0.5
 
 
 def credible_amenity_counts(counts: dict) -> tuple[dict, list[str]]:
@@ -664,6 +668,34 @@ def _extract_criterion_scores(
             )
             if limitation not in drawbacks:
                 drawbacks.append(limitation)
+            # A national average cannot separate two cities in the same country:
+            # P05 gave Recife and Rio the same "Brazil ~$1,300", and every
+            # Israeli city in P10 shared one figure. The criterion still scores,
+            # but it must not carry the weight of a city-specific measurement
+            # while pretending to distinguish places it cannot see (D39).
+            # The scenarios price a whole one-bedroom flat plus utilities. A
+            # student asking about *student housing* is asking about a room, so
+            # comparing the two produced P03's false universal negative: "all
+            # researched options exceed the stated budget" when the budget was
+            # never for the thing being priced (D39).
+            if "study" in _profile_purposes(profile) and nd.get("fixed_cost_scenarios"):
+                drawbacks.append(
+                    "The cost figures price a whole one-bedroom flat with utilities, not a room "
+                    "in student or shared housing, so a student budget is not directly comparable "
+                    "to them."
+                )
+            if nd.get("evidence_level") == "country":
+                confidence_factors["cost"] = COUNTRY_LEVEL_COST_CONFIDENCE
+                country = (nd.get("country_context") or {}).get("country")
+                national = (
+                    f"Cost here is a national average for {country}"
+                    if country
+                    else "Cost here is a national average"
+                )
+                drawbacks.append(
+                    f"{national}, not a figure for this city, so it cannot tell it apart from "
+                    "others in the same country."
+                )
 
         elif r.tool_name == "TimezoneFitTool":
             overlap = nd.get("estimated_workday_overlap_hours")
@@ -1089,7 +1121,10 @@ def _score_totals(
 
     supported_weight = sum(weights.get(c, 0) for c in criterion_scores)
     for criterion, factor in confidence_factors.items():
-        supported_weight -= weights.get(criterion, 0) * (1.0 - factor)
+        # Only for criteria that actually scored: a factor recorded for one that
+        # did not would subtract weight the total never included.
+        if criterion in criterion_scores:
+            supported_weight -= weights.get(criterion, 0) * (1.0 - factor)
     confidence_score = supported_weight / sum(weights.values()) if weights else 0.0
 
     return normalized_weights, round(total_score, 4), round(min(1.0, confidence_score), 4)

@@ -1486,3 +1486,60 @@ def test_a_dropped_zero_never_appears_as_a_count_in_the_write_up():
     evaluation = evaluate_candidates([_candidate("Gdansk")], profile, evidence)[0]
 
     assert all("0 coworking" not in line for line in evaluation.advantages + evaluation.drawbacks)
+
+
+def _budget_evidence(place: str, level: str, country: str = "Brazil") -> ToolResult:
+    return _tool_result(
+        "BudgetFitTool",
+        place,
+        {
+            "evidence_level": level,
+            "country_context": {"country": country, "monthly_estimate_usd": 1300.0},
+            "fixed_cost_scenarios": {"center": {"monthly_total_usd": 1300.0}},
+            "scoring_status": "unresolved_pending_llm",
+        },
+    )
+
+
+def test_a_national_average_says_it_cannot_tell_two_cities_apart():
+    """D39: P05 gave Recife and Rio the same "Brazil ~$1,300"; every Israeli
+    city in P10 shared one figure."""
+    profile = PlaceRequestProfile(
+        purpose="remote_work",
+        relevant_criteria=["cost"],
+        budget=Budget(amount=2500.0, currency="USD", period="monthly"),
+    )
+    evidence = {"Recife": [_budget_evidence("Recife", "country")]}
+
+    evaluation = evaluate_candidates([_candidate("Recife")], profile, evidence)[0]
+
+    assert any("national average for Brazil" in d for d in evaluation.drawbacks)
+    assert any("cannot tell it apart" in d for d in evaluation.drawbacks)
+
+
+def test_a_city_level_estimate_carries_no_such_caveat():
+    profile = PlaceRequestProfile(
+        purpose="remote_work",
+        relevant_criteria=["cost"],
+        budget=Budget(amount=2500.0, currency="USD", period="monthly"),
+    )
+    evidence = {"Lisbon": [_budget_evidence("Lisbon", "city", "Portugal")]}
+
+    evaluation = evaluate_candidates([_candidate("Lisbon")], profile, evidence)[0]
+
+    assert all("national average" not in d for d in evaluation.drawbacks)
+
+
+def test_a_student_budget_is_not_compared_to_a_whole_flat_in_silence():
+    """D39: P03 concluded that every researched city exceeded a EUR 700 student
+    budget by comparing it against the cost of a whole one-bedroom flat."""
+    profile = PlaceRequestProfile(
+        purpose="study",
+        relevant_criteria=["cost"],
+        budget=Budget(amount=700.0, currency="EUR", period="monthly"),
+    )
+    evidence = {"Warsaw": [_budget_evidence("Warsaw", "city", "Poland")]}
+
+    evaluation = evaluate_candidates([_candidate("Warsaw")], profile, evidence)[0]
+
+    assert any("not a room in student or shared housing" in d for d in evaluation.drawbacks)
