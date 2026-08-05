@@ -160,6 +160,14 @@ STUDENT_AMENITY_SATURATION = {"university": 3.0, "library": 8.0}
 AVOIDED_CATEGORY_SATURATION = 300.0
 _AVOIDED_CATEGORY_CRITERIA = {"nightlife": "nightlife"}
 HARD_CONSTRAINT_ELIMINATION_THRESHOLD = 0.2
+# Subtracted from a total when *none* of the stated weight was measured. Scales
+# linearly with the share that was missed, so a candidate evidenced on
+# everything loses nothing and one evidenced on nothing loses this much (D36).
+UNCERTAINTY_PENALTY_CEILING = 0.30
+# At or above this weight, a criterion the traveller stated is a headline
+# priority: if nothing measured it for *any* candidate, the answer says so
+# instead of quietly ranking on what was left.
+HIGH_PRIORITY_WEIGHT = 0.7
 
 _UNRESOLVED_TOOL_CRITERIA: dict[str, str] = {
     "ActivitiesTool": "activities",
@@ -933,6 +941,45 @@ def constraint_tier(hard_constraint_results: dict[str, bool | None]) -> int:
     return 0
 
 
+def universally_unmeasured_priorities(
+    profile: PlaceRequestProfile, evaluations: list[CandidateEvaluation]
+) -> list[str]:
+    """Headline priorities that *no* candidate had evidence for, in the user's words.
+
+    A gap on one candidate is a drawback for that candidate. A gap on every
+    candidate is a fact about the ranking itself, and belongs at the top of the
+    answer rather than in a per-place footnote: P04 ranked five cities without
+    ever measuring food scene, street food, market culture or party level, and
+    disclosed it only in the limitations section at the bottom (D36).
+    """
+    if not evaluations:
+        return []
+
+    weights = canonicalize_criterion_weights(profile.inferred_weights)
+    stated = {canonical_criterion_name(raw) for raw in profile.relevant_criteria}
+    headline = {c for c, w in weights.items() if w >= HIGH_PRIORITY_WEIGHT} | stated
+    unmeasured = {
+        criterion
+        for criterion in headline
+        if all(criterion not in e.criterion_scores for e in evaluations)
+    }
+    if not unmeasured:
+        return []
+
+    # Report the traveller's own wording where they gave any, so the sentence
+    # reads back to them rather than in the scoring vocabulary.
+    spoken: list[str] = []
+    seen: set[str] = set()
+    for raw in profile.relevant_criteria:
+        canonical = canonical_criterion_name(raw)
+        if canonical in unmeasured and canonical not in seen:
+            seen.add(canonical)
+            spoken.append(raw)
+    for criterion in sorted(unmeasured - seen):
+        spoken.append(_CONSTRAINT_LABELS.get(criterion, criterion.replace("_", " ")))
+    return spoken
+
+
 def unmet_constraint_note(hard_constraint_results: dict[str, bool | None]) -> str | None:
     """Say which stated requirement could not be confirmed, in the reader's terms."""
     unverified = [
@@ -967,11 +1014,17 @@ def _score_totals(
 
     total_score = sum(normalized_weights.get(c, 0.0) * criterion_scores[c] for c in normalized_weights)
 
-    high_weight_criteria = [c for c, w in weights.items() if w >= 0.7]
-    missing_high = [c for c in high_weight_criteria if c not in criterion_scores]
-    uncertainty_penalty = (
-        0.15 * (len(missing_high) / len(high_weight_criteria)) if high_weight_criteria else 0.0
-    )
+    # Penalize by the share of the traveller's *stated weight* that nothing
+    # measured, not by a flat cap over criteria weighted >= 0.7. P04 lost food
+    # scene, street food, market culture and party level -- everything that made
+    # the request distinctive -- and still ranked five cities on
+    # safety/transit/cost at a cost of at most 0.15 (D36). A total computed over
+    # a third of what the traveller cared about should not read like a total
+    # computed over all of it.
+    stated_weight = sum(weights.values())
+    measured_weight = sum(w for c, w in weights.items() if c in criterion_scores)
+    unmeasured_share = 1.0 - (measured_weight / stated_weight) if stated_weight > 0 else 0.0
+    uncertainty_penalty = UNCERTAINTY_PENALTY_CEILING * unmeasured_share
     total_score = max(0.0, total_score - uncertainty_penalty)
 
     supported_weight = sum(weights.get(c, 0) for c in criterion_scores)

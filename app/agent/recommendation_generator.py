@@ -133,6 +133,24 @@ def _out_of_scope_disclosure(asks: list[str]) -> str:
     )
 
 
+def _coverage_disclosure(unmeasured: list[str]) -> str:
+    """Say up front which stated priority the ranking could not use.
+
+    Not a per-place footnote: when nothing measured a criterion for *any*
+    candidate, it is a fact about the ranking. P04 ranked five cities without
+    ever measuring food scene, street food, market culture or party level --
+    everything that made the request distinctive -- and mentioned it only in the
+    limitations section at the bottom (D36).
+    """
+    if not unmeasured:
+        return ""
+    lines = "\n".join(f"- {item}" for item in dict.fromkeys(unmeasured))
+    return (
+        "\n\n**Not used in this ranking:** no evidence was found for these on any candidate, "
+        f"so the order below does not reflect them at all.\n{lines}"
+    )
+
+
 def render_recommendation_fallback(
     profile: PlaceRequestProfile,
     evaluations: list[CandidateEvaluation],
@@ -142,12 +160,14 @@ def render_recommendation_fallback(
     max_final_recommendations: int = 3,
     service_notices: list[str] | None = None,
     out_of_scope: list[str] | None = None,
+    unmeasured_priorities: list[str] | None = None,
 ) -> str:
     """Render a recommendation without another network or LLM call."""
     payload = _build_payload(profile, evaluations, validation, sources, max_final_recommendations)
     markdown = render_recommendation_markdown(payload)
     return (
         markdown
+        + _coverage_disclosure(unmeasured_priorities or [])
         + _out_of_scope_disclosure(out_of_scope or [])
         + _degradation_disclosure(service_notices or [])
         + "\n\n**Generated using:** a deterministic fallback template "
@@ -170,10 +190,14 @@ async def generate_recommendation(
     llm_timeout_seconds: float | None = None,
     service_notices: list[str] | None = None,
     out_of_scope: list[str] | None = None,
+    unmeasured_priorities: list[str] | None = None,
 ) -> str:
     notices = service_notices or []
     declined = out_of_scope or []
+    unmeasured = unmeasured_priorities or []
     payload = _build_payload(profile, evaluations, validation, sources, max_final_recommendations)
+    if unmeasured:
+        payload["unmeasured_priorities"] = list(unmeasured)
 
     try:
         messages = [
@@ -193,6 +217,7 @@ async def generate_recommendation(
         response = await asyncio.wait_for(call, timeout=llm_timeout_seconds) if llm_timeout_seconds else await call
         return (
             response["markdown"]
+            + _coverage_disclosure(unmeasured)
             + _out_of_scope_disclosure(declined)
             + _degradation_disclosure(notices)
             + _mode_disclosure_line(client)
@@ -206,6 +231,7 @@ async def generate_recommendation(
             max_final_recommendations=max_final_recommendations,
             service_notices=notices,
             out_of_scope=declined,
+            unmeasured_priorities=unmeasured,
         )
         return (
             fallback

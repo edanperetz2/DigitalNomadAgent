@@ -1337,3 +1337,87 @@ def test_nightlife_counts_are_ignored_when_nobody_asked_to_avoid_them():
     evaluation = evaluate_candidates([_candidate("Barcelona")], profile, evidence)[0]
 
     assert "nightlife" not in evaluation.criterion_scores
+
+
+def test_missing_most_of_the_stated_weight_costs_more_than_missing_a_little():
+    """D36: the penalty was a flat 0.15 over criteria weighted >= 0.7, so P04
+    could lose food scene, street food, market culture and party level --
+    everything that made the request distinctive -- and still rank five cities
+    at almost no cost."""
+    from app.agent.dynamic_evaluation import _score_totals
+
+    weights = {"safety": 0.9, "food_scene": 0.9, "street_food": 0.8, "party_level": 0.7}
+    _, well_evidenced, _ = _score_totals(
+        {"safety": 0.8, "food_scene": 0.8, "street_food": 0.8, "party_level": 0.8}, weights, {}
+    )
+    _, thinly_evidenced, _ = _score_totals({"safety": 0.8}, weights, {})
+
+    assert well_evidenced > thinly_evidenced
+    assert well_evidenced - thinly_evidenced > 0.15
+
+
+def test_full_evidence_coverage_is_not_penalised_at_all():
+    from app.agent.dynamic_evaluation import _score_totals
+
+    _, total, _ = _score_totals({"safety": 0.8}, {"safety": 0.9}, {})
+    assert total == pytest.approx(0.8)
+
+
+def test_a_priority_no_candidate_could_evidence_is_reported_once_for_the_ranking():
+    from app.agent.dynamic_evaluation import universally_unmeasured_priorities
+
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        relevant_criteria=["safety", "food scene", "street food"],
+        inferred_weights={"safety": 0.95, "food scene": 0.9, "street food": 0.8},
+        budget=Budget(),
+    )
+    evidence = {
+        place: [
+            _tool_result(
+                "SafetyTool",
+                place,
+                {
+                    "composite_score": 0.9,
+                    "available_component_count": 2,
+                    "component_scores": {"fcdo_advisory": 1.0, "homicide_rate": 0.8},
+                },
+            )
+        ]
+        for place in ("Vienna", "Prague")
+    }
+    evaluations = evaluate_candidates(
+        [_candidate("Vienna"), _candidate("Prague")], profile, evidence
+    )
+
+    unmeasured = universally_unmeasured_priorities(profile, evaluations)
+
+    assert "food scene" in unmeasured
+    assert "street food" in unmeasured
+    assert "safety" not in unmeasured
+
+
+def test_a_priority_measured_for_even_one_candidate_is_not_reported_as_universal():
+    from app.agent.dynamic_evaluation import universally_unmeasured_priorities
+
+    profile = PlaceRequestProfile(
+        purpose="remote_work",
+        relevant_criteria=["work_infrastructure"],
+        inferred_weights={"work_infrastructure": 0.9},
+        budget=Budget(),
+    )
+    evidence = {
+        "Berlin": [
+            _tool_result(
+                "AmenitiesTool",
+                "Berlin",
+                {"counts_by_category": {"coworking": 5, "cafe": 25}, "partial": False},
+            )
+        ],
+        "Nowhere": [],
+    }
+    evaluations = evaluate_candidates(
+        [_candidate("Berlin"), _candidate("Nowhere")], profile, evidence
+    )
+
+    assert universally_unmeasured_priorities(profile, evaluations) == []

@@ -149,3 +149,28 @@ def test_a_clean_run_carries_neither_disclosure():
     markdown = render_recommendation_fallback(profile, [], validation, [])
     assert "Reduced-capability run" not in markdown
     assert "outside what this agent can answer" not in markdown
+
+
+@pytest.mark.asyncio
+async def test_a_priority_nothing_could_measure_is_stated_not_footnoted():
+    """D36: P04 ranked five cities without measuring food scene, street food,
+    market culture or party level, and said so only in the limitations section
+    at the bottom."""
+    profile, validation = _profile_and_validation()
+
+    markdown = await generate_recommendation(
+        profile,
+        [],
+        validation,
+        [],
+        client=_RealLikeClient(),
+        budget=_FakeBudget(),
+        request_id="r1",
+        execution_trace=[],
+        max_output_tokens=128,
+        unmeasured_priorities=["food scene", "street food"],
+    )
+
+    assert "Not used in this ranking" in markdown
+    assert "food scene" in markdown
+    assert "street food" in markdown
