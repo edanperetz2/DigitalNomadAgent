@@ -1204,6 +1204,42 @@ def _selected_wikivoyage_text(contexts: list[dict | None], interests: list[str])
     return ("\n".join(selected) or None), matched
 
 
+def budget_currency_rate(normalized_data: dict | None) -> tuple[str, float] | None:
+    """(budget currency, USD per unit of it), when the conversion is known.
+
+    BudgetFitTool converts the *budget* into USD to compare it. The estimates
+    keep whichever currency they arrived in, so P01 stated a EUR 1,800 budget
+    and then quoted Sofia at "$737 / 1,327 BGN", Romania at "$1,150" and Poland
+    at "$1,300" -- four currencies in one answer, none of them the traveller's,
+    with the arithmetic left to the reader (D40). The rate needed to fix that
+    was already fetched and already in the bibliography.
+    """
+    if not normalized_data:
+        return None
+    budget_context = normalized_data.get("budget_context") or {}
+    currency = budget_context.get("original_currency")
+    if not isinstance(currency, str) or not currency:
+        return None
+
+    status = budget_context.get("status")
+    if status == "comparable_without_conversion":
+        return currency, 1.0
+    if status != "converted_to_usd":
+        return None
+    rate = (budget_context.get("exchange_rate") or {}).get("rate")
+    if not isinstance(rate, int | float) or isinstance(rate, bool) or rate <= 0:
+        return None
+    return currency, float(rate)
+
+
+def in_budget_currency(amount_usd: float | None, rate: tuple[str, float] | None) -> dict | None:
+    """One monthly figure restated in the traveller's own currency."""
+    if amount_usd is None or rate is None:
+        return None
+    currency, usd_per_unit = rate
+    return {"amount": round(amount_usd / usd_per_unit, 0), "currency": currency}
+
+
 def _compact_unresolved_evidence(tool_name: str, normalized_data: dict, profile: PlaceRequestProfile) -> dict:
     """Trim an unresolved tool's normalized_data to what the scoring LLM needs.
 
@@ -1212,10 +1248,28 @@ def _compact_unresolved_evidence(tool_name: str, normalized_data: dict, profile:
     single batched call cheap even at max_finalists candidates.
     """
     if tool_name == "BudgetFitTool":
+        # Restate every figure in the traveller's own currency so the comparison
+        # is theirs to read rather than theirs to compute (D40).
+        rate = budget_currency_rate(normalized_data)
+        scenarios = normalized_data.get("fixed_cost_scenarios") or {}
+        restated = {}
+        for label, scenario in scenarios.items():
+            if not isinstance(scenario, dict):
+                continue
+            converted = in_budget_currency(scenario.get("monthly_total_usd"), rate)
+            restated[label] = {**scenario, "monthly_total_in_budget_currency": converted}
+        country_context = normalized_data.get("country_context") or {}
         return {
             "evidence_level": normalized_data.get("evidence_level"),
-            "fixed_cost_scenarios": normalized_data.get("fixed_cost_scenarios"),
-            "country_context": normalized_data.get("country_context"),
+            "fixed_cost_scenarios": restated or scenarios,
+            "country_context": {
+                **country_context,
+                "monthly_estimate_in_budget_currency": in_budget_currency(
+                    country_context.get("monthly_estimate_usd"), rate
+                ),
+            }
+            if country_context
+            else country_context,
             "budget_context": normalized_data.get("budget_context"),
         }
     if tool_name == "ActivitiesTool":

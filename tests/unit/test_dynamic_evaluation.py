@@ -1543,3 +1543,73 @@ def test_a_student_budget_is_not_compared_to_a_whole_flat_in_silence():
     evaluation = evaluate_candidates([_candidate("Warsaw")], profile, evidence)[0]
 
     assert any("not a room in student or shared housing" in d for d in evaluation.drawbacks)
+
+
+def test_costs_are_restated_in_the_travellers_own_currency():
+    """D40: P01 stated a EUR 1,800 budget and then quoted Sofia at "$737 /
+    1,327 BGN", Romania at "$1,150" and Poland at "$1,300" -- four currencies in
+    one answer, none of them the traveller's."""
+    from app.agent.dynamic_evaluation import _compact_unresolved_evidence
+
+    profile = PlaceRequestProfile(
+        purpose="remote_work", budget=Budget(amount=1800.0, currency="EUR", period="monthly")
+    )
+    normalized = {
+        "evidence_level": "city",
+        "fixed_cost_scenarios": {"center": {"monthly_total_usd": 1090.0}},
+        "country_context": {"country": "Bulgaria", "monthly_estimate_usd": 737.0},
+        "budget_context": {
+            "status": "converted_to_usd",
+            "original_currency": "EUR",
+            "exchange_rate": {"rate": 1.09},
+        },
+    }
+
+    compact = _compact_unresolved_evidence("BudgetFitTool", normalized, profile)
+
+    assert compact["fixed_cost_scenarios"]["center"]["monthly_total_in_budget_currency"] == {
+        "amount": 1000.0,
+        "currency": "EUR",
+    }
+    assert compact["country_context"]["monthly_estimate_in_budget_currency"]["currency"] == "EUR"
+
+
+def test_a_budget_already_in_usd_needs_no_conversion():
+    from app.agent.dynamic_evaluation import _compact_unresolved_evidence
+
+    profile = PlaceRequestProfile(
+        purpose="remote_work", budget=Budget(amount=2500.0, currency="USD", period="monthly")
+    )
+    normalized = {
+        "evidence_level": "country",
+        "fixed_cost_scenarios": {"center": {"monthly_total_usd": 1300.0}},
+        "country_context": {"country": "Brazil", "monthly_estimate_usd": 1300.0},
+        "budget_context": {"status": "comparable_without_conversion", "original_currency": "USD"},
+    }
+
+    compact = _compact_unresolved_evidence("BudgetFitTool", normalized, profile)
+
+    assert compact["fixed_cost_scenarios"]["center"]["monthly_total_in_budget_currency"] == {
+        "amount": 1300.0,
+        "currency": "USD",
+    }
+
+
+def test_an_unavailable_conversion_leaves_the_figures_untouched():
+    """Better an unconverted number than an invented rate."""
+    from app.agent.dynamic_evaluation import _compact_unresolved_evidence
+
+    profile = PlaceRequestProfile(
+        purpose="remote_work", budget=Budget(amount=1800.0, currency="EUR", period="monthly")
+    )
+    normalized = {
+        "evidence_level": "city",
+        "fixed_cost_scenarios": {"center": {"monthly_total_usd": 1090.0}},
+        "country_context": {},
+        "budget_context": {"status": "conversion_unavailable", "original_currency": "EUR"},
+    }
+
+    compact = _compact_unresolved_evidence("BudgetFitTool", normalized, profile)
+
+    assert compact["fixed_cost_scenarios"]["center"]["monthly_total_in_budget_currency"] is None
+    assert compact["fixed_cost_scenarios"]["center"]["monthly_total_usd"] == 1090.0
