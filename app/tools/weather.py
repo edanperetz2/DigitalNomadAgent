@@ -217,7 +217,7 @@ def _month_summary(rows: list[_DailyRow], month: int, years: range) -> dict[str,
 
 
 def _build_climatology(
-    data: dict[str, Any], *, years: range, months: list[int], fallback_used: bool
+    data: dict[str, Any], *, years: range, months: list[int]
 ) -> tuple[dict[str, Any], str, list[str]]:
     rows, coverage, warnings = _parse_rows(data, years=years, months=months)
     expected = _expected_days(years, months)
@@ -328,10 +328,6 @@ def _build_climatology(
     annual_means = [_mean(values) for values in annual_highs.values()]
     interannual_stddev = statistics.pstdev([value for value in annual_means if value is not None])
 
-    if fallback_used:
-        warnings.append(
-            "No structured target months were available; climatology uses the current calendar month as a fallback."
-        )
     warnings.append(
         "This is five-year historical climatology from gridded reanalysis data, not a forecast or a station reading."
     )
@@ -439,9 +435,16 @@ class WeatherTool:
 
         today = self._today()
         months = list(dict.fromkeys(profile.target_months))
-        fallback_used = not months
-        if fallback_used:
-            months = [today.month]
+        if not months:
+            # Substituting the current calendar month produced a real, confident,
+            # citable climatology for a month the traveller never mentioned --
+            # and it reached the bibliography as "climatology for months 8" on a
+            # request that named no season at all (D31). No months, no reading.
+            return self._error(
+                candidate.place_name,
+                now,
+                "Cannot build a seasonal climatology: the request did not establish when the stay happens.",
+            )
         first_year = today.year - HISTORY_YEARS
         years = range(first_year, today.year)
         start = f"{first_year}-01-01"
@@ -462,7 +465,7 @@ class WeatherTool:
         try:
             data = await self._fetch(candidate.lat, candidate.lon, start, end)
             normalized_data, confidence, warnings = _build_climatology(
-                data, years=years, months=months, fallback_used=fallback_used
+                data, years=years, months=months
             )
         except Exception as exc:  # noqa: BLE001 - stale climatology is safer than losing evidence
             if cached is not None:

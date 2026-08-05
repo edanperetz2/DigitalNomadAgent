@@ -378,9 +378,15 @@ class WikivoyageClimateTool:
     async def run(self, candidate: CandidatePlace, profile: PlaceRequestProfile) -> ToolResult:
         title = candidate.canonical_name or candidate.place_name
         months = list(dict.fromkeys(profile.target_months))
-        fallback_used = not months
-        if fallback_used:
-            months = [self._today().month]
+        if not months:
+            # Same rule as WeatherTool: a seasonal reading of the Climate
+            # section needs a season. Substituting today's month produced
+            # citable evidence about a month nobody asked about (D31).
+            return self._error(
+                candidate.place_name,
+                "Cannot read the Climate section seasonally: the request did not establish when the stay happens.",
+                None,
+            )
         directions = climate_preference_directions(profile.climate_preferences)
         params = {
             "title": title,
@@ -429,8 +435,6 @@ class WikivoyageClimateTool:
             warnings.append("No supported climate chart was found; only explicit climate statements were considered.")
         if not component_scores:
             warnings.append("The Climate section contained no evidence relevant to the requested climate dimensions.")
-        if fallback_used:
-            warnings.append("No structured target months were available; climate context uses the current month.")
         if context.truncated:
             warnings.append("The climate reasoning context was bounded with subsection coverage metadata.")
         normalized_data = {

@@ -363,6 +363,7 @@ def test_scoring_is_deterministic():
         purpose="vacation",
         relevant_criteria=["climate"],
         climate_preferences=["warm"],
+        target_months=[7],
         budget=Budget(),
     )
     candidate = _candidate("City")
@@ -370,6 +371,28 @@ def test_scoring_is_deterministic():
     result1 = evaluate_candidates([candidate], profile, evidence)[0]
     result2 = evaluate_candidates([candidate], profile, evidence)[0]
     assert result1.total_score == result2.total_score
+
+
+def test_climate_is_not_scored_when_the_request_pinned_no_months():
+    """D31: WeatherTool falls back to the *current* calendar month when
+    target_months is empty, so scoring its output answers a question about
+    whatever month the run happens on. P04 asked about October and P06 about
+    November-April; both were ranked on August climatology."""
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        relevant_criteria=["climate"],
+        climate_preferences=["warm"],
+        target_months=[],
+        budget=Budget(),
+    )
+    candidate = _candidate("City")
+    evidence = {"City": [_tool_result("WeatherTool", "City", {"avg_high_c": 24.0})]}
+
+    evaluation = evaluate_candidates([candidate], profile, evidence)[0]
+
+    assert "climate" not in evaluation.criterion_scores
+    assert "climate" in evaluation.missing_evidence
+    assert any("did not pin down when" in drawback for drawback in evaluation.drawbacks)
 
 
 def test_weather_is_not_scored_without_explicit_climate_preferences():
@@ -405,6 +428,7 @@ def test_climate_score_averages_only_requested_available_dimensions():
         purpose="vacation",
         relevant_criteria=["climate"],
         climate_preferences=["warm", "low humidity", "sunny", "calm"],
+        target_months=[7],
         budget=Budget(),
     )
     candidate = _candidate("City")
@@ -441,6 +465,7 @@ def test_missing_requested_climate_dimension_is_missing_not_zero():
         purpose="vacation",
         relevant_criteria=["climate"],
         climate_preferences=["warm", "low humidity"],
+        target_months=[7],
         budget=Budget(),
     )
     candidate = _candidate("City")
@@ -467,6 +492,7 @@ def test_negated_heat_preference_scores_extreme_heat_without_requesting_hot_weat
         purpose="vacation",
         relevant_criteria=["climate"],
         climate_preferences=["not extremely hot"],
+        target_months=[7],
         budget=Budget(),
     )
     candidate = _candidate("City")
@@ -491,6 +517,7 @@ def test_wikivoyage_climate_combines_at_twenty_percent_independent_of_result_ord
         purpose="vacation",
         relevant_criteria=["climate"],
         climate_preferences=["warm", "low humidity"],
+        target_months=[7],
         budget=Budget(),
     )
     candidate = _candidate("City")
@@ -518,6 +545,7 @@ def test_climate_source_contradiction_reduces_confidence_and_is_exposed():
         purpose="vacation",
         relevant_criteria=["climate"],
         climate_preferences=["warm"],
+        target_months=[7],
         budget=Budget(),
     )
     candidate = _candidate("City")
@@ -544,6 +572,7 @@ def test_wikivoyage_only_climate_score_is_low_confidence_secondary_evidence():
         purpose="vacation",
         relevant_criteria=["climate"],
         climate_preferences=["sunny"],
+        target_months=[7],
         budget=Budget(),
     )
     candidate = _candidate("City")
@@ -570,6 +599,7 @@ def test_stale_wikivoyage_climate_is_not_used_for_scoring():
         purpose="vacation",
         relevant_criteria=["climate"],
         climate_preferences=["warm"],
+        target_months=[7],
         budget=Budget(),
     )
     candidate = _candidate("City")

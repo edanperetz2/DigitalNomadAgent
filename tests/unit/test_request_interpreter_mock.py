@@ -254,3 +254,46 @@ def test_timezone_overlap_requirement_becomes_a_hard_constraint():
         "overlap with US Eastern. Budget about $2,000 a month."
     )
     assert any("overlap with us eastern" in c for c in profile["hard_constraints"])
+
+
+def test_target_months_are_derived_from_the_stated_dates():
+    """D31: the field existed on the profile but nothing ever populated it, so
+    WeatherTool fell back to the current calendar month on every request."""
+    assert interpret_prompt("Ten days in October, somewhere warm.")["target_months"] == [10]
+    assert interpret_prompt("Two weeks in August with the kids.")["target_months"] == [8]
+
+
+def test_a_multi_month_stay_spans_forward_from_its_start_month():
+    profile = interpret_prompt(
+        "I've been cleared to work fully remote for three months starting in April."
+    )
+    assert profile["target_months"] == [4, 5, 6]
+
+
+def test_a_month_range_expands_inclusively_across_the_year_boundary():
+    profile = interpret_prompt("We want to escape the winter, roughly November through April.")
+    assert profile["target_months"] == [11, 12, 1, 2, 3, 4]
+
+
+def test_a_bare_season_is_read_as_northern_hemisphere_and_disclosed():
+    profile = interpret_prompt("I'm looking for somewhere in Scandinavia for a month this winter.")
+    assert profile["target_months"] == [12, 1, 2]
+    assert any("northern-hemisphere" in a for a in profile["assumptions"])
+
+
+def test_no_stated_timing_leaves_target_months_empty():
+    """An empty list is the correct answer -- climate is not scored without one,
+    and a guessed month is worse than no month."""
+    profile = interpret_prompt(
+        "I've been burnt out for a year and finally saved enough to get away for a while."
+    )
+    assert profile["target_months"] == []
+
+
+def test_may_and_march_only_count_as_months_when_capitalised():
+    assert interpret_prompt("Somewhere I may be able to relax for ten days.")["target_months"] == []
+    assert interpret_prompt("Two weeks in May.")["target_months"] == [5]
+
+
+def test_interpreter_prompt_asks_for_target_months():
+    assert "target_months" in SYSTEM_PROMPT

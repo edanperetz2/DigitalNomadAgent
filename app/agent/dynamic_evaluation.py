@@ -267,6 +267,25 @@ def _climate_evaluation(
     if not requested:
         return {}, [], [], 0.0
 
+    # No months, no climate score. WeatherTool and WikivoyageClimateTool both
+    # fall back to *the current calendar month* when target_months is empty, so
+    # scoring on their output answers a question about August that nobody asked
+    # -- an October trip and a November-April winter escape were both ranked on
+    # August climatology, and "climate fit is weak" became the stated main
+    # drawback nearly everywhere (D31). The criterion drops out of
+    # criterion_scores here, which routes it into missing_evidence via
+    # unevidenced_criteria, so the gap is disclosed rather than filled in.
+    if not profile.target_months:
+        return (
+            {},
+            [],
+            [
+                "Climate could not be scored: the request did not pin down when the stay "
+                "happens, and seasonal fit is meaningless without it."
+            ],
+            0.0,
+        )
+
     weather_result = next(
         (result for result in results if result.tool_name == "WeatherTool" and not result.error), None
     )

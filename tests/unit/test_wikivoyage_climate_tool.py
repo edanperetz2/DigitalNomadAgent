@@ -186,16 +186,20 @@ async def test_resolves_revision_extracts_section_and_scores_requested_component
 
 
 @pytest.mark.asyncio
-async def test_current_month_fallback_is_in_cache_identity_and_result():
+async def test_no_target_months_yields_no_seasonal_reading(monkeypatch):
+    """Overturns test_current_month_fallback_is_in_cache_identity_and_result (D31).
+
+    A seasonal reading of the Climate section needs a season; substituting
+    today's month made the tool answer a question nobody asked.
+    """
     cache = FakeCache()
     tool, _ = _tool([_resolve(), _sections(), _section()], cache=cache)
 
     result = await tool.run(_candidate(), _profile(target_months=[]))
 
-    assert result.normalized_data["target_months"] == [7]
-    assert cache.get_calls[0][2]["months"] == [7]
-    assert cache.get_calls[0][2]["wikivoyage_context_contract_version"] == 1
-    assert any("uses the current month" in warning for warning in result.warnings)
+    assert result.error
+    assert "did not establish when the stay happens" in result.error
+    assert cache.get_calls == []
 
 
 @pytest.mark.asyncio

@@ -219,6 +219,98 @@ def _extract_duration(text: str) -> str | None:
     return None
 
 
+_MONTH_NUMBERS: dict[str, int] = {
+    "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+    "july": 7, "august": 8, "september": 9, "sept": 9, "october": 10,
+    "november": 11, "december": 12,
+}
+# "may" and "march" are ordinary English words far more often than months, so
+# they only count when capitalised. The rest are safe case-insensitively.
+_CASE_SENSITIVE_MONTHS = frozenset({"may", "march"})
+_MONTH_ALTERNATION = "|".join(sorted(_MONTH_NUMBERS, key=len, reverse=True))
+_MONTH_RANGE_PATTERN = re.compile(
+    rf"\b({_MONTH_ALTERNATION})\b\s*(?:through|thru|to|until|till|-|–|—)\s*\b({_MONTH_ALTERNATION})\b",
+    re.IGNORECASE,
+)
+_MONTH_TOKEN_PATTERN = re.compile(rf"\b({_MONTH_ALTERNATION})\b", re.IGNORECASE)
+# Northern-hemisphere reading; disclosed as an assumption wherever it is used.
+_SEASON_MONTHS: dict[str, list[int]] = {
+    "spring": [3, 4, 5],
+    "summer": [6, 7, 8],
+    "autumn": [9, 10, 11],
+    "fall": [9, 10, 11],
+    "winter": [12, 1, 2],
+}
+_SEASON_PATTERN = re.compile(r"\b(" + "|".join(_SEASON_MONTHS) + r")\b", re.IGNORECASE)
+_MONTH_COUNT_PATTERN = re.compile(
+    r"\b(\d+|" + "|".join(_NUMBER_WORDS) + r")[\s-]+months?\b", re.IGNORECASE
+)
+
+
+def _month_token_value(token: str) -> int | None:
+    """A month name only counts if it is unambiguous, or capitalised when not."""
+    lowered = token.lower()
+    if lowered in _CASE_SENSITIVE_MONTHS and not token[:1].isupper():
+        return None
+    return _MONTH_NUMBERS.get(lowered)
+
+
+def _month_span(start: int, count: int) -> list[int]:
+    return [(start - 1 + offset) % 12 + 1 for offset in range(count)]
+
+
+def _stated_month_count(text: str) -> int | None:
+    match = _MONTH_COUNT_PATTERN.search(text)
+    if not match:
+        return None
+    raw = match.group(1).lower()
+    if raw.isdigit():
+        return int(raw)
+    value = _NUMBER_WORDS.get(raw)
+    return int(value) if value else None
+
+
+def _extract_target_months(text: str) -> tuple[list[int], str | None]:
+    """Calendar months the stay covers, plus an assumption line when one is owed.
+
+    Nothing populated this before: the field existed on the profile but was
+    absent from the interpreter's field list, so it arrived empty on every
+    request and WeatherTool silently fell back to *the current calendar month*.
+    An October trip and a November-April winter escape were both scored against
+    August climatology, which is why "climate fit is weak" was the stated main
+    drawback almost everywhere (D31).
+    """
+    span = _MONTH_RANGE_PATTERN.search(text)
+    if span:
+        start = _month_token_value(span.group(1))
+        end = _month_token_value(span.group(2))
+        if start and end:
+            count = (end - start) % 12 + 1
+            return _month_span(start, count), None
+
+    named = [
+        value
+        for match in _MONTH_TOKEN_PATTERN.finditer(text)
+        if (value := _month_token_value(match.group(1))) is not None
+    ]
+    if named:
+        unique = list(dict.fromkeys(named))
+        count = _stated_month_count(text)
+        if len(unique) == 1 and count and count > 1:
+            return _month_span(unique[0], min(count, 12)), None
+        return unique, None
+
+    season = _SEASON_PATTERN.search(text)
+    if season:
+        name = season.group(1).lower()
+        return (
+            list(_SEASON_MONTHS[name]),
+            f"Read \"{name}\" as the northern-hemisphere months; say so if you meant the southern hemisphere.",
+        )
+
+    return [], None
+
+
 _EXCLUDED_REGION_PATTERN = re.compile(
     r"\b(?:avoid|skip|excluding|not interested in)\s+"
     r"([A-Z][\w'-]*(?:\s+(?:and|,)\s+[A-Z][\w'-]*)*)"
@@ -430,6 +522,9 @@ def interpret_prompt(prompt: str) -> dict:
         assumptions.append("Assumed the budget includes accommodation unless stated otherwise.")
 
     duration = _extract_duration(text)
+    target_months, month_assumption = _extract_target_months(text)
+    if month_assumption:
+        assumptions.append(month_assumption)
     climate_preferences = [w for w in _CLIMATE_WORDS if w in lowered]
     activity_preferences = _extract_activity_preferences(lowered)
     amenity_preferences = _extract_amenity_preferences(lowered)
@@ -506,6 +601,7 @@ def interpret_prompt(prompt: str) -> dict:
         "secondary_purposes": secondary_purposes,
         "duration": duration,
         "dates_or_season": None,
+        "target_months": target_months,
         "origin": origin,
         "nationality": None,
         "preferred_regions": preferred_regions,

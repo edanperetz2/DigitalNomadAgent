@@ -119,13 +119,22 @@ async def test_requested_months_use_five_previous_calendar_years_and_all_dimensi
 
 
 @pytest.mark.asyncio
-async def test_current_month_fallback_is_explicit():
+async def test_no_target_months_yields_no_climatology_at_all():
+    """Overturns test_current_month_fallback_is_explicit (D31).
+
+    Falling back to the current calendar month was disclosed in a warning, but
+    the result was still a real, high-confidence, citable climatology -- and
+    nothing downstream refused to score it. P04 asked about October and was
+    ranked on August; P07 named no season and still got "climatology for months
+    8" in its bibliography. A disclosed wrong answer is still a wrong answer.
+    """
     tool, _ = _tool(_payload({7}))
 
     result = await tool.run(_candidate(), PlaceRequestProfile(purpose="vacation"))
 
-    assert result.normalized_data["target_months"] == [7]
-    assert any("current calendar month as a fallback" in warning for warning in result.warnings)
+    assert result.error
+    assert "did not establish when the stay happens" in result.error
+    assert "target_months" not in result.normalized_data
 
 
 @pytest.mark.asyncio

@@ -20,7 +20,8 @@ within it.
 Extract a structured profile and respond with ONLY a single JSON object with exactly these \
 fields: purpose (one of "remote_work", "study", "vacation", "mixed", "unknown"), \
 secondary_purposes (list of strings), duration (string or null), dates_or_season (string or \
-null), origin (string or null), nationality (string or null), preferred_regions (list), \
+null), target_months (list of integers 1-12), origin (string or null), nationality (string or \
+null), preferred_regions (list), \
 excluded_regions (list), named_destinations (list), preferred_languages (list), \
 mobility_requirements (list), \
 climate_preferences (list), activity_preferences (list), amenity_preferences (list), \
@@ -31,6 +32,13 @@ budget (object: amount, currency, period one of \
 relevant_criteria (list), inferred_weights (object of criterion->weight 0-1), \
 missing_information (list), assumptions (list), clarification_required (bool), \
 clarification_question (string or null).
+
+target_months must list every calendar month the stay actually covers, worked out from \
+dates_or_season together with duration: "ten days in October" -> [10]; "three months starting in \
+April" -> [4, 5, 6]; "roughly November through April" -> [11, 12, 1, 2, 3, 4]; "next spring" -> \
+[3, 4, 5]. Treat bare season words as northern-hemisphere months and record that in assumptions. \
+Leave the list EMPTY when the request gives no usable timing at all -- climate is simply not \
+scored without it, so an empty list is correct and a guessed month is not.
 
 preferred_regions must contain ONLY geographic areas -- continents, sub-regions or countries \
 ("Europe", "Southeast Asia", "Spain"). Never put a city, a city size, or any non-geographic \
