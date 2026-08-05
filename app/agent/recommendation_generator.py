@@ -138,6 +138,20 @@ def _out_of_scope_disclosure(asks: list[str]) -> str:
     )
 
 
+def _conflict_disclosure(conflicts: list[str]) -> str:
+    """State a request that cannot be satisfied, before ranking anything.
+
+    P08 is impossible on two axes -- the $400 budget and wanting proper snow
+    while also swimming outdoors and sitting outside at cafes in the evening.
+    Only the budget was detected; the answer never used the words "snow" or
+    "swim" (D38).
+    """
+    if not conflicts:
+        return ""
+    lines = "\n".join(f"- {conflict}" for conflict in dict.fromkeys(conflicts))
+    return f"\n\n**These cannot both be satisfied:**\n{lines}"
+
+
 def _coverage_disclosure(unmeasured: list[str]) -> str:
     """Say up front which stated priority the ranking could not use.
 
@@ -166,12 +180,14 @@ def render_recommendation_fallback(
     service_notices: list[str] | None = None,
     out_of_scope: list[str] | None = None,
     unmeasured_priorities: list[str] | None = None,
+    conflicts: list[str] | None = None,
 ) -> str:
     """Render a recommendation without another network or LLM call."""
     payload = _build_payload(profile, evaluations, validation, sources, max_final_recommendations)
     markdown = render_recommendation_markdown(payload)
     return (
         markdown
+        + _conflict_disclosure(conflicts or [])
         + _coverage_disclosure(unmeasured_priorities or [])
         + _out_of_scope_disclosure(out_of_scope or [])
         + _degradation_disclosure(service_notices or [])
@@ -196,13 +212,17 @@ async def generate_recommendation(
     service_notices: list[str] | None = None,
     out_of_scope: list[str] | None = None,
     unmeasured_priorities: list[str] | None = None,
+    conflicts: list[str] | None = None,
 ) -> str:
     notices = service_notices or []
+    stated_conflicts = conflicts or []
     declined = out_of_scope or []
     unmeasured = unmeasured_priorities or []
     payload = _build_payload(profile, evaluations, validation, sources, max_final_recommendations)
     if unmeasured:
         payload["unmeasured_priorities"] = list(unmeasured)
+    if stated_conflicts:
+        payload["irreconcilable_requests"] = list(stated_conflicts)
 
     try:
         messages = [
@@ -222,6 +242,7 @@ async def generate_recommendation(
         response = await asyncio.wait_for(call, timeout=llm_timeout_seconds) if llm_timeout_seconds else await call
         return (
             response["markdown"]
+            + _conflict_disclosure(stated_conflicts)
             + _coverage_disclosure(unmeasured)
             + _out_of_scope_disclosure(declined)
             + _degradation_disclosure(notices)
@@ -237,6 +258,7 @@ async def generate_recommendation(
             service_notices=notices,
             out_of_scope=declined,
             unmeasured_priorities=unmeasured,
+            conflicts=stated_conflicts,
         )
         return (
             fallback

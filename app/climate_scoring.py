@@ -71,6 +71,84 @@ def requested_climate_dimensions(climate_preferences: list[str]) -> set[str]:
     return set(climate_preference_directions(climate_preferences))
 
 
+# Pairs of things that cannot both be true of one place at one time of year.
+# Each entry is (phrases for one side, phrases for the other, how to name the
+# first back to the reader, how to name the second).
+_IRRECONCILABLE_REQUESTS: tuple[tuple[tuple[str, ...], tuple[str, ...], str, str], ...] = (
+    (
+        ("snow", "snowy", "winter atmosphere", "proper winter", "ski"),
+        (
+            "swim outdoors",
+            "swim outside",
+            "outdoor swimming",
+            "swimming outdoors",
+            "sit outside",
+            "sitting outside",
+            "outdoor cafe",
+            "outside at cafe",
+            "outside at caf",
+        ),
+        "proper snow and a real winter atmosphere",
+        "swimming outdoors and sitting outside at cafes in the evening",
+    ),
+    (
+        ("tropical heat", "hot weather", "very hot"),
+        ("snow", "snowy", "ski"),
+        "tropical heat",
+        "snow",
+    ),
+    (
+        ("dry", "arid", "little rain"),
+        ("lush", "rainforest", "green all year"),
+        "a dry climate",
+        "lush year-round greenery",
+    ),
+)
+
+# "no snow", "rather than snow", "avoid swimming outdoors" -- a thing ruled out
+# cannot contradict anything, so a negated phrase never counts as a request.
+_NEGATION_MARKERS = ("no ", "not ", "never ", "avoid", "without", "rather than", "don't", "dont")
+
+
+def _positively_requested(text: str, phrase: str) -> bool:
+    index = text.find(phrase)
+    while index != -1:
+        window = text[max(0, index - 24) : index]
+        if not any(marker in window for marker in _NEGATION_MARKERS):
+            return True
+        index = text.find(phrase, index + 1)
+    return False
+
+
+def contradictory_climate_requests(*texts: list[str] | str) -> list[str]:
+    """Requests that cannot both be satisfied, named in the reader's words.
+
+    P08 is the "plausibly-worded but internally impossible" case, and it is
+    impossible on two axes: the $400 budget *and* wanting proper snow while also
+    swimming outdoors and sitting outside at cafes in the evening. Only the
+    budget was ever detected. The answer never used the words "snow" or "swim",
+    so the more interesting contradiction went unmentioned entirely (D38).
+    """
+    parts: list[str] = []
+    for text in texts:
+        parts.extend(text if isinstance(text, list) else [text])
+    haystack = " | ".join(part.casefold() for part in parts if part)
+    if not haystack:
+        return []
+
+    conflicts: list[str] = []
+    for first_phrases, second_phrases, first_label, second_label in _IRRECONCILABLE_REQUESTS:
+        has_first = any(_positively_requested(haystack, phrase) for phrase in first_phrases)
+        has_second = any(_positively_requested(haystack, phrase) for phrase in second_phrases)
+        if has_first and has_second:
+            conflicts.append(
+                f"You asked for {first_label} and for {second_label}. No place offers both at "
+                "the same time of year -- tell me which one matters more and I can rank properly "
+                "for it."
+            )
+    return conflicts
+
+
 def weather_component_scores(
     normalized_data: dict[str, Any], climate_preferences: list[str]
 ) -> dict[str, float]:

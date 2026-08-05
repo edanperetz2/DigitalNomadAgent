@@ -28,6 +28,7 @@ from app.agent.recommendation_generator import generate_recommendation, render_r
 from app.agent.recommendation_validator import validate_recommendations
 from app.agent.request_interpreter import interpret_request, out_of_scope_requests
 from app.agent.state import MAX_STATE_TRANSITIONS, TERMINAL_STATES, AgentState
+from app.climate_scoring import contradictory_climate_requests
 from app.core.exceptions import BudgetExceededError, LLMOutputError, PlaceMatchError
 from app.core.logging import logger
 from app.evidence.memory import EvidenceMemory
@@ -78,6 +79,8 @@ class _RunCheckpoint:
     service_notices: list[str] = field(default_factory=list)
     # Asks the agent structurally cannot fulfil, named so they can be declined.
     out_of_scope: list[str] = field(default_factory=list)
+    # Stated requests that cannot both be satisfied (D38).
+    conflicts: list[str] = field(default_factory=list)
 
 
 def _resolve_ambiguous_profile(profile: PlaceRequestProfile) -> PlaceRequestProfile:
@@ -218,6 +221,43 @@ def _disclose_unmeetable_budget(
         "optimises everything else and the shortfall is reported per place rather than hidden."
     )
     return disclosed
+
+
+def _unmeetable_budget_conflict(
+    profile: PlaceRequestProfile, evidence_by_place: dict[str, list[ToolResult]]
+) -> str | None:
+    """The budget half of "these cannot both be satisfied", stated by scale.
+
+    The same fact already reaches profile.assumptions, but the generator is free
+    to rewrite those. This carries it through the channel the model cannot touch
+    and says how far off the budget is, since ranking $3,200-a-month cities
+    against a $400 budget without that number is not an answer (D38).
+    """
+    if profile.budget.amount is None or profile.budget.amount <= 0:
+        return None
+
+    comparisons: list[tuple[str, float, float, str]] = []
+    for place, results in evidence_by_place.items():
+        for result in results:
+            if result.tool_name != "BudgetFitTool" or result.error:
+                continue
+            comparison = budget_comparison(result.normalized_data)
+            if comparison is not None:
+                comparisons.append((place, *comparison))
+            break
+
+    if len(comparisons) < 2 or any(remaining >= 0 for _, _, remaining, _ in comparisons):
+        return None
+
+    place, monthly_total, _, estimate_currency = min(comparisons, key=lambda row: row[1])
+    stated_currency = profile.budget.currency or "USD"
+    multiple = monthly_total / profile.budget.amount
+    return (
+        f"Your budget is {profile.budget.amount:g} {stated_currency} a month. The cheapest place "
+        f"researched, {place}, comes to about {monthly_total:,.0f} "
+        f"{estimate_currency or stated_currency} -- roughly {multiple:.1f}x that. The ranking "
+        "below is the best of what was researched, not a list of places you can afford."
+    )
 
 
 class Orchestrator:
@@ -524,6 +564,7 @@ class Orchestrator:
                     # agent cannot do is declined by name even if the
                     # interpreter call later fails outright (D32).
                     checkpoint.out_of_scope = out_of_scope_requests(prompt)
+                    checkpoint.conflicts = contradictory_climate_requests(prompt)
                     state = AgentState.INTERPRETING
 
                 elif state == AgentState.INTERPRETING:
@@ -677,6 +718,9 @@ class Orchestrator:
 
                 elif state == AgentState.EVALUATING:
                     profile = _disclose_unmeetable_budget(profile, evidence_by_place)
+                    budget_conflict = _unmeetable_budget_conflict(profile, evidence_by_place)
+                    if budget_conflict and budget_conflict not in checkpoint.conflicts:
+                        checkpoint.conflicts.append(budget_conflict)
                     checkpoint.profile = profile
                     evaluations = evaluate_candidates(candidates, profile, evidence_by_place)
                     checkpoint.evaluations = list(evaluations)
@@ -770,6 +814,7 @@ class Orchestrator:
                             service_notices=checkpoint.service_notices,
                             out_of_scope=checkpoint.out_of_scope,
                             unmeasured_priorities=unmeasured,
+                            conflicts=checkpoint.conflicts,
                         )
                     else:
                         response_text = await generate_recommendation(
@@ -787,6 +832,7 @@ class Orchestrator:
                             service_notices=checkpoint.service_notices,
                             out_of_scope=checkpoint.out_of_scope,
                             unmeasured_priorities=unmeasured,
+                            conflicts=checkpoint.conflicts,
                         )
                     state = AgentState.COMPLETED
 
