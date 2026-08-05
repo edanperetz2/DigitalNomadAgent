@@ -20,12 +20,12 @@ Last updated: **2026-08-05**.
 
 ### Where this stands, in one paragraph
 
-Every defect on the ledger is closed except **D27**, found on 2026-08-05 and left open
-deliberately — it needs a region taxonomy this repository does not have. D19's original finding
-turned out to be wrong in the other direction: there *is* a provider-side cap, on the account
-rather than the key. The offline gate is green (**510 passed, 1 skipped**, `ruff` clean) and
-**$12.00 of the $13.00 budget remains** (account-authoritative — see the D19 note for why this is
-$0.14 lower than previously reported).
+**Every defect on the ledger is closed**, D27 included — it turned out the region taxonomy it
+needed was a hand-written table, not a dataset. D19's original finding turned out to be wrong in
+the other direction: there *is* a provider-side cap, on the account rather than the key. The
+offline gate is green (**525 passed, 1 skipped**, `ruff` clean) and **$12.00 of the $13.00 budget
+remains** (account-authoritative — see the D19 note for why this is $0.14 lower than previously
+reported).
 
 **Every fix on the ledger has now been confirmed against the real provider.** Two subset runs on
 2026-08-05 did it: the first (`20260805T051351Z-real-api-postfix-2`, $0.1130) confirmed D8b, D20
@@ -33,12 +33,12 @@ and D21 and found **D23** and **D24**; the second (`20260805T061515Z-real-api-d2
 $0.1098) confirmed those two plus **E3** and the input-token ceiling. Nothing on the ledger is
 now waiting on a run.
 
-What *is* still unverified against the real provider is narrower and worth stating plainly: the
-seven prompts not in either subset (P01, P02, P06–P10) were last exercised on **2026-08-04**, and
-six code commits have landed since. Nothing suggests they are broken — the shared paths all three
-subset prompts exercise are the ones that changed — but a full-suite run (~$0.35) is what would
-actually close it. **P08** has since been investigated separately (see below): its PARTIAL was
-mis-diagnosed, and the real defect is now **D27**, open.
+What *is* still unverified against the real provider, stated plainly: the seven prompts not in
+either subset (P01, P02, P06–P10) were last exercised on **2026-08-04**, and ten code commits have
+landed since. That gap grew with D27, which changed *which places get researched at all* and has
+only been seen in mock mode — the broadest change of the batch. A full-suite run (~$0.35) is what
+would close it. **P08** was investigated separately (see below): its PARTIAL was mis-diagnosed,
+and the real defect became **D27**, fixed the same day.
 
 ### Defect status
 
@@ -74,7 +74,7 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D24 | A stated working-hours overlap minimum ("at least four hours with US Eastern") was never checked, so a candidate missing it ranked #1 | **Fixed** (2026-08-05) | `5606431` |
 | D25 | `llm_max_input_tokens` was declared, set in `.env`, and read nowhere — a configured guard that could never fire, and set to a value (4000) that real calls exceed anyway | **Fixed** (2026-08-05) | `27586eb` |
 | D26 | The region-relaxation disclosure asserted "candidate selection still targeted it" — false whenever the generator ignores the region, which nothing in the pipeline can detect | **Fixed** (2026-08-05) | `4cf8bc4` |
-| D27 | A requested region that cannot be resolved to countries is never actually researched: P08 asks for Scandinavia and gets 30 candidates, none Scandinavian | **Open** | — |
+| D27 | A requested region that cannot be resolved to countries is never actually researched: P08 asks for Scandinavia and gets 30 candidates, none Scandinavian | **Fixed** (2026-08-05) | `dbda6bb` |
 
 One deliberate non-change, flagged rather than decided unilaterally:
 
@@ -299,20 +299,32 @@ Investigating it (mock LLM, real tools, $0) showed that is not the defect, and t
 worse — and was in fact already written down in section 5, just never numbered or carried onto
 the ledger: *"P08 — asks for Scandinavia, receives no Scandinavian city."*
 
-**That still holds today.** Of the 30 candidates generated for "somewhere in Scandinavia", **not
-one is Scandinavian** — Lisbon, Tbilisi, Chiang Mai, Bali, Mexico City. The region cannot be
-resolved to countries, so it is relaxed (D16's fail-open, correct in itself), and candidate
-generation then optimises for the $400 budget instead. Now numbered **D27** and left open: doing
-better needs a region→country taxonomy, which is the same gap behind the "region preferences never
-filter" note below. It is the honest reason P08 cannot yet answer the question it was written to
-test, and it is worth noting the finding survived three sessions by never having an ID.
+**That still held.** Of the 30 candidates generated for "somewhere in Scandinavia", **not one was
+Scandinavian** — Lisbon, Tbilisi, Chiang Mai, Bali, Mexico City. The region could not be resolved
+to countries, so it was relaxed (D16's fail-open, correct in itself), and candidate generation
+then optimised for the $400 budget instead. Numbered **D27** and **fixed the same day**
+(`dbda6bb`) — the taxonomy it needed turned out to be a hand-written table of the region words
+people actually type, not a dataset. Worth noting the finding survived three sessions by never
+having an ID.
 
-**And the budget is not actually contradictory.** Once the region is dropped, Tirana comes in at
-about $385 against the $400 budget. So "$400 is impossible" would have been the wrong thing to
-say; what is true is "$400 is possible, but not in Scandinavia" — and the system cannot currently
-establish the second half, because it never looks at Scandinavia.
+**And the budget only looked contradictory because the region had been dropped.** With Scandinavia
+gone, Tirana came in at about $385 against the $400 budget, so nothing was over budget and there
+was no contradiction to state. What was true all along is "$400 is possible, but not in
+Scandinavia" — the system simply could not establish the second half, because it never looked at
+Scandinavia.
 
-Two things did come out of it, both fixed in `4cf8bc4`:
+Fixing D27 closed that loop. P08 now researches Copenhagen and Uppsala, and the budget disclosure
+fires on its own:
+
+> None of the 2 places researched can be done for 400 USD monthly including accommodation. The
+> cheapest evidenced option is Uppsala at about 3,050 USD a month, so the stated budget and the
+> rest of the request cannot both be satisfied.
+
+That is the statement the original P08 finding asked for, reached from evidence rather than
+asserted — and it only became sayable once the right places were researched. The two fixes had to
+compose; neither alone would have produced it.
+
+Two things came out of the investigation itself, both fixed in `4cf8bc4`:
 
 - **D26** — the relaxation disclosure asserted "candidate selection still targeted it". For P08
   that is plainly false, and nothing in the pipeline can distinguish the honored case from the
@@ -323,26 +335,27 @@ Two things did come out of it, both fixed in `4cf8bc4`:
   a low cost score. Bounded by measurement, silent unless every comparable candidate is over — so
   it correctly does *not* fire for P08.
 - There is still **no CI**, no coverage measurement, and no frontend test tooling.
-- **Region preferences still never filter.** Both P01 and P05 disclose that the stated region
-  preference could not be matched against any candidate's country. That much is D16's fix working
-  as designed — `check_geocoded_constraints` matches country names and ISO codes, and deliberately
-  does not resolve a continent to its member countries because no region taxonomy exists in the
-  codebase. This was previously filed as an enhancement rather than a defect on the grounds that
-  "candidate selection still targets the region"; P08 disproved that (D26, D27), so the relaxation
-  is now the *first half* of a real defect and the second half is D27. The one static
-  region→country table would close both.
+- ~~**Region preferences never filter.**~~ **Closed by D27** (`dbda6bb`). This sat here as an
+  enhancement on the grounds that "candidate selection still targets the region"; P08 disproved
+  that (D26), and the fix was a hand-written region→country table rather than the dataset it was
+  assumed to need. P01 now filters on "Europe" for the first time: every finalist is European and
+  the relaxation disclosure is gone, because nothing had to be given up.
 
 ### Suggested next session
 
-Ranked. One open defect (**D27**) and one coverage gap; the rest are improvements.
+Ranked. No open defects; the first item is a coverage gap, the rest are improvements.
 
 **1. Full-suite run against the real provider (~$0.35, leaves ~$11.65).** Not chasing a known bug:
-closing the coverage gap. Seven prompts (P01, P02, P06–P10) were last exercised on 2026-08-04 and
-six code commits have landed since, all touching paths every request flows through — evidence
-selection, the validator's gap decision, hard-constraint checking, tool priority. The three subset
-prompts exercise those paths and pass, so the risk is low, but "low" is an argument, not a
-measurement. It would also show whether the **real** candidate generator honors a region the
-pipeline cannot filter on (D27) — the mock one plainly does not.
+closing the coverage gap, and it is now the largest one. Seven prompts (P01, P02, P06–P10) were
+last exercised on 2026-08-04 and **ten** code commits have landed since, all touching paths every
+request flows through — evidence selection, the validator's gap decision, hard-constraint
+checking, tool priority, and now region filtering and candidate generation. The three subset
+prompts exercise most of those and pass, but D27 changed which places get researched at all, which
+is the broadest change of the lot and has only been seen in mock mode.
+
+Two things to read specifically: whether the **real** generator honors `region_countries` now that
+the prompt names them, and whether region filtering ever over-narrows a finalist set — P08 came
+back with two finalists, which is correct there but worth watching elsewhere.
 
 ```bash
 # 1. Offline gate -- must be green before spending anything
@@ -367,24 +380,24 @@ Read it against the per-prompt table in the 2026-08-04 verification-run section,
 the reference for the seven prompts not since re-run. Beyond `status: ok`: `missing_evidence`
 should name only criteria with no score in the same candidate's `criterion_scores`; no
 `validation_issues` entry should claim a scored criterion is unverified; and P08's candidate list
-should be checked for whether *any* of it is Scandinavian (D27).
+should be checked for whether *any* of it is Scandinavian (D27) — in mock mode it now is.
 
-**2. D27 — research the region that was actually asked for.** The open defect. A region that
-cannot be matched to a country is relaxed and then effectively forgotten, so P08 asks for
-Scandinavia and is answered with Chiang Mai. The disclosure is now honest about this (D26), but
-honest about a bad answer is still a bad answer. Needs a region→country taxonomy — a small static
-table would cover the continents and common sub-regions ("Scandinavia", "Southeast Asia",
-"the Balkans") and would also let `check_geocoded_constraints` filter properly, closing the
-"region preferences never filter" gap at the same time.
+**2. E1 in mock mode — the renderer, not the model.** E1 was closed on the grounds that the real
+LLM writes proper justifications, which it does. But P08's mock output still reads *"Why it fits:
+Cost evidence compared against the stated budget informs this score"* and *"Provisional match
+based on limited evidence"* — so every $0 verification run, which is how most of this project's
+checking gets done, is read through a renderer that says nothing. Worth fixing for the sake of
+the cheap feedback loop even though it never reaches a real answer.
 
 **3. E4 — attach sources to the claims they support.** 33 undifferentiated citations is a list,
-not an evidence chain. The most valuable remaining enhancement now that E3 is done.
+not an evidence chain. The most valuable remaining enhancement for real output.
 
 **4. E7 — drive UI progress from real `steps`** instead of the `setInterval` timers still in
 `app/static/app.js`, and **E5** — replace the trade-offs paragraph that is true of any ranked list.
 
 **5. Decide the budget-refusal `steps` question** (the one deliberate non-change above), and
-**E8** — add a golden case for a positive region constraint, the gap that let D7 survive.
+**E8** — add a golden case for a positive region constraint. D27 makes this cheap now: the
+region actually filters, so a golden case can assert on it.
 
 ---
 
@@ -915,7 +928,7 @@ Superseded by **section 0**, which carries the current defect status and the han
 session. The items that were listed here — D8, D6/D7/D10, D17, D18 — have since been fixed and
 **verified against the real provider on 2026-08-04**; D8's residual (D8b) and D13 were fixed
 afterwards, and D20–D25 were found and fixed across the two 2026-08-05 runs. **Every defect on the
-ledger is now closed** except **D27**, and D19's original "no provider-side cap" finding was
+ledger is now closed**, D27 included, and D19's original "no provider-side cap" finding was
 itself wrong — both corrections are in section 0.
 
 Also open, off the ledger: the **budget-refusal `steps` decision**, and enhancements **E4, E5,
