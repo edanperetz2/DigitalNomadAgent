@@ -20,25 +20,23 @@ Last updated: **2026-08-05**.
 
 ### Where this stands, in one paragraph
 
-**Every defect on the ledger is closed**, D27 included — it turned out the region taxonomy it
-needed was a hand-written table, not a dataset. D19's original finding turned out to be wrong in
+**Every defect on the ledger is closed**, including D28 and D29, which the full paid run of
+2026-08-05 exposed and which were fixed the same day. D19's original finding turned out to be wrong in
 the other direction: there *is* a provider-side cap, on the account rather than the key. The
-offline gate is green (**533 passed, 1 skipped**, `ruff` clean) and **$12.00 of the $13.00 budget
-remains** (account-authoritative — see the D19 note for why this is $0.14 lower than previously
-reported).
+offline gate is green (**545 passed, 1 skipped**, `ruff` clean) and **$11.67 of the $13.00 budget remains**
+(account-authoritative — see the D19 note for why the account figure, not the key's, is the one
+that binds).
 
-**Every fix on the ledger has now been confirmed against the real provider.** Two subset runs on
-2026-08-05 did it: the first (`20260805T051351Z-real-api-postfix-2`, $0.1130) confirmed D8b, D20
-and D21 and found **D23** and **D24**; the second (`20260805T061515Z-real-api-d23-d24-e3`,
-$0.1098) confirmed those two plus **E3** and the input-token ceiling. Nothing on the ledger is
-now waiting on a run.
+**The coverage gap is closed.** Three real-provider runs on 2026-08-05: two subsets
+(`20260805T051351Z-real-api-postfix-2`, $0.1130, confirming D8b/D20/D21 and finding D23/D24;
+`20260805T061515Z-real-api-d23-d24-e3`, $0.1098, confirming those plus E3 and the input-token
+ceiling), then the **full ten-prompt suite** (`20260805T122313Z-real-api-full`, $0.3525), which
+confirmed E4 and D27 and exposed **D28** and **D29**.
 
-What *is* still unverified against the real provider, stated plainly: the seven prompts not in
-either subset (P01, P02, P06–P10) were last exercised on **2026-08-04**, and ten code commits have
-landed since (twelve now). That gap grew with D27, which changed *which places get researched at all* and has
-only been seen in mock mode — the broadest change of the batch. A full-suite run (~$0.35) is what
-would close it. **P08** was investigated separately (see below): its PARTIAL was mis-diagnosed,
-and the real defect became **D27**, fixed the same day.
+**What is unverified is now narrow and specific: D28 and D29 themselves.** Both were fixed after
+that run and verified offline and in mock mode, but neither has met the real provider. Re-running
+P08 and P09 alone would cost about $0.07 and would close it. Nothing else on the ledger is waiting
+on a run.
 
 ### Defect status
 
@@ -75,6 +73,8 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D25 | `llm_max_input_tokens` was declared, set in `.env`, and read nowhere — a configured guard that could never fire, and set to a value (4000) that real calls exceed anyway | **Fixed** (2026-08-05) | `27586eb` |
 | D26 | The region-relaxation disclosure asserted "candidate selection still targeted it" — false whenever the generator ignores the region, which nothing in the pipeline can detect | **Fixed** (2026-08-05) | `4cf8bc4` |
 | D27 | A requested region that cannot be resolved to countries is never actually researched: P08 asks for Scandinavia and gets 30 candidates, none Scandinavian | **Fixed** (2026-08-05) | `dbda6bb` |
+| D28 | An unmeetable hard constraint emptied the field and failed the request outright — D24 solved this for timezone only, so P08's $400 budget in Scandinavia killed the whole run | **Fixed** (2026-08-05) | `e45a936` |
+| D29 | A named destination was eliminated and vanished from the answer: `verify_candidates` never copied the geocoded country, so a synthesized candidate matched no region | **Fixed** (2026-08-05) | `e45a936` |
 
 One deliberate non-change, flagged rather than decided unilaterally:
 
@@ -153,8 +153,8 @@ evidence-mapping gap rather than an Overpass one.
 - **Provider pricing is $0.75 / $4.50 per 1M** (input/output), from `/model/info` and confirmed
   against a billed call — *not* the $0.1438 / $5.7205 in the course handout. `.env` deliberately
   carries the higher of each figure so the pre-call guard cannot under-estimate.
-- **Spend so far: $0.9985 of $13.00** (account-authoritative, after both 2026-08-05 runs), leaving
-  **$12.00** — about 34 more full suite runs. Read this from `/user/info`, not `/key/info`: this
+- **Spend so far: $1.3276 of $13.00** (account-authoritative, after all three 2026-08-05 runs),
+  leaving **$11.67** — about 33 more full suite runs. Read this from `/user/info`, not `/key/info`: this
   key alone shows $0.8622, and the $0.136 difference is account spend not attributable to it.
 - **The ledger has a pre-existing baseline** of 62 mock rows at $0.00, plus 214 fake evidence rows
   and some phantom search-history entries, all written by the test suite before D5 was fixed.
@@ -280,6 +280,50 @@ strong street food or market culture" and the real interpreter filed all of it u
 to match on for the most activity-driven prompt in the set, and fell back to opening-chunk order.
 Interests are now drawn from `soft_preferences` as well; replayed against that captured profile the
 activities interests go from `[]` to `["food", "scene", "street", "culture", "market"]`.
+
+### The full suite — DONE (2026-08-05, `validation_runs/20260805T122313Z-real-api-full`)
+
+All ten prompts against the real provider: 39 calls, **$0.3525**. **Nine returned `ok`; P08
+errored.** This is the run that finally closes the coverage gap — the seven prompts outside the
+earlier subsets had not been exercised since 2026-08-04, twelve commits back.
+
+**The enhancements all hold in real mode.**
+
+- **E4** is the strongest result: on every one of the nine successful prompts, the set of criteria
+  carrying citations is *exactly* the set of criteria that were scored. Nothing scored goes
+  uncited. Real per-item source names come through — `cost: [Frankfurter exchange-rate API,
+  WhereNext City Price Dataset]`, `transportation: [OpenStreetMap local mobility infrastructure,
+  Wikivoyage Get around section]`.
+- **D27** is emphatic: P01 returned eight European finalists with the relaxation disclosure gone
+  entirely, and P08's generator returned Stockholm, Uppsala, Gothenburg, Luleå and Kiruna where it
+  previously returned Chiang Mai and Bali.
+- **D23** holds: `missing_evidence` now names only genuinely unmeasurable things — "flight
+  duration", "English-taught programs", "food scene" — with no false positives anywhere.
+
+**Two new defects, one root cause.** Both are cases where elimination deletes a candidate from the
+payload and nothing anywhere reports what it failed.
+
+- **D28** — P08 failed outright with "All candidate destinations were eliminated by hard
+  constraints". **D27 caused this, and correctly**: once Scandinavia is actually researched every
+  candidate is Swedish, and $400/month eliminates all of them. The prompt had only ever "worked"
+  because the region was silently dropped and cheaper cities substituted — an answer to a
+  different question. D24 had already solved this shape for timezone; the rule is about
+  elimination, not about which criterion caused it, so it now covers whichever constraint wiped
+  the field out. Note this **overturns a deliberate contract**: an impossible budget used to
+  return `status: error`, asserted by an integration test and a golden case. Erroring tells the
+  reader nothing about what was impossible or by how much, and every other unsatisfiable case here
+  degrades and discloses, so the golden case now asserts the explanation. Straightforward to
+  restore if the error is wanted for grading.
+- **D29** — P09 asked "is Lisbon a good fit?" and received eight other cities plus the sentence
+  "the available candidate data, however, does not include Lisbon". The server log shows Lisbon
+  *was* geocoded and fully researched — BudgetFit, LocalMobility, Weather, Safety, Wikivoyage,
+  Activities all ran on it — and it was then eliminated before scoring. The root cause is a
+  dropped field rather than the region work: the geocoder resolves a country name and
+  `verify_candidates` copied `lat`, `lon`, `canonical_name`, `country_code` and importance but
+  **not `country`**, so a candidate the pipeline synthesized rather than the generator proposing
+  it — a named destination, created with `country=""` — stayed countryless and matched no region.
+  Pre-existing, but D27 made it bite because regions now genuinely filter. D18 pinned the named
+  destination through the *funnel*; nothing protected it at *evaluation*.
 
 ### Follow-ups this report does not cover
 
@@ -862,14 +906,15 @@ user-visible impact per unit of effort. Cost impact noted because the $13 cap is
 | 2026-08-04 | **Post-fix verification run** — P01–P10 real, API | 41 | 120,881 | 52,308 | $0.3252 |
 | 2026-08-05 | **Subset re-validation** — P01, P03, P05 real, API | 13 | 46,358 | 18,411 | $0.1130 |
 | 2026-08-05 | **Confirmation run** — P03, P04, P05 real, API | 12 | 47,171 | 16,545 | $0.1098 |
+| 2026-08-05 | **Full suite** — P01–P10 real, API (P08 errored) | 39 | 156,868 | 51,113 | $0.3525 |
 
 | | |
 |---|---:|
-| Local ledger total | **$0.9090** |
-| Provider `/key/info` — this key only | **$0.8622** |
-| **Provider `/user/info` (authoritative — the capped account)** | **$0.9985** |
-| Remaining of the $13.00 account cap | **$12.00** |
-| Budget consumed | **7.7 %** |
+| Local ledger total | **$1.2616** |
+| Provider `/key/info` — this key only | **$1.1913** |
+| **Provider `/user/info` (authoritative — the capped account)** | **$1.3276** |
+| Remaining of the $13.00 account cap | **$11.67** |
+| Budget consumed | **10.2 %** |
 
 The three figures differ for two unrelated reasons, and both are worth knowing. The ledger sits
 $0.0468 *above* the key because of conservatively-estimated failed calls (below). The account sits
