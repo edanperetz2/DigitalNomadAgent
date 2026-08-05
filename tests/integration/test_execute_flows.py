@@ -56,7 +56,16 @@ def test_finalist_count_never_exceeds_max_finalists(client):
     assert 0 < len(table_rows) <= get_settings().max_finalists
 
 
-def test_extremely_low_hard_budget_eliminates_all_candidates(client):
+def test_an_impossible_budget_is_explained_rather_than_erroring(client):
+    """Changed contract (D28): this used to return status=error.
+
+    An impossible budget eliminated every candidate and the request failed with
+    "All candidate destinations were eliminated by hard constraints" -- no
+    answer, and no statement of what was impossible or by how much. Every other
+    unsatisfiable case in this codebase degrades and discloses (D11, D16, D17,
+    D24), and the P08 prompt requires exactly that. So the field is now ranked
+    with the shortfall stated instead of being emptied.
+    """
     response = client.post(
         "/api/execute",
         json={
@@ -67,8 +76,9 @@ def test_extremely_low_hard_budget_eliminates_all_candidates(client):
         },
     )
     data = response.json()
-    assert data["status"] == "error"
-    assert "eliminated" in data["error"].lower()
+    assert data["status"] == "ok"
+    assert "cheapest evidenced option" in data["response"]
+    assert "1 USD monthly" in data["response"]
 
 
 def test_study_prompt_with_field_returns_recommendations(client):

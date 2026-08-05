@@ -109,6 +109,13 @@ class ToolRegistry:
                 candidate.lat = result.normalized_data.get("lat")
                 candidate.lon = result.normalized_data.get("lon")
                 candidate.canonical_name = result.normalized_data.get("canonical_name")
+                # The geocoder resolves the country name and this used to drop it,
+                # keeping only the ISO code. A candidate the pipeline synthesized
+                # rather than the generator proposing it -- a named destination --
+                # starts with country="" and so stayed countryless forever, which
+                # made it invisible to every region check and got it eliminated.
+                # That is how "is Lisbon a good fit?" came back without Lisbon.
+                candidate.country = result.normalized_data.get("country") or candidate.country
                 candidate.country_code = result.normalized_data.get("country_code")
                 candidate.geocoding_importance = result.normalized_data.get("importance")
                 verified.append(candidate)

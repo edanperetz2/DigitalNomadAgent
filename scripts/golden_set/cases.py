@@ -78,13 +78,18 @@ GOLDEN_CASES: list[GoldenCase] = [
         expected_modules=_NORMAL_FLOW_MODULES,
     ),
     GoldenCase(
-        name="hard_budget_eliminates_all_candidates",
+        # Was expect_status="error" with required_phrases=("eliminated",). An
+        # impossible budget used to empty the field and fail the request, which
+        # told the reader nothing about what was impossible or by how much.
+        # D28 made it degrade and disclose, like every other unsatisfiable case
+        # here, so the case now asserts the explanation instead of the failure.
+        name="impossible_budget_is_explained",
         prompt=(
             "I want to work remotely somewhere in Europe. It is required that the budget "
             "stay under 1 USD per month including accommodation."
         ),
-        expect_status="error",
-        required_phrases=("eliminated",),
+        expected_modules=_NORMAL_FLOW_MODULES,
+        required_phrases=("cheapest evidenced option",),
     ),
     GoldenCase(
         name="excluded_region_is_respected",

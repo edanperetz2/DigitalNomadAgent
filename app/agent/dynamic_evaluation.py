@@ -574,22 +574,35 @@ def _measured_overlap_hours(results: list[ToolResult]) -> float | None:
     return None
 
 
-def _relax_unmeetable_overlap(
+def _relax_unmeetable_constraint(
     evaluations: list[CandidateEvaluation],
 ) -> list[CandidateEvaluation]:
-    """When no candidate can meet the stated overlap, rank and disclose -- never fail.
+    """When no candidate can meet a stated bar, rank and disclose -- never fail.
 
     Eliminating the whole field leaves the orchestrator raising "All candidate
     destinations were eliminated by hard constraints", i.e. no answer at all,
     which is strictly worse for the reader than a ranked list that says plainly
-    what it cannot satisfy. Verified with mock P05, whose candidate set is
-    entirely European and so cannot reach four hours of US Eastern overlap.
+    what it cannot satisfy.
+
+    This began as a timezone-only rule (D24) and the 2026-08-05 full run showed
+    why that was too narrow: with D27 making the pipeline actually research
+    Scandinavia, every Swedish candidate failed P08's $400/month budget and the
+    request died outright. It had only ever "worked" because the region was
+    silently dropped and cheaper cities substituted -- an answer to a different
+    question. The rule is about elimination, not about which criterion did it,
+    so it now applies to whichever constraint wiped the field out.
+
     Relaxing keeps the failed check visible in `hard_constraint_results` and
     promotes the shortfall to the candidate's leading drawback.
     """
     if not evaluations or any(not e.eliminated for e in evaluations):
         return evaluations
-    if not all(e.hard_constraint_results.get("timezone") is False for e in evaluations):
+    # Every candidate must have failed a *recorded* check. A field wiped out by
+    # the region check records nothing (it returns early), and that case has its
+    # own relaxation in the orchestrator, which can still see the profile.
+    if not all(
+        any(passed is False for passed in e.hard_constraint_results.values()) for e in evaluations
+    ):
         return evaluations
 
     relaxed: list[CandidateEvaluation] = []
@@ -625,9 +638,19 @@ def _check_hard_constraints(
 
     Timezone is the exception to the score-threshold rule: a stated minimum is
     in hours, so it is compared against the measured hours (see D24).
+
+    A place the user named is never eliminated, whatever it fails. They asked
+    about it, so "no, and here is why" is the answer -- and an eliminated
+    candidate is dropped from the payload entirely, which is how P09 answered
+    "is Lisbon a good fit?" with eight other cities and the sentence "the
+    available candidate data does not include Lisbon". The failed checks are
+    still recorded, so the verdict can be negative and specific.
     """
+    named = {n.strip().casefold() for n in profile.named_destinations if n.strip()}
+    was_named = candidate.place_name.strip().casefold() in named
+
     region_eliminated, region_reason = check_geocoded_constraints(profile, candidate)
-    if region_eliminated:
+    if region_eliminated and not was_named:
         return True, region_reason, {}
 
     hard_results: dict[str, bool] = {}
@@ -980,7 +1003,7 @@ def apply_llm_scores(
             )
         )
 
-    updated = _relax_unmeetable_overlap(updated)
+    updated = _relax_unmeetable_constraint(updated)
     updated.sort(key=lambda e: (e.eliminated, -e.total_score))
     return updated
 
@@ -1045,6 +1068,6 @@ def evaluate_candidates(
             )
         )
 
-    evaluations = _relax_unmeetable_overlap(evaluations)
+    evaluations = _relax_unmeetable_constraint(evaluations)
     evaluations.sort(key=lambda e: (e.eliminated, -e.total_score))
     return evaluations

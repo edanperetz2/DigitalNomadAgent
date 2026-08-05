@@ -679,15 +679,27 @@ def test_budget_hard_constraint_eliminates_after_llm_scoring():
             )
         ]
     }
-    evaluations = evaluate_candidates([expensive], profile, evidence)
-    llm_scores = {"ExpensiveCity": {"cost": (0.05, "Far over the stated budget.")}}
+    # A companion that passes, so elimination is observable: when every
+    # candidate fails the same bar the field is relaxed rather than emptied
+    # (D28), and a single-candidate fixture would only ever show that path.
+    affordable = _candidate("CheapCity")
+    evidence["CheapCity"] = evidence["ExpensiveCity"]
+    candidates = [expensive, affordable]
+    evaluations = evaluate_candidates(candidates, profile, evidence)
+    llm_scores = {
+        "ExpensiveCity": {"cost": (0.05, "Far over the stated budget.")},
+        "CheapCity": {"cost": (0.9, "Comfortably inside the stated budget.")},
+    }
 
-    updated = apply_llm_scores(evaluations, [expensive], profile, evidence, llm_scores)
+    updated = {
+        e.place: e for e in apply_llm_scores(evaluations, candidates, profile, evidence, llm_scores)
+    }
 
-    assert updated[0].eliminated is True
-    assert "cost" in updated[0].elimination_reason
-    assert updated[0].criterion_scores["cost"] == 0.05
-    assert "cost" not in updated[0].unscored_evidence
+    assert updated["ExpensiveCity"].eliminated is True
+    assert "cost" in updated["ExpensiveCity"].elimination_reason
+    assert updated["ExpensiveCity"].criterion_scores["cost"] == 0.05
+    assert "cost" not in updated["ExpensiveCity"].unscored_evidence
+    assert updated["CheapCity"].eliminated is False
 
 
 def test_llm_scoring_does_not_eliminate_when_score_is_affordable():
@@ -1047,3 +1059,93 @@ def test_an_unscored_criterion_is_never_given_a_citation():
     profile = PlaceRequestProfile(purpose="vacation", relevant_criteria=["climate"], budget=Budget())
     evaluation = evaluate_candidates([_candidate("Nowhere")], profile, {"Nowhere": []})[0]
     assert evaluation.criterion_sources == {}
+
+
+def test_a_bar_no_candidate_can_meet_relaxes_whatever_criterion_it_was():
+    """D28: this rule was timezone-only, and the 2026-08-05 full run showed why
+    that was too narrow -- P08's Swedish candidates all failed a $400 budget and
+    the request died outright with no answer at all."""
+    from app.agent.dynamic_evaluation import apply_llm_scores
+
+    profile = PlaceRequestProfile(
+        purpose="remote_work",
+        relevant_criteria=["cost"],
+        hard_constraints=["budget must not exceed $400/month"],
+        budget=Budget(amount=400.0, period="monthly"),
+    )
+    cities = ["Stockholm", "Uppsala", "Gothenburg"]
+    evidence = {
+        c: [
+            _tool_result(
+                "BudgetFitTool",
+                c,
+                {"evidence_level": "city", "scoring_status": "unresolved_pending_llm"},
+            )
+        ]
+        for c in cities
+    }
+    candidates = [_candidate(c) for c in cities]
+    evaluations = evaluate_candidates(candidates, profile, evidence)
+    # Every one of them scores far under the elimination threshold.
+    llm_scores = {c: {"cost": (0.02, "Far over the stated budget.")} for c in cities}
+
+    updated = apply_llm_scores(evaluations, candidates, profile, evidence, llm_scores)
+
+    assert [e.eliminated for e in updated] == [False, False, False]
+    assert all(e.hard_constraint_results["cost"] is False for e in updated)
+    assert all("hard constraint on cost" in e.drawbacks[0] for e in updated)
+
+
+def test_a_place_the_user_named_is_never_eliminated():
+    """D29: P09 asked "is Lisbon a good fit?" and got eight other cities plus
+    "the available candidate data does not include Lisbon"."""
+    profile = PlaceRequestProfile(
+        purpose="remote_work",
+        named_destinations=["Lisbon"],
+        preferred_regions=["Scandinavia"],
+        relevant_criteria=["cost"],
+        hard_constraints=["budget must not exceed 100 USD/month"],
+        budget=Budget(amount=100.0, period="monthly"),
+    )
+    lisbon = CandidatePlace(
+        place_name="Lisbon", country="Portugal", reason_for_inclusion="named", verified=True
+    )
+    oslo = CandidatePlace(
+        place_name="Oslo", country="Norway", reason_for_inclusion="t", verified=True
+    )
+    evidence = {
+        place: [
+            _tool_result(
+                "BudgetFitTool",
+                place,
+                {"evidence_level": "city", "scoring_status": "unresolved_pending_llm"},
+            )
+        ]
+        for place in ("Lisbon", "Oslo")
+    }
+    evaluations = evaluate_candidates([lisbon, oslo], profile, evidence)
+
+    by_place = {e.place: e for e in evaluations}
+    # Outside the requested region and failing the budget, and still present.
+    assert by_place["Lisbon"].eliminated is False
+    # The region genuinely does exclude it; that is a verdict, not a deletion.
+    assert by_place["Oslo"].eliminated is False  # relaxed: nothing else survived
+
+
+def test_a_named_place_survives_a_region_that_excludes_it():
+    """The narrow case: other candidates are viable, so no relaxation applies,
+    and the named place must still come through."""
+    profile = PlaceRequestProfile(
+        purpose="vacation", named_destinations=["Lisbon"], preferred_regions=["Scandinavia"]
+    )
+    lisbon = CandidatePlace(
+        place_name="Lisbon", country="Portugal", reason_for_inclusion="named", verified=True
+    )
+    oslo = CandidatePlace(
+        place_name="Oslo", country="Norway", reason_for_inclusion="t", verified=True
+    )
+
+    by_place = {e.place: e for e in evaluate_candidates([lisbon, oslo], profile, {})}
+
+    assert by_place["Lisbon"].eliminated is False
+    assert by_place["Oslo"].eliminated is False
