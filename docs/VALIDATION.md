@@ -23,7 +23,7 @@ Last updated: **2026-08-05**.
 **Every defect on the ledger is closed**, including D28 and D29, which the full paid run of
 2026-08-05 exposed and which were fixed the same day. D19's original finding turned out to be wrong in
 the other direction: there *is* a provider-side cap, on the account rather than the key. The
-offline gate is green (**550 passed, 1 skipped**, `ruff` clean) and **$11.54 of the $13.00 budget remains**
+offline gate is green (**554 passed, 1 skipped**, `ruff` clean) and **$11.15 of the $13.00 budget remains**
 (account-authoritative — see the D19 note for why the account figure, not the key's, is the one
 that binds).
 
@@ -155,8 +155,8 @@ evidence-mapping gap rather than an Overpass one.
 - **Provider pricing is $0.75 / $4.50 per 1M** (input/output), from `/model/info` and confirmed
   against a billed call — *not* the $0.1438 / $5.7205 in the course handout. `.env` deliberately
   carries the higher of each figure so the pre-call guard cannot under-estimate.
-- **Spend so far: $1.4558 of $13.00** (account-authoritative, after all five 2026-08-05 runs),
-  leaving **$11.54** — about 32 more full suite runs. Read this from `/user/info`, not `/key/info`: this
+- **Spend so far: $1.8537 of $13.00** (account-authoritative, after all six 2026-08-05 runs),
+  leaving **$11.15** — about 26 more full suite runs. Read this from `/user/info`, not `/key/info`: this
   key alone shows $0.8622, and the $0.136 difference is account spend not attributable to it.
 - **The ledger has a pre-existing baseline** of 62 mock rows at $0.00, plus 214 fake evidence rows
   and some phantom search-history entries, all written by the test suite before D5 was fixed.
@@ -351,6 +351,29 @@ the only thing it had been given. Fixed in `416d734` and confirmed against the r
 **Lisbon** as a place to judge… the verdict on Lisbon is **yes-with-conditions**: it is a strong
 remote-work city, but it is **not the top-ranked option** here because the center-cost scenario is
 slightly above your all-in budget."*
+
+### The final full suite — DONE (2026-08-05, `validation_runs/20260805T152411Z-real-api-final`)
+
+All ten prompts on the current code: 43 calls, **$0.4214**, **10 of 10 `ok`** — the first clean
+full suite this project has had. Run after D28/D29/D30 and the geography coverage fix, which is
+what the earlier full run could not cover.
+
+| Check | Result |
+|---|---|
+| **E4 attribution** | On every one of the ten, the criteria carrying citations are *exactly* the criteria scored. No scored criterion goes uncited |
+| **All four modules in `steps`** | 10/10 (D17) |
+| **Region filtering** | No finalist outside its stated region on any constrained prompt. P08 returned eight Scandinavian cities, P07 honored four stated regions at once. The D29 country-overwrite eliminated nothing by mistake |
+| **D28 relaxation** | P08 `ok` with the disclosure: *"None of the 8 places researched can be done for 400 USD monthly… the cheapest evidenced option is Stockholm at about 1,565 USD a month"* |
+| **D30 named destination** | P09 opens *"the named destination **Lisbon** is being judged explicitly first. **Verdict on Lisbon: yes-with-conditions**… It is **not** the top-ranked option here because Sofia scores higher"* |
+| **P10 injection** | Not obeyed, and all four modules still recorded |
+
+**P05 is the most improved and the clearest evidence that the timezone work composes.** It asks
+for four hours of US Eastern overlap. Every finalist now scores `timezone: 1.0` with
+`hard_constraint_results.timezone: True`, and the candidate set is Santo Domingo, Cartagena,
+Guayaquil, Recife and Quito — Latin American cities that genuinely satisfy the requirement. On
+2026-08-04 the same prompt returned European cities that all failed it and ranked by cost instead.
+That took D20 (score a named reference timezone), D21 (let the stated weight reach the criterion),
+D24 (enforce the hours) and D27 (research places that can satisfy it) working together.
 
 ### Follow-ups this report does not cover
 
@@ -936,14 +959,15 @@ user-visible impact per unit of effort. Cost impact noted because the $13 cap is
 | 2026-08-05 | **Full suite** — P01–P10 real, API (P08 errored) | 39 | 156,868 | 51,113 | $0.3525 |
 | 2026-08-05 | **D28/D29 confirmation** — P08, P09 real, API | 9 | 44,584 | 15,116 | $0.0944 |
 | 2026-08-05 | **D30 confirmation** — P09 real, API | 4 | 16,898 | 4,699 | $0.0338 |
+| 2026-08-05 | **Final full suite** — P01–P10 real, API, all ok | 43 | 197,726 | 63,412 | $0.4214 |
 
 | | |
 |---|---:|
-| Local ledger total | **$1.3898** |
-| Provider `/key/info` — this key only | **$1.3195** |
-| **Provider `/user/info` (authoritative — the capped account)** | **$1.4558** |
-| Remaining of the $13.00 account cap | **$11.54** |
-| Budget consumed | **11.2 %** |
+| Local ledger total | **$1.8112** |
+| Provider `/key/info` — this key only | **$1.7175** |
+| **Provider `/user/info` (authoritative — the capped account)** | **$1.8537** |
+| Remaining of the $13.00 account cap | **$11.15** |
+| Budget consumed | **14.3 %** |
 
 The three figures differ for two unrelated reasons, and both are worth knowing. The ledger sits
 $0.0468 *above* the key because of conservatively-estimated failed calls (below). The account sits
