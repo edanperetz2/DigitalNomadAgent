@@ -31,8 +31,16 @@ fits, relevant evidence, budget fit, main trade-off, confidence), a trade-offs d
 assumptions/limitations, and a numbered sources list. Never claim live flight/hotel prices, \
 guaranteed safety, guaranteed visa eligibility, guaranteed university admission, exact current \
 housing costs, exact travel times, or current program availability without verified evidence -- \
-use cautious, disclosed-uncertainty wording instead. Respond with ONLY a JSON object: \
-{"markdown": "..."}."""
+use cautious, disclosed-uncertainty wording instead.
+
+When `named_destinations` is present, the traveller is asking you to judge those specific places, \
+not to discover new ones. Open the interpretation by naming them and give the verdict on them \
+first -- plainly yes, no, or yes-with-conditions -- before presenting the ranking. Say so \
+explicitly if one of them is not the top-ranked option and why, and if one was researched but did \
+not make the final list, say that rather than leaving it unmentioned. The other candidates are \
+alternatives offered around that verdict, not a replacement for it.
+
+Respond with ONLY a JSON object: {"markdown": "..."}."""
 
 
 class _RecommendationOutput(BaseModel):
@@ -56,13 +64,21 @@ def _build_payload(
     max_final_recommendations: int,
 ) -> dict:
     viable = [e for e in evaluations if not e.eliminated][:max_final_recommendations]
-    return {
+    payload = {
         "purpose_summary": _purpose_summary(profile),
         "assumptions": profile.assumptions,
         "validation_issues": validation.issues,
         "candidates": [e.model_dump(mode="json") for e in viable],
         "sources": sources,
     }
+    # The generator was never told a place had been named, so it could not lead
+    # with a verdict on it even in principle: P09 asks "is Lisbon a good fit?"
+    # and the answer opened "You asked for remote-work-friendly destinations".
+    # D18 got the named place into the ranking; this is the other half of it.
+    # Only present when a place was actually named, so nothing else changes.
+    if profile.named_destinations:
+        payload["named_destinations"] = list(profile.named_destinations)
+    return payload
 
 
 def _mode_disclosure_line(client: BaseLLMClient) -> str:

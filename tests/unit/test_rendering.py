@@ -293,3 +293,66 @@ def test_candidates_scored_on_different_criteria_are_not_falsely_compared():
     )
 
     assert "cannot be compared directly" in markdown
+
+
+def _named_payload(named, candidates):
+    return {
+        "purpose_summary": "a remote work request",
+        "sources": [],
+        "named_destinations": named,
+        "candidates": candidates,
+    }
+
+
+def test_a_named_place_gets_its_verdict_before_the_ranking():
+    """D30: P09 asked "is Lisbon a good fit?" and the answer opened "You asked
+    for remote-work-friendly destinations" -- the generator was never told."""
+    from app.core.rendering import render_recommendation_markdown
+
+    markdown = render_recommendation_markdown(
+        _named_payload(
+            ["Lisbon"],
+            [
+                _ranked("Seville", 0.92, {"cost": 0.9}),
+                {**_ranked("Lisbon", 0.88, {"cost": 0.7}), "drawbacks": ["Centre is over budget."]},
+            ],
+        )
+    )
+
+    assert "On the place you asked about" in markdown
+    assert "**Lisbon:** a reasonable fit, ranked 2 of 2; Seville scored higher" in markdown
+    assert "Centre is over budget." in markdown
+    # The verdict leads; the table still follows.
+    assert markdown.index("On the place you asked about") < markdown.index("Best matches")
+
+
+def test_a_named_place_that_ranks_first_is_said_so_plainly():
+    from app.core.rendering import render_recommendation_markdown
+
+    markdown = render_recommendation_markdown(
+        _named_payload(["Lisbon"], [_ranked("Lisbon", 0.9, {"cost": 0.9})])
+    )
+    assert "**Lisbon:** yes — it ranks first here" in markdown
+
+
+def test_a_named_place_missing_from_the_shortlist_is_not_left_unmentioned():
+    """The P09 failure mode: eight other cities and no word about the one asked about."""
+    from app.core.rendering import render_recommendation_markdown
+
+    markdown = render_recommendation_markdown(
+        _named_payload(["Lisbon"], [_ranked("Seville", 0.9, {"cost": 0.9})])
+    )
+    assert "**Lisbon:** researched, but it did not reach the final shortlist" in markdown
+
+
+def test_no_verdict_section_when_no_place_was_named():
+    from app.core.rendering import render_recommendation_markdown
+
+    markdown = render_recommendation_markdown(
+        {
+            "purpose_summary": "a remote work request",
+            "sources": [],
+            "candidates": [_ranked("Seville", 0.9, {"cost": 0.9})],
+        }
+    )
+    assert "On the place you asked about" not in markdown

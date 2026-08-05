@@ -70,3 +70,25 @@ async def test_generate_recommendation_discloses_real_llm_mode():
         max_output_tokens=500,
     )
     assert "Generated using:** a real LLM provider" in markdown
+
+
+def test_the_payload_tells_the_generator_a_place_was_named():
+    """D30: it never did, so the model could not lead with a verdict even in
+    principle -- it was accurately describing the only thing it was given."""
+    from app.agent.models import PlaceRequestProfile, ValidationResult
+    from app.agent.recommendation_generator import _build_payload
+
+    validation = ValidationResult(approved=True)
+
+    named = _build_payload(
+        PlaceRequestProfile(purpose="remote_work", named_destinations=["Lisbon"]),
+        [],
+        validation,
+        [],
+        3,
+    )
+    assert named["named_destinations"] == ["Lisbon"]
+
+    # Absent otherwise, so the nine prompts that name nothing are untouched.
+    plain = _build_payload(PlaceRequestProfile(purpose="remote_work"), [], validation, [], 3)
+    assert "named_destinations" not in plain

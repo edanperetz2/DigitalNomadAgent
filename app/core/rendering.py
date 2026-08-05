@@ -64,6 +64,41 @@ def _trade_off(candidates: list[dict]) -> str:
     )
 
 
+def _named_destination_verdict(named: list[str], candidates: list[dict]) -> str:
+    """Answer the question that was asked, before the ranking that was not.
+
+    A request like "I've settled on Lisbon -- is it a good fit?" wants a verdict
+    on Lisbon. D18 got the named place into the ranking; without this it arrives
+    as an unremarked row partway down a table of eight, and the reader has to
+    find their own city to discover the answer.
+    """
+    if not named or not candidates:
+        return ""
+
+    order = {c.get("place", "").strip().casefold(): i for i, c in enumerate(candidates)}
+    lines = []
+    for place in named:
+        rank = order.get(place.strip().casefold())
+        if rank is None:
+            lines.append(
+                f"**{place}:** researched, but it did not reach the final shortlist — the "
+                "alternatives below scored better on the criteria stated."
+            )
+            continue
+        candidate = candidates[rank]
+        drawback = (candidate.get("drawbacks") or [""])[0]
+        if rank == 0:
+            verdict = "yes — it ranks first here on your stated criteria"
+        else:
+            verdict = (
+                f"a reasonable fit, ranked {rank + 1} of {len(candidates)}; "
+                f"{candidates[0].get('place')} scored higher"
+            )
+        lines.append(f"**{place}:** {verdict}." + (f" {drawback}" if drawback else ""))
+
+    return "### On the place you asked about\n\n" + "\n\n".join(lines) + "\n"
+
+
 def render_recommendation_markdown(payload: dict[str, Any]) -> str:
     candidates: list[dict] = payload.get("candidates", [])
     assumptions: list[str] = payload.get("assumptions", [])
@@ -132,6 +167,9 @@ def render_recommendation_markdown(payload: dict[str, Any]) -> str:
 
     lines: list[str] = []
     lines.append(f"## Interpretation\n\nThis recommendation addresses {purpose_summary}.\n")
+    verdict = _named_destination_verdict(payload.get("named_destinations") or [], candidates)
+    if verdict:
+        lines.append(verdict)
 
     lines.append("## Best matches\n")
     lines.append("| Rank | Place | Why it fits | Main drawback | Confidence |")
