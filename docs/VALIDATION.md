@@ -23,7 +23,7 @@ Last updated: **2026-08-05**.
 **Every defect on the ledger is closed**, D27 included — it turned out the region taxonomy it
 needed was a hand-written table, not a dataset. D19's original finding turned out to be wrong in
 the other direction: there *is* a provider-side cap, on the account rather than the key. The
-offline gate is green (**525 passed, 1 skipped**, `ruff` clean) and **$12.00 of the $13.00 budget
+offline gate is green (**532 passed, 1 skipped**, `ruff` clean) and **$12.00 of the $13.00 budget
 remains** (account-authoritative — see the D19 note for why this is $0.14 lower than previously
 reported).
 
@@ -35,7 +35,7 @@ now waiting on a run.
 
 What *is* still unverified against the real provider, stated plainly: the seven prompts not in
 either subset (P01, P02, P06–P10) were last exercised on **2026-08-04**, and ten code commits have
-landed since. That gap grew with D27, which changed *which places get researched at all* and has
+landed since (twelve now). That gap grew with D27, which changed *which places get researched at all* and has
 only been seen in mock mode — the broadest change of the batch. A full-suite run (~$0.35) is what
 would close it. **P08** was investigated separately (see below): its PARTIAL was mis-diagnosed,
 and the real defect became **D27**, fixed the same day.
@@ -284,11 +284,11 @@ activities interests go from `[]` to `["food", "scene", "street", "culture", "ma
 ### Follow-ups this report does not cover
 
 - The enhancement backlog (section 8) is partly stale. **E3 is done** (`c1fd0ae`, `68907e3`).
-  **E1 and E2 are resolved in real mode** — E1's own entry predicted this ("configuration 3 will
-  show whether the real LLM fixes it") and the real runs bear it out: P01's rank 1 reads
-  "Strongest overall balance: excellent work infrastructure, clear fit for a car-free stay…", rank
-  2 something else, and confidence varies within result sets. Both remain mock-renderer
-  limitations only. **E6 is D18**, fixed in `2c5c9bf`. Still open and real: **E4** (sources are a
+  **E1 is done in both modes** (`137304f`): it was already fine in real mode — its own entry
+  predicted that ("configuration 3 will show whether the real LLM fixes it") — but the mock
+  renderer, which every $0 verification run is read through, was still emitting one fixed sentence
+  per criterion. Now each names its numbers. **E2 is resolved in real mode**; confidence varies
+  within result sets. **E6 is D18**, fixed in `2c5c9bf`. Still open and real: **E4** (sources are a
   flat list, not attached to claims), **E5** (vacuous trade-offs), **E7** (UI progress is still
   driven by `setInterval` timers in `app/static/app.js`, not by real `steps`), **E8** (golden case
   for a positive region constraint).
@@ -382,15 +382,10 @@ should name only criteria with no score in the same candidate's `criterion_score
 `validation_issues` entry should claim a scored criterion is unverified; and P08's candidate list
 should be checked for whether *any* of it is Scandinavian (D27) — in mock mode it now is.
 
-**2. E1 in mock mode — the renderer, not the model.** E1 was closed on the grounds that the real
-LLM writes proper justifications, which it does. But P08's mock output still reads *"Why it fits:
-Cost evidence compared against the stated budget informs this score"* and *"Provisional match
-based on limited evidence"* — so every $0 verification run, which is how most of this project's
-checking gets done, is read through a renderer that says nothing. Worth fixing for the sake of
-the cheap feedback loop even though it never reaches a real answer.
+**2. E4 — attach sources to the claims they support.** *(E1 in mock mode is done — `137304f`.)*
 
-**3. E4 — attach sources to the claims they support.** 33 undifferentiated citations is a list,
-not an evidence chain. The most valuable remaining enhancement for real output.
+33 undifferentiated citations is a list, not an evidence chain. The most valuable remaining
+enhancement for real output.
 
 **4. E7 — drive UI progress from real `steps`** instead of the `setInterval` timers still in
 `app/static/app.js`, and **E5** — replace the trade-offs paragraph that is true of any ranked list.
