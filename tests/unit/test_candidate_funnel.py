@@ -62,11 +62,15 @@ def test_orchestrator_relaxes_a_preferred_region_that_matches_nothing():
     enough: _check_hard_constraints re-runs the same region check during
     scoring, so an unrelaxed profile just moves the failure downstream from
     "eliminated by region constraints" to "eliminated by hard constraints".
+
+    Now that regions resolve to countries, reaching this path takes a region
+    that genuinely covers none of the candidates -- a non-geographic string the
+    interpreter mis-filed, or a real region nothing was proposed in.
     """
     from app.agent.orchestrator import _relax_unresolvable_preferred_regions
 
     profile = PlaceRequestProfile(
-        purpose="remote_work", preferred_regions=["Europe", "mid-sized city"]
+        purpose="remote_work", preferred_regions=["mid-sized city"]
     )
     candidates = [_candidate("Valencia"), _candidate("Porto", country="Portugal", country_code="PT")]
 
@@ -74,7 +78,25 @@ def test_orchestrator_relaxes_a_preferred_region_that_matches_nothing():
 
     assert relaxed.preferred_regions == []
     assert any("region preference" in a for a in relaxed.assumptions), "relaxation must be disclosed"
-    assert profile.preferred_regions == ["Europe", "mid-sized city"], "must not mutate the original"
+    assert profile.preferred_regions == ["mid-sized city"], "must not mutate the original"
+
+
+def test_a_continent_now_filters_instead_of_being_dropped():
+    """The D27 half of the region fix.
+
+    "Europe" used to match no country, so it was relaxed and thereafter ignored.
+    With the taxonomy it does what the user asked: keeps the European
+    candidates, and there is nothing to disclose because nothing was given up.
+    """
+    from app.agent.orchestrator import _relax_unresolvable_preferred_regions
+
+    profile = PlaceRequestProfile(purpose="remote_work", preferred_regions=["Europe"])
+    candidates = [_candidate("Valencia"), _candidate("Porto", country="Portugal", country_code="PT")]
+
+    relaxed = _relax_unresolvable_preferred_regions(profile, candidates)
+
+    assert relaxed.preferred_regions == ["Europe"]
+    assert relaxed.assumptions == []
 
 
 def test_orchestrator_keeps_a_preferred_region_that_matches_something():

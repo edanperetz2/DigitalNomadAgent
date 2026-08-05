@@ -18,6 +18,7 @@ from app.agent.models import CandidateEvaluation, CandidatePlace, PlaceRequestPr
 from app.climate_scoring import clamp, requested_climate_dimensions, weather_component_scores
 from app.core.module_names import DYNAMIC_EVALUATION
 from app.evidence.models import ToolResult
+from app.geography import resolve_region
 from app.llm.base import BaseLLMClient
 from app.llm.budget import BudgetManager
 from app.llm.traced_client import traced_llm_call
@@ -449,11 +450,14 @@ def check_geocoded_constraints(
 
     Runs right after geocoding, before any criterion is scored, so it can only
     compare country identity -- not a call into _check_hard_constraints, whose
-    signature needs criterion_scores that don't exist yet at this stage. Matches
-    country names/ISO codes case-insensitively; broader region names (e.g.
-    "Southeast Asia") are not resolved to member countries since no
-    region-taxonomy dataset exists in this codebase. Missing country identity
-    fails open (never eliminates), matching the rest of the codebase's rule that
+    signature needs criterion_scores that don't exist yet at this stage.
+
+    A region name is resolved to its member countries via `app.geography` first,
+    then falls back to matching the country name or ISO code directly. Before
+    that table existed, "Europe" matched no country at all, which is the shared
+    root of D16 (a continent eliminated every candidate) and D27 (relaxing the
+    continent meant it stopped being applied). Missing country identity fails
+    open (never eliminates), matching the rest of the codebase's rule that
     missing evidence cannot produce a positive hard-constraint result.
     """
     country = (candidate.country or "").strip().casefold()
@@ -462,18 +466,25 @@ def check_geocoded_constraints(
         return False, None
 
     for region in profile.excluded_regions:
-        region_norm = region.strip().casefold()
-        if region_norm and region_norm in (country, country_code):
+        if _region_matches(region, country, country_code):
             return True, f"{candidate.place_name} is in {candidate.country}, which is an excluded region."
 
-    if profile.preferred_regions:
-        normalized_preferred = {r.strip().casefold() for r in profile.preferred_regions if r.strip()}
-        if normalized_preferred and country not in normalized_preferred and country_code not in normalized_preferred:
-            return True, (
-                f"{candidate.place_name} is in {candidate.country}, which is outside the preferred regions."
-            )
+    preferred = [region for region in profile.preferred_regions if region.strip()]
+    if preferred and not any(_region_matches(region, country, country_code) for region in preferred):
+        return True, (
+            f"{candidate.place_name} is in {candidate.country}, which is outside the preferred regions."
+        )
 
     return False, None
+
+
+def _region_matches(region: str, country: str, country_code: str) -> bool:
+    """Does a stated region cover this country? Resolve the region, else compare names."""
+    members = resolve_region(region)
+    if members is not None:
+        return country in members
+    region_norm = " ".join(region.casefold().split())
+    return bool(region_norm) and region_norm in (country, country_code)
 
 
 def _stated_overlap_hours(profile: PlaceRequestProfile) -> float | None:

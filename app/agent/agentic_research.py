@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.agent.models import CandidatePlace, CandidatePlaceSeed, PlaceRequestProfile
 from app.core.module_names import AGENTIC_RESEARCH
+from app.geography import resolve_region
 from app.llm.base import BaseLLMClient
 from app.llm.budget import BudgetManager
 from app.llm.traced_client import traced_llm_call
@@ -27,6 +28,12 @@ net: include conventional matches, budget-oriented alternatives, less obvious di
 destinations that trade off one preference for another. Avoid near-duplicate destinations. This \
 is a bulk recall step, not the final answer -- a later, cheaper filtering stage narrows these down \
 before any of them are researched in depth, so keep each entry brief.
+
+Casting a wide net applies WITHIN the region the traveller asked for, never around it. If \
+preferred_regions is set, every candidate must be inside it; a `region_countries` list is provided \
+when those countries could be resolved. If the region cannot satisfy the rest of the request, \
+return the closest candidates inside it anyway and let the later stages report the conflict -- \
+substituting a different, cheaper or easier region silently answers a question nobody asked.
 
 Respond with ONLY a JSON object: {"candidates": [{"place_name": str, "country": str, \
 "reason_for_inclusion": str}, ...]}."""
@@ -48,7 +55,16 @@ async def generate_candidates(
     max_output_tokens: int,
     max_bulk_candidates: int = 30,
 ) -> list[CandidatePlace]:
-    user_content = json.dumps({"profile": profile.model_dump(mode="json")})
+    payload: dict = {"profile": profile.model_dump(mode="json")}
+    # Naming the member countries removes the ambiguity that let a "Scandinavia"
+    # request come back as Chiang Mai (D27). Omitted when nothing resolves, so
+    # the model is never handed an empty list to read as "no country qualifies".
+    region_countries = sorted(
+        {country for region in profile.preferred_regions for country in (resolve_region(region) or ())}
+    )
+    if region_countries:
+        payload["region_countries"] = region_countries
+    user_content = json.dumps(payload)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user_content},

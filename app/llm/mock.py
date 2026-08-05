@@ -19,6 +19,7 @@ from app.core.module_names import (
     REQUEST_INTERPRETER,
 )
 from app.core.rendering import render_recommendation_markdown
+from app.geography import region_contains
 from app.llm.base import BaseLLMClient, LLMRawResponse
 
 # ---------------------------------------------------------------------------
@@ -1175,8 +1176,38 @@ _SEED_CANDIDATES["unknown"] = _SEED_CANDIDATES["vacation"]
 
 
 def generate_candidates(profile: dict) -> list[dict]:
+    """Seed pool for the purpose, with any requested region brought to the front.
+
+    This used to key off purpose alone and ignore preferred_regions outright,
+    which is how P08 asked for Scandinavia and received Lisbon, Tbilisi, Chiang
+    Mai and Bali -- D27. In-region seeds now lead, pulled from the other purpose
+    pools when the purpose's own pool has none, and the rest still follow so
+    bulk recall stays wide and the Stage-2 funnel keeps its choices.
+    """
     purpose = profile.get("purpose", "unknown")
-    return _SEED_CANDIDATES.get(purpose, _SEED_CANDIDATES["vacation"])
+    pool = _SEED_CANDIDATES.get(purpose, _SEED_CANDIDATES["vacation"])
+    regions = [r for r in (profile.get("preferred_regions") or []) if isinstance(r, str)]
+    if not regions:
+        return pool
+
+    def in_region(candidate: dict) -> bool:
+        country = candidate.get("country") or ""
+        return any(region_contains(region, country) for region in regions)
+
+    leading = [c for c in pool if in_region(c)]
+    if not leading:
+        # The purpose's own pool has nothing in the region; borrow from the others.
+        taken = {c["place_name"] for c in pool}
+        for other in _SEED_CANDIDATES.values():
+            for candidate in other:
+                if candidate["place_name"] not in taken and in_region(candidate):
+                    taken.add(candidate["place_name"])
+                    leading.append(candidate)
+    if not leading:
+        return pool
+
+    leading_names = {c["place_name"] for c in leading}
+    return leading + [c for c in pool if c["place_name"] not in leading_names]
 
 
 _SEED_FIELDS = ("place_name", "country", "reason_for_inclusion")
