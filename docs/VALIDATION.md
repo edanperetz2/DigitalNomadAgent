@@ -23,7 +23,7 @@ Last updated: **2026-08-05**.
 **Every defect on the ledger is closed**, D27 included — it turned out the region taxonomy it
 needed was a hand-written table, not a dataset. D19's original finding turned out to be wrong in
 the other direction: there *is* a provider-side cap, on the account rather than the key. The
-offline gate is green (**532 passed, 1 skipped**, `ruff` clean) and **$12.00 of the $13.00 budget
+offline gate is green (**533 passed, 1 skipped**, `ruff` clean) and **$12.00 of the $13.00 budget
 remains** (account-authoritative — see the D19 note for why this is $0.14 lower than previously
 reported).
 
