@@ -150,7 +150,8 @@ def test_fewer_than_three_viable_candidates_flagged():
         _evaluation("C", 0.5, eliminated=True),
     ]
     result = validate_recommendations(evaluations, profile, gap_iteration_used=False)
-    assert any("Fewer than 3 viable" in issue for issue in result.issues)
+    # D42: reworded for the reader; the flag itself is what this guards.
+    assert any("shorter list than usual" in issue for issue in result.issues)
 
 
 def test_ranking_stability_flagged_when_close():
@@ -175,7 +176,7 @@ def test_fewer_than_max_final_recommendations_flagged_with_custom_n():
     result = validate_recommendations(
         evaluations, profile, gap_iteration_used=False, max_final_recommendations=8
     )
-    assert any("Fewer than 8 viable" in issue for issue in result.issues)
+    assert any("shorter list than usual" in issue for issue in result.issues)
 
 
 def test_top_candidates_slice_respects_custom_max_final_recommendations():

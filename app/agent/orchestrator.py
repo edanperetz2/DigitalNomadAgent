@@ -443,8 +443,8 @@ class Orchestrator:
                 prompt,
                 checkpoint,
                 execution_trace,
-                "The hard execution deadline was reached; unfinished work was stopped and the "
-                "ranking uses only evidence available at that point.",
+                "This answer was cut short to return on time, so it uses only the evidence "
+                "gathered up to that point.",
                 interactive,
             )
         elapsed = loop.time() - started_at
@@ -744,7 +744,7 @@ class Orchestrator:
                                 evaluations, profile, gap_iteration_used, self._max_final_recommendations
                             )
                             validation.issues.append(
-                                "The optional gap-research round was skipped because the research time budget expired."
+                                "There was no time left to go back and fill the gaps in the evidence."
                             )
                         evaluations = await self._score_unresolved_criteria(
                             evaluations, candidates, profile, evidence_by_place, request_id, execution_trace
@@ -797,8 +797,8 @@ class Orchestrator:
                     if timed_out_evidence:
                         validation = validation.model_copy(deep=True)
                         validation.issues.append(
-                            "Unfinished research calls were stopped by their time budgets; "
-                            "the ranking uses partial evidence."
+                            "Some research did not finish in time, so parts of this comparison "
+                            "rest on less evidence than the rest."
                         )
                         checkpoint.validation = validation
                     sources = self._collect_sources(evidence_by_place)

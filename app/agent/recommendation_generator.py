@@ -52,14 +52,27 @@ official ruling -- say so plainly near the top, naming what was asked, before yo
 you *can* offer. Never answer a narrower or different question in silence and leave the reader to \
 notice; an unanswered ask that goes unmentioned reads as an answer.
 
-When `named_destinations` is present, the traveller is asking you to judge those specific places, \
-not to discover new ones. Open the interpretation by naming them and give the verdict on them \
-first -- plainly yes, no, or yes-with-conditions -- before presenting the ranking. Say so \
-explicitly if one of them is not the top-ranked option and why, and if one was researched but did \
-not make the final list, say that rather than leaving it unmentioned. The other candidates are \
-alternatives offered around that verdict, not a replacement for it.
+Write as though you had done the research yourself. Never mention the data you were given, the \
+fields it arrived in, the shortlist you were handed, or how the research was scheduled -- the \
+traveller supplied a request and expects an answer, not an account of the machinery. Do not \
+report that a field was absent, do not call the places a "candidate set", and do not say research \
+was cut short by a budget or a timer.
 
 Respond with ONLY a JSON object: {"markdown": "..."}."""
+
+# Appended only when a place was actually named. Kept out of the base prompt so
+# the model never sees the field name in a request that has none: asked about a
+# ranking with nothing named, it wrote "I did not receive a `named_destinations`
+# field" to a retired couple, and nine of ten answers headed a section "Verdict
+# on the named destinations" when the traveller had named nothing (D42).
+NAMED_DESTINATION_PROMPT = """
+
+The traveller has named specific places and is asking you to judge those, not to discover new \
+ones. Open by naming them and give the verdict on each -- plainly yes, no, or yes only if some \
+named condition holds -- before presenting the ranking. Say explicitly if one of them is not the \
+top-ranked option and why, and if one was researched but did not make the final list, say that \
+rather than leaving it unmentioned. The other places are alternatives offered around that \
+verdict, not a replacement for it."""
 
 
 class _RecommendationOutput(BaseModel):
@@ -150,13 +163,27 @@ def _llm_payload(payload: dict) -> dict:
     the real trade-off between the top two. The model does not, and given them
     it copies them into prose (D41).
     """
-    return {
-        **payload,
-        "candidates": [
-            _present_candidate(candidate, rank)
-            for rank, candidate in enumerate(payload.get("candidates", []), start=1)
-        ],
+    # Keys are renamed to reader-facing phrases because the model echoes them.
+    # P06 told a retired couple "I did not receive a `named_destinations`
+    # field", and nine of ten answers headed a section "Verdict on the named
+    # destinations" whether or not anything had been named (D42).
+    renamed = {
+        "validation_issues": "caveats_to_pass_on",
+        "unmeasured_priorities": "priorities_no_evidence_could_be_found_for",
+        "irreconcilable_requests": "requests_that_cannot_both_be_met",
+        "named_destinations": "places_the_traveller_named",
     }
+    presented = {
+        renamed.get(key, key): value for key, value in payload.items() if key != "candidates"
+    }
+    # "candidates" keeps its name: the deterministic renderer reads this same
+    # payload, and the word itself never reached a reader -- what did was the
+    # phrase "candidate set", which the prompt now forbids.
+    presented["candidates"] = [
+        _present_candidate(candidate, rank)
+        for rank, candidate in enumerate(payload.get("candidates", []), start=1)
+    ]
+    return presented
 
 
 def _mode_disclosure_line(client: BaseLLMClient) -> str:
@@ -289,8 +316,11 @@ async def generate_recommendation(
         payload["irreconcilable_requests"] = list(stated_conflicts)
 
     try:
+        system_prompt = SYSTEM_PROMPT
+        if payload.get("named_destinations"):
+            system_prompt += NAMED_DESTINATION_PROMPT
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps(_llm_payload(payload))},
         ]
         call = traced_llm_call(

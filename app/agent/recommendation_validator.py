@@ -31,9 +31,12 @@ def validate_recommendations(
     viable = [e for e in evaluations if not e.eliminated]
 
     if len(evaluations) >= max_final_recommendations and len(viable) < max_final_recommendations:
+        # Written for the reader, not for the pipeline: P05 surfaced "Because
+        # fewer than 8 viable candidates remained after filtering" verbatim,
+        # which describes machinery the traveller never saw (D42).
         issues.append(
-            f"Fewer than {max_final_recommendations} viable candidates remain after "
-            "hard-constraint checks."
+            "This is a shorter list than usual -- most of the places researched did not meet "
+            "the requirements you set, so there were fewer left to compare."
         )
 
     # All three vocabularies here are authored independently -- weight keys and

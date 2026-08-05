@@ -223,3 +223,38 @@ def test_the_deterministic_renderer_still_gets_the_numbers_it_needs():
     payload = _build_payload(profile, [evaluation], validation, [], 3)
 
     assert payload["candidates"][0]["total_score"] == 0.9
+
+
+def test_the_field_name_is_absent_from_the_prompt_when_nothing_was_named():
+    """D42: it told a retired couple "I did not receive a `named_destinations`
+    field", and nine of ten answers headed a section "Verdict on the named
+    destinations" when the traveller had named nothing."""
+    from app.agent.recommendation_generator import NAMED_DESTINATION_PROMPT, SYSTEM_PROMPT
+
+    assert "named_destinations" not in SYSTEM_PROMPT
+    assert "named_destinations" not in NAMED_DESTINATION_PROMPT
+
+
+def test_the_named_destination_instruction_exists_for_when_one_was_named():
+    from app.agent.recommendation_generator import NAMED_DESTINATION_PROMPT
+
+    assert "has named specific places" in NAMED_DESTINATION_PROMPT
+
+
+def test_leaky_payload_keys_are_renamed_for_the_model():
+    from app.agent.recommendation_generator import _llm_payload
+
+    presented = _llm_payload(
+        {
+            "candidates": [],
+            "validation_issues": ["a caveat"],
+            "named_destinations": ["Lisbon"],
+            "unmeasured_priorities": ["food scene"],
+        }
+    )
+
+    assert "validation_issues" not in presented
+    assert "named_destinations" not in presented
+    assert presented["caveats_to_pass_on"] == ["a caveat"]
+    assert presented["places_the_traveller_named"] == ["Lisbon"]
+    assert presented["priorities_no_evidence_could_be_found_for"] == ["food scene"]
