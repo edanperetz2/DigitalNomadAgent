@@ -1009,3 +1009,41 @@ def test_amenity_and_safety_justifications_differ_between_places():
     assert "advisory" in krakow and "crime index" in krakow
     # The whole point: a reader can tell the two apart.
     assert krakow != barcelona
+
+
+def test_the_evidence_trail_uses_the_names_the_bibliography_uses():
+    """A tool publishing explicit evidence items carries a source name per item,
+    which need not equal the envelope's. Citing the envelope produced references
+    that matched nothing, and those criteria dropped out of the trail silently."""
+    from app.evidence.models import EvidenceItem, EvidenceSource
+
+    profile = PlaceRequestProfile(
+        purpose="remote_work", relevant_criteria=["work_infrastructure"], budget=Budget()
+    )
+    now = datetime.now(UTC)
+    result = _tool_result(
+        "AmenitiesTool",
+        "Krakow",
+        {"counts_by_category": {"coworking": 5, "cafe": 25}, "partial": False},
+        source_name="AmenitiesTool envelope",
+        evidence_items=[
+            EvidenceItem(
+                criterion="work_infrastructure",
+                normalized_data={},
+                source=EvidenceSource(
+                    source_name="OpenStreetMap", retrieved_at=now, confidence="medium"
+                ),
+            )
+        ],
+    )
+
+    evaluation = evaluate_candidates([_candidate("Krakow")], profile, {"Krakow": [result]})[0]
+
+    assert evaluation.criterion_sources["work_infrastructure"] == ["OpenStreetMap"]
+    assert "AmenitiesTool envelope" not in evaluation.criterion_sources["work_infrastructure"]
+
+
+def test_an_unscored_criterion_is_never_given_a_citation():
+    profile = PlaceRequestProfile(purpose="vacation", relevant_criteria=["climate"], budget=Budget())
+    evaluation = evaluate_candidates([_candidate("Nowhere")], profile, {"Nowhere": []})[0]
+    assert evaluation.criterion_sources == {}

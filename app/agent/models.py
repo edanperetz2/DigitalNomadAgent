@@ -101,6 +101,10 @@ class CandidateEvaluation(BaseModel):
     criterion_scores: dict[str, float] = Field(default_factory=dict)
     criterion_component_scores: dict[str, dict[str, float]] = Field(default_factory=dict)
     criterion_weights: dict[str, float] = Field(default_factory=dict)
+    # Which source produced each scored criterion. The report carried one flat
+    # bibliography of ~33 citations that no claim pointed into, so a reader could
+    # not check any particular number against where it came from (E4).
+    criterion_sources: dict[str, list[str]] = Field(default_factory=dict)
     total_score: float = 0.0
     confidence_score: float = 0.0
     hard_constraint_results: dict[str, bool] = Field(default_factory=dict)

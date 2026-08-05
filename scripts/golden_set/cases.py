@@ -25,6 +25,11 @@ class GoldenCase:
     expected_modules: frozenset[str] = field(default_factory=frozenset)
     forbidden_phrases: tuple[str, ...] = ()
     required_phrases: tuple[str, ...] = ()
+    # Every recommended place must be inside this region. A phrase check cannot
+    # express that -- it can only forbid cities someone thought to name -- which
+    # is why the positive case had no coverage and D7 (preferred_regions
+    # hard-coded empty) survived to a real run.
+    required_region: str | None = None
 
 
 GOLDEN_CASES: list[GoldenCase] = [
@@ -88,6 +93,19 @@ GOLDEN_CASES: list[GoldenCase] = [
         ),
         expected_modules=_NORMAL_FLOW_MODULES,
         forbidden_phrases=("France",),
+    ),
+    GoldenCase(
+        # The positive counterpart of excluded_region_is_respected. Only became
+        # assertable once a region resolved to its member countries (D27); before
+        # that a stated region was relaxed and quietly ignored, and a Scandinavia
+        # request came back with Chiang Mai.
+        name="preferred_region_is_respected",
+        prompt=(
+            "I want to spend a month somewhere in Scandinavia, with good public transport "
+            "and a walkable city centre."
+        ),
+        expected_modules=_NORMAL_FLOW_MODULES,
+        required_region="Scandinavia",
     ),
     GoldenCase(
         name="car_free_hard_requirement",

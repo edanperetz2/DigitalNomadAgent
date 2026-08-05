@@ -20,6 +20,50 @@ def _confidence_label(score: float) -> str:
     return "Low"
 
 
+def _trade_off(candidates: list[dict]) -> str:
+    """Name the criterion the top two actually disagree on.
+
+    "X is the strongest overall match, but Y may be preferable if its advantages
+    matter more to you" is true of any ranked list and so tells the reader
+    nothing (E5). The scores needed to say something specific were already on
+    the payload: the criterion where the runner-up most outscores the leader is
+    exactly the trade-off being made by taking rank 1.
+    """
+    if len(candidates) < 2:
+        return "Only one verified candidate remained after evidence checks.\n"
+
+    first, second = candidates[0], candidates[1]
+    first_scores = first.get("criterion_scores") or {}
+    second_scores = second.get("criterion_scores") or {}
+    shared = set(first_scores) & set(second_scores)
+    gains = {c: second_scores[c] - first_scores[c] for c in shared if second_scores[c] > first_scores[c]}
+
+    lead = first.get("place")
+    runner_up = second.get("place")
+    if not gains:
+        losses = {c: first_scores[c] - second_scores[c] for c in shared}
+        if losses:
+            widest = max(losses, key=lambda c: losses[c])
+            return (
+                f"{lead} beats {runner_up} on every criterion both were scored on, most clearly "
+                f"on {widest} ({first_scores[widest]:.2f} vs {second_scores[widest]:.2f}), so "
+                "there is no real trade-off between the top two.\n"
+            )
+        return (
+            f"{lead} and {runner_up} were scored on different criteria, so they cannot be "
+            "compared directly; read each on its own evidence.\n"
+        )
+
+    criterion = max(gains, key=lambda c: gains[c])
+    return (
+        f"Taking {lead} over {runner_up} costs you {criterion}: "
+        f"{first_scores[criterion]:.2f} against {second_scores[criterion]:.2f}. "
+        f"{lead} leads overall ({first.get('total_score', 0):.2f} vs "
+        f"{second.get('total_score', 0):.2f}); if {criterion} matters more to you than the "
+        f"balance of everything else, {runner_up} is the better pick.\n"
+    )
+
+
 def render_recommendation_markdown(payload: dict[str, Any]) -> str:
     candidates: list[dict] = payload.get("candidates", [])
     assumptions: list[str] = payload.get("assumptions", [])
@@ -27,8 +71,24 @@ def render_recommendation_markdown(payload: dict[str, Any]) -> str:
     sources: list[dict] = payload.get("sources", [])
     purpose_summary: str = payload.get("purpose_summary", "your request")
 
+    # Number each source once, so a claim can point into the bibliography
+    # instead of the reader having to guess which of ~33 citations backed it (E4).
+    source_numbers = {
+        s.get("source_name"): i for i, s in enumerate(sources, start=1) if s.get("source_name")
+    }
+
     def _missing(c: dict) -> str:
         return ", ".join(c.get("missing_evidence") or [])
+
+    def _evidence_trail(c: dict) -> str:
+        """Each scored criterion with the source numbers behind it."""
+        attributed = c.get("criterion_sources") or {}
+        parts = []
+        for criterion in sorted(attributed):
+            numbers = [source_numbers[name] for name in attributed[criterion] if name in source_numbers]
+            if numbers:
+                parts.append(f"{criterion} [{', '.join(str(n) for n in sorted(numbers))}]")
+        return ", ".join(parts)
 
     def _why_it_fits(c: dict) -> str:
         """No advantage recorded is not the same as no evidence gathered.
@@ -93,18 +153,14 @@ def render_recommendation_markdown(payload: dict[str, Any]) -> str:
         if c.get("missing_evidence"):
             missing = ", ".join(c["missing_evidence"])
             lines.append(f"- Evidence limitations: no verified data for {missing}.")
+        trail = _evidence_trail(c)
+        if trail:
+            lines.append(f"- Evidence trail: {trail}")
         lines.append(f"- Confidence: {_confidence_label(c.get('confidence_score', 0.0))}")
         lines.append("")
 
     lines.append("### Trade-offs\n")
-    if len(candidates) >= 2:
-        lines.append(
-            f"{candidates[0].get('place')} is the strongest overall match, but "
-            f"{candidates[1].get('place')} may be preferable if its advantages "
-            "matter more to you than to the top pick.\n"
-        )
-    else:
-        lines.append("Only one verified candidate remained after evidence checks.\n")
+    lines.append(_trade_off(candidates))
 
     lines.append("### Assumptions and limitations\n")
     if assumptions:

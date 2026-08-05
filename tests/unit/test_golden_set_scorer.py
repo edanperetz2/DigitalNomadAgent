@@ -119,3 +119,44 @@ def test_finalist_count_out_of_bounds_fails():
     result = score_case(case, data, max_finalists=8)
     assert not result.passed
     assert any(c.check == "finalist_count_in_bounds" for c in result.failures)
+
+
+def test_the_region_check_reads_the_place_headings():
+    """E8: the positive counterpart of the excluded-region case. A phrase check
+    can only forbid cities someone thought to name; this checks membership."""
+    from scripts.golden_set.cases import GoldenCase
+    from scripts.golden_set.scorer import score_case
+
+    case = GoldenCase(name="region", prompt="p", required_region="Scandinavia")
+
+    def result(markdown: str):
+        data = {"status": "ok", "response": markdown, "steps": []}
+        checks = score_case(case, data, max_finalists=8).checks
+        return next(c for c in checks if c.check.startswith("every_place_in_region"))
+
+    inside = result(
+        "## Best matches\n| 1 | Oslo |\nGenerated using: x\n"
+        "### 1. Oslo, Norway\n\n### 2. Copenhagen, Denmark\n"
+    )
+    assert inside.passed is True
+
+    outside = result(
+        "## Best matches\n| 1 | Oslo |\nGenerated using: x\n"
+        "### 1. Oslo, Norway\n\n### 2. Chiang Mai, Thailand\n"
+    )
+    assert outside.passed is False
+    assert "Thailand" in outside.detail
+
+
+def test_the_region_check_fails_when_there_is_nothing_to_check():
+    """An empty answer must not pass by vacuous truth."""
+    from scripts.golden_set.cases import GoldenCase
+    from scripts.golden_set.scorer import score_case
+
+    case = GoldenCase(name="region", prompt="p", required_region="Scandinavia")
+    data = {"status": "ok", "response": "## Best matches\n| 1 | Oslo |\nGenerated using: x\n", "steps": []}
+    check = next(
+        c for c in score_case(case, data, max_finalists=8).checks
+        if c.check.startswith("every_place_in_region")
+    )
+    assert check.passed is False

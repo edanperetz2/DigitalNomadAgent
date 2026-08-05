@@ -8,9 +8,14 @@ against a fixed expected string.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
+from app.geography import region_contains
 from scripts.golden_set.cases import GoldenCase
+
+# "### 1. Copenhagen, Denmark" -- the per-place headings the renderer emits.
+_PLACE_HEADING = re.compile(r"^### +\d+\. +[^,\r\n]+, *([^\r\n]+)$", re.MULTILINE)
 
 # Claims the Recommendation Generator's own system prompt already forbids
 # (app/agent/recommendation_generator.py) -- checked here as an independent
@@ -132,4 +137,26 @@ def score_case(case: GoldenCase, response_data: dict, *, max_finalists: int) -> 
     for phrase in case.required_phrases:
         checks.append(CheckResult(f"required_present:{phrase}", phrase.casefold() in lowered))
 
+    if case.required_region:
+        recommended = _recommended_countries(response_text)
+        outside = [
+            country
+            for country in recommended
+            if region_contains(case.required_region, country) is False
+        ]
+        checks.append(
+            CheckResult(
+                f"every_place_in_region:{case.required_region}",
+                bool(recommended) and not outside,
+                f"recommended {recommended}, outside the region: {outside}"
+                if recommended
+                else "no per-place sections were found to check",
+            )
+        )
+
     return CaseResult(case_name=case.name, checks=checks)
+
+
+def _recommended_countries(markdown: str) -> list[str]:
+    """Countries from the per-place headings ("### 1. Copenhagen, Denmark")."""
+    return [match.group(1).strip() for match in _PLACE_HEADING.finditer(markdown) if match.group(1).strip()]

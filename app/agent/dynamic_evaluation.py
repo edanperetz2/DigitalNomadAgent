@@ -145,6 +145,49 @@ _UNRESOLVED_TOOL_CRITERIA: dict[str, str] = {
     "BudgetFitTool": "cost",
 }
 
+# Which criteria each tool can produce, for attributing a score to the source it
+# came from (E4). Superset of _UNRESOLVED_TOOL_CRITERIA, which covers only the
+# four the LLM resolves.
+_TOOL_CRITERIA: dict[str, tuple[str, ...]] = {
+    "ActivitiesTool": ("activities",),
+    "LocalMobilityTool": ("transportation",),
+    "TransportAccessTool": ("accessibility",),
+    "BudgetFitTool": ("cost",),
+    "AmenitiesTool": ("work_infrastructure", "student_life"),
+    "TimezoneFitTool": ("timezone",),
+    "SafetyTool": ("safety",),
+    "WeatherTool": ("climate",),
+    "WikivoyageClimateTool": ("climate",),
+}
+
+
+def _criterion_sources(results: list[ToolResult], criterion_scores: dict[str, float]) -> dict[str, list[str]]:
+    """Map each scored criterion to the sources that actually produced it.
+
+    Only criteria that were scored, and only tools that did not error, so a
+    citation always points at evidence that exists.
+
+    Read through `resolved_evidence_items()` rather than the envelope's
+    `source_name`, because that is what the bibliography is built from. A tool
+    that publishes explicit evidence items carries a source name per item, which
+    need not equal the envelope's -- so using the envelope silently produced
+    citations that matched nothing and those criteria vanished from the trail.
+
+    Sorted, because two tools can feed one criterion (climate takes Open-Meteo
+    and Wikivoyage) and evaluation is order-independent by contract.
+    """
+    attributed: dict[str, set[str]] = {}
+    for result in results:
+        if result.error:
+            continue
+        criteria = [c for c in _TOOL_CRITERIA.get(result.tool_name, ()) if c in criterion_scores]
+        if not criteria:
+            continue
+        names = {item.source.source_name for item in result.resolved_evidence_items()}
+        for criterion in criteria:
+            attributed.setdefault(criterion, set()).update(names)
+    return {criterion: sorted(names) for criterion, names in attributed.items()}
+
 _HARD_CONSTRAINT_KEYWORDS: dict[str, tuple[str, ...]] = {
     "cost": ("budget", "cost", "afford"),
     "transportation": ("car-free", "car free", "without a car", "public transport"),
@@ -923,6 +966,7 @@ def apply_llm_scores(
                     "criterion_scores": criterion_scores,
                     "criterion_component_scores": criterion_component_scores,
                     "criterion_weights": normalized_weights,
+                    "criterion_sources": _criterion_sources(results, criterion_scores),
                     "total_score": total_score,
                     "confidence_score": confidence_score,
                     "hard_constraint_results": hard_constraint_results,
@@ -988,6 +1032,7 @@ def evaluate_candidates(
                 criterion_scores=criterion_scores,
                 criterion_component_scores=criterion_component_scores,
                 criterion_weights=normalized_weights,
+                criterion_sources=_criterion_sources(results, criterion_scores),
                 total_score=total_score,
                 confidence_score=confidence_score,
                 hard_constraint_results=hard_constraint_results,

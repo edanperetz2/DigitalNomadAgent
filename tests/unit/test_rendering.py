@@ -172,3 +172,124 @@ def test_a_candidate_with_no_evidence_at_all_still_says_so():
     )
 
     assert "climate could not be verified" in markdown
+
+
+_SOURCES = [
+    {"source_name": "Numbeo", "source_url": "https://numbeo.example"},
+    {"source_name": "OpenStreetMap", "source_url": "https://osm.example"},
+    {"source_name": "GOV.UK", "source_url": "https://gov.example"},
+]
+
+
+def test_each_claim_points_into_the_numbered_bibliography():
+    """E4: 33 undifferentiated citations that no claim pointed into."""
+    from app.core.rendering import render_recommendation_markdown
+
+    markdown = render_recommendation_markdown(
+        {
+            "purpose_summary": "a remote work request",
+            "sources": _SOURCES,
+            "candidates": [
+                {
+                    "place": "Krakow",
+                    "criterion_scores": {"cost": 0.8, "safety": 0.9},
+                    "criterion_sources": {"cost": ["Numbeo"], "safety": ["GOV.UK", "OpenStreetMap"]},
+                    "advantages": ["Cheap."],
+                    "drawbacks": ["Cold."],
+                    "confidence_score": 0.8,
+                }
+            ],
+        }
+    )
+
+    assert "Evidence trail: cost [1], safety [2, 3]" in markdown
+    assert "1. Numbeo" in markdown and "3. GOV.UK" in markdown
+
+
+def test_a_source_not_in_the_bibliography_is_not_cited():
+    from app.core.rendering import render_recommendation_markdown
+
+    markdown = render_recommendation_markdown(
+        {
+            "purpose_summary": "a remote work request",
+            "sources": _SOURCES,
+            "candidates": [
+                {
+                    "place": "Krakow",
+                    "criterion_scores": {"cost": 0.8},
+                    "criterion_sources": {"cost": ["Some tool that never registered a source"]},
+                    "advantages": ["Cheap."],
+                    "drawbacks": ["Cold."],
+                    "confidence_score": 0.8,
+                }
+            ],
+        }
+    )
+
+    assert "Evidence trail" not in markdown
+
+
+def _ranked(place: str, total: float, scores: dict) -> dict:
+    return {
+        "place": place,
+        "total_score": total,
+        "criterion_scores": scores,
+        "advantages": ["a"],
+        "drawbacks": ["d"],
+        "confidence_score": 0.8,
+    }
+
+
+def test_the_trade_off_names_the_criterion_actually_given_up():
+    """E5: "X is the strongest match, but Y may be preferable if its advantages
+    matter more to you" is true of every ranked list ever produced."""
+    from app.core.rendering import render_recommendation_markdown
+
+    markdown = render_recommendation_markdown(
+        {
+            "purpose_summary": "a remote work request",
+            "sources": [],
+            "candidates": [
+                _ranked("Krakow", 0.81, {"cost": 0.9, "safety": 0.6, "timezone": 0.5}),
+                _ranked("Berlin", 0.78, {"cost": 0.4, "safety": 0.95, "timezone": 0.5}),
+            ],
+        }
+    )
+
+    assert "Taking Krakow over Berlin costs you safety: 0.60 against 0.95" in markdown
+    assert "may be preferable if its advantages" not in markdown
+
+
+def test_a_dominant_leader_is_reported_as_having_no_trade_off():
+    from app.core.rendering import render_recommendation_markdown
+
+    markdown = render_recommendation_markdown(
+        {
+            "purpose_summary": "a remote work request",
+            "sources": [],
+            "candidates": [
+                _ranked("Krakow", 0.9, {"cost": 0.9, "safety": 0.9}),
+                _ranked("Berlin", 0.5, {"cost": 0.4, "safety": 0.5}),
+            ],
+        }
+    )
+
+    assert "beats Berlin on every criterion" in markdown
+    assert "no real trade-off" in markdown
+
+
+def test_candidates_scored_on_different_criteria_are_not_falsely_compared():
+    from app.core.rendering import render_recommendation_markdown
+
+    markdown = render_recommendation_markdown(
+        {
+            "purpose_summary": "a remote work request",
+            "sources": [],
+            "candidates": [
+                _ranked("Krakow", 0.9, {"cost": 0.9}),
+                _ranked("Berlin", 0.5, {"safety": 0.5}),
+            ],
+        }
+    )
+
+    assert "cannot be compared directly" in markdown

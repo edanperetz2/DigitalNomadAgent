@@ -72,22 +72,26 @@
   // matches the real modules, and advances monotonically -- holding on the last
   // stage rather than looping, which is what the elapsed timer and the
   // "still thinking" note are there to cover.
+  // Only phases that ALWAYS run. /api/execute is a single request with no
+  // progress channel, so these are paced by a timer, not by real events -- which
+  // means anything named here is a claim the UI cannot check. The list used to
+  // name individual tools ("Checking safety advisories...", "Matching time
+  // zones..."), but tool selection is per-profile: a vacation request with no
+  // timezone requirement never runs TimezoneFitTool, and the UI said it did.
+  // The four modules below are the pipeline itself and always execute, so the
+  // label is true whatever the profile. The real per-tool trace is rendered
+  // from `steps` once the response arrives.
   const LOADING_STAGES = [
     "Interpreting your request...",
-    "Generating candidate destinations...",
-    "Verifying candidates (geocoding)...",
-    "Checking weather and climate fit...",
-    "Running budget-fit tool...",
-    "Matching time zones...",
-    "Checking amenities and walkability...",
-    "Checking safety advisories...",
-    "Scoring and ranking candidates...",
-    "Validating recommendation quality...",
+    "Choosing candidate destinations...",
+    "Researching candidates against live sources...",
+    "Scoring and ranking on the evidence...",
     "Writing your recommendation...",
   ];
   // Paced against observed run times (roughly 40-250s), so the sequence tracks
   // a real request instead of finishing in 14 seconds.
-  const LOADING_STAGE_INTERVAL_MS = 7000;
+  // Five phases across a typical 40-110s request, holding on the last one.
+  const LOADING_STAGE_INTERVAL_MS = 12000;
   const LOADING_NOTE_DELAY_MS = 15000;
   const EXECUTE_TIMEOUT_MS = 295000;
   let loadingStageTimer = null;
