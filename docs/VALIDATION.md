@@ -4,17 +4,27 @@ How DigitalNomadAgent has been validated, what the end-to-end runs found, and wh
 fixing. Two things are kept deliberately separate: **defects** (it does not work as intended) and
 **enhancements** (it works, but could be better). Correctness comes first.
 
-Last updated: **2026-08-04**.
+Last updated: **2026-08-05**.
 
 > **Reading order.** Section 0 is the current status, including the results of the post-fix
-> verification run against the real provider (2026-08-04). Sections 2–9 are the original
-> findings, written before the fixes landed — they still describe several defects as open.
-> Section 0 is authoritative on what is fixed; the detail below explains *why* each one mattered
-> and is worth keeping for that reason.
+> verification run against the real provider (2026-08-04) and the fixes that followed. Sections
+> 2–9 are the original findings, written before the fixes landed — they still describe several
+> defects as open. Section 0 is authoritative on what is fixed; the detail below explains *why*
+> each one mattered and is worth keeping for that reason.
 
 ---
 
 ## 0. Current status and next steps
+
+### Where this stands, in one paragraph
+
+Every defect on the ledger is closed except **D19**, which cannot be fixed from this repository —
+the API key's budget cap is administered by the course provider. The offline gate is green (**481
+passed, 1 skipped**, `ruff` clean) and $12.36 of the $13.00 budget remains. The one gap worth
+knowing about: **the current code has never been run against the real LLM.** The five fix commits
+after `6da2464` were verified with mock LLM + real tools at $0 and offline against a captured
+real-LLM profile, but the last paid suite run (`validation_runs/20260804T175107Z-real-api-postfix`)
+predates them. See "Suggested next session" at the end of this section.
 
 ### Defect status
 
@@ -35,7 +45,7 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D10 | All criterion weights were exactly 0.5 | **Fixed** | `b100775` |
 | D11 | "No major drawback identified" printed when evidence was absent | **Fixed** | `0c88ab9` |
 | D12 | Budget period misparsed ("a month" → daily) | **Fixed** | `0dcbfad` |
-| D13 | Landing page claims visa/real-time data the system has not got | **Open — deferred by the team** | — |
+| D13 | Landing page claims visa/real-time data the system has not got | **Fixed** (2026-08-05) | `bdd9f60` |
 | D14 | UI progress labels looped and named a removed module | **Fixed** | `14d582e` |
 | D15 | Pinning `temperature` broke every gpt-5 call | **Fixed** | `5e8623b` |
 | D16 | Continental region preference eliminated every candidate | **Fixed** | `5e8623b` |
@@ -45,15 +55,19 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D20 | Time-zone criterion never scored when the reference timezone is named ("overlap with US Eastern") rather than implied by an origin | **Fixed** | `8d1f6b5`, `03ce480` |
 | D21 | Free-form interpreter weight keys (`time_zone_overlap`) never matched the scoring vocabulary, so every user-stated weight fell back to the 0.5 default | **Fixed** | `17927a0` |
 | D8b | Residual of D8: global `Semaphore(2)` starved Amenities/LocalMobility jobs, and a killed LocalMobilityTool lost its already-fetched Wikivoyage prose | **Fixed** | `9405937` |
+| D22 | Mock scorer rendered a failed count lookup as a scored `count (0)` — absence of evidence as evidence of absence | **Fixed** | `d6b2939` |
 
-Two deliberate non-changes, both flagged rather than decided unilaterally:
+One deliberate non-change, flagged rather than decided unilaterally:
 
 - **Budget refusals still leave `steps` empty** (`df24a78`). A refused call never reaches the
   provider, so there is no interaction to document, and
   `test_budget_refusal_prevents_call_and_leaves_trace_empty` encodes that as intended. But the
   orchestrator *does* fall back on `BudgetExceededError`, so the same hidden-degradation argument
   as D17 applies. Worth a decision.
-- **D13** is copy-only and was deferred by the team on 2026-08-04. Raise it at submission prep.
+
+**D19 is not fixable from this repository.** The key's `max_budget` is administered by the course
+provider; `MAX_PROJECT_BUDGET_USD` plus the D0 fix is the entire spend guard, and both README and
+this report now say so.
 
 ### The verification run — DONE (2026-08-04, `validation_runs/20260804T175107Z-real-api-postfix`)
 
@@ -133,15 +147,67 @@ P05 investigation split into two distinct defects (D20, D21).
   AmenitiesTool 12.5% → 4/9 ok with `queue_seconds=0.000` on every invocation — the remaining
   failures are upstream Overpass slowness on specific cities, honestly disclosed per D11.
 
+### Closing out the ledger, 2026-08-05
+
+- **D13 — landing-page copy** (`bdd9f60`): the last deferred defect. Hero and feature-card copy
+  no longer promise visa data or real-time information; see the D13 detail in section 6.
+- **D22 — mock scorer honesty** (`d6b2939`): noticed while verifying D8b. When a tool's OSM half
+  failed, the mock Dynamic Evaluation stand-in summed an empty counts dict to zero and emitted a
+  *scored* 0.0 reading "Local mobility infrastructure count (0) informs this score" — the same
+  absence-as-evidence pattern D11 fixed elsewhere. Absent counts now leave the criterion unscored
+  so it renders as "not assessed"; a genuine dict of zero counts is real evidence and still
+  scores. Both cases are pinned by tests.
+
 ### Follow-ups this report does not cover
 
-- **Mock renderer wording:** a LocalMobility result whose OSM half failed renders as "Local
-  mobility infrastructure count (0)" — data-absence phrased as a zero count. The evidence itself
-  is honest (`osm_status: "error"`, no OSM evidence item); this is the mock renderer's
-  boilerplate (E1 territory), not an evidence defect.
 - The enhancement backlog (section 8) is untouched. E1 (boilerplate justifications) and E3
   (Wikivoyage prose collected then discarded) are the most valuable.
 - There is still **no CI**, no coverage measurement, and no frontend test tooling.
+
+### Suggested next session
+
+Ranked. The first item is the only one with a correctness argument behind it; the rest are
+improvements.
+
+**1. Re-validate the current code against the real provider (~$0.33, or ~$0.07 for the subset).**
+This is the outstanding risk: five fix commits have never met the real LLM. The highest-value
+subset is **P01** (D8b — do Amenities/LocalMobility now evidence the car-free criterion?),
+**P05** (D20/D21 — does a named reference timezone score, and do the real interpreter's
+free-form weight keys now drive ranking?) and **P03** (D21 — do ranked priorities still produce
+descending weights after canonicalization?). Full suite if you want the complete picture.
+
+```bash
+# 1. Offline gate -- must be green before spending anything
+pytest -q && ruff check .
+
+# 2. Provider state, read-only, $0
+python scripts/probe_llmod_account.py
+
+# 3. Set MOCK_LLM=false in .env, then start the server
+uvicorn app.main:app --port 8000
+
+# 4. Second shell -- captures to validation_runs/, judges nothing
+python scripts/run_e2e_suite.py --label real-api-postfix-2
+
+# 5. Reconcile spend, then put MOCK_LLM back to true in .env
+python scripts/show_llm_usage.py --calls && python scripts/probe_llmod_account.py
+```
+
+What to look for, beyond the per-prompt table in the verification-run section above: P01's
+finalists should now carry real coworking/mobility numbers rather than "missing verification";
+P05 should rank by overlap with US Eastern rather than by cost; and no prompt should show a flat
+0.5 weight profile.
+
+**2. E1 — boilerplate justifications.** The single most visible quality gap: "Cost evidence
+compared against the stated budget informs this score" appears as the *why it fits* for most
+candidates, so a reader cannot tell why rank 1 beat rank 4. Mock-renderer work, no LLM cost.
+
+**3. E3 — Wikivoyage prose is fetched then discarded.** Rich See/Do prose is collected and never
+scored. Now more valuable than before: D8b's degradation path deliberately returns
+context-only evidence, so wiring the prose into scoring turns a fallback into a real answer.
+
+**4. Decide the budget-refusal `steps` question** (the one deliberate non-change above), and
+**E8** — add a golden case for a positive region constraint, the gap that let D7 survive.
 
 ---
 
@@ -393,7 +459,7 @@ Southeast Asia" are **always ignored**. `excluded_regions` *is* extracted, which
 set's "avoid France" case passes — there is no golden case for a positive region. Independent of
 D6: fixing the keywords alone still leaves this broken.
 
-#### D13 — Landing page claims capabilities the system explicitly disclaims · **high**
+#### D13 — Landing page claims capabilities the system explicitly disclaims · **high** · **FIXED**
 
 > **Trusted & Up-to-Date** — "Real-time visa, cost, and safety information you can rely on."
 > Hero: "Get personalized recommendations, costs, **visas** and more."
@@ -403,6 +469,12 @@ static dataset stamped `2026-01-15`, climate is 2021–2025 normals. And every g
 says the opposite: *"No live prices … or guaranteed admission/visa eligibility are claimed here."*
 The marketing copy contradicts the product's own disclaimer and promises a capability that does not
 exist. Cheap to fix; it undercuts the project's central claim of evidence-based honesty.
+
+Fixed on 2026-08-05 (`bdd9f60`). The hero now reads *"personalized, evidence-backed
+recommendations for costs, climate, safety and more"* and the feature card is *"Evidence You Can
+Check — every claim cited to its source, with retrieval dates and confidence levels"*, which
+describes what the system genuinely does. `test_index_does_not_claim_capabilities_the_system_lacks`
+asserts the words "visa", "real-time" and "up-to-date" do not appear in the rendered page.
 
 #### D15 — Pinning `temperature` breaks every call · **critical** · real mode · **FIXED**
 
@@ -645,5 +717,6 @@ python scripts/probe_llmod_account.py
 
 Superseded by **section 0**, which carries the current defect status and the handover for the next
 session. The items that were listed here — D8, D6/D7/D10, D17, D18 — have since been fixed and
-**verified against the real provider on 2026-08-04** (D8 partially: see section 0). D13 remains
-deferred until submission prep.
+**verified against the real provider on 2026-08-04**; D8's residual (D8b) and D13 were fixed
+afterwards. **Every defect on the ledger is now closed** except D19, which cannot be fixed from
+this repository (the key's budget cap is provider-administered).
