@@ -123,13 +123,15 @@ WORK_AMENITY_SATURATION = {"coworking": 5.0, "cafe": 25.0}
 # Per criterion, per candidate. Wikivoyage sections are collected at up to
 # 20,000 chars; this is what the batched scoring call can afford to carry.
 WIKIVOYAGE_EVIDENCE_CHARS = 1_200
-# "free" is here because it is the residue of "car-free": on its own it matched
-# a Wikivoyage line about a "free PDF guide" and counted that as evidence of
-# car-free livability. A term has to carry the meaning by itself to be useful.
+# A term has to carry the meaning by itself. "free" is here because it is the
+# residue of "car-free" and on its own matched a Wikivoyage line about a "free
+# PDF guide", counting that as evidence of car-free livability; the intensifiers
+# are here because "strong market culture" means nothing via "strong".
 _INTEREST_STOPWORDS = frozenset(
     {
         "good", "easy", "great", "nice", "with", "from", "that", "this", "very", "some",
         "must", "need", "free", "want", "like", "well", "more", "less", "than",
+        "strong", "really", "genuinely", "ideally", "quite", "fairly", "plenty",
     }
 )
 STUDENT_AMENITY_SATURATION = {"university": 3.0, "library": 8.0}
@@ -629,14 +631,21 @@ def _score_totals(
     return normalized_weights, round(total_score, 4), round(min(1.0, confidence_score), 4)
 
 
-def _interest_terms(values: list[str]) -> list[str]:
+def _interest_terms(*sources: list[str]) -> list[str]:
     """Single words worth matching prose against, from stated preference phrases.
 
-    "car-free livability" contributes "free" and "livability"; the stopword set
-    exists so "good public transport" does not match on "good".
+    "car-free livability" contributes "livability"; the stopword set exists so
+    "good public transport" does not match on "good".
+
+    Several sources because the interpreter does not put a stated interest in one
+    predictable field. P04 asks for "a really good food scene, ideally with
+    strong street food or market culture" and the real interpreter filed all of
+    it under soft_preferences, leaving activity_preferences empty -- so reading
+    only the normalized field left the most activity-driven prompt in the set
+    with nothing to match on.
     """
     terms: list[str] = []
-    for value in values:
+    for value in [v for source in sources for v in source]:
         for word in re.split(r"[^a-z]+", str(value).casefold()):
             if len(word) > 3 and word not in _INTEREST_STOPWORDS and word not in terms:
                 terms.append(word)
@@ -718,7 +727,7 @@ def _compact_unresolved_evidence(tool_name: str, normalized_data: dict, profile:
                 normalized_data.get("wikivoyage_see_context"),
                 normalized_data.get("wikivoyage_do_context"),
             ],
-            _interest_terms(profile.activity_preferences),
+            _interest_terms(profile.activity_preferences, profile.soft_preferences),
         )
         return _with_matches(
             {
@@ -730,7 +739,7 @@ def _compact_unresolved_evidence(tool_name: str, normalized_data: dict, profile:
     if tool_name == "TransportAccessTool":
         excerpt, matched = _selected_wikivoyage_text(
             [normalized_data.get("wikivoyage_context")],
-            _interest_terms(profile.mobility_requirements),
+            _interest_terms(profile.mobility_requirements, profile.soft_preferences),
         )
         return _with_matches(
             {
@@ -743,7 +752,7 @@ def _compact_unresolved_evidence(tool_name: str, normalized_data: dict, profile:
     if tool_name == "LocalMobilityTool":
         excerpt, matched = _selected_wikivoyage_text(
             [normalized_data.get("wikivoyage_context")],
-            _interest_terms(profile.mobility_requirements),
+            _interest_terms(profile.mobility_requirements, profile.soft_preferences),
         )
         return _with_matches(
             {

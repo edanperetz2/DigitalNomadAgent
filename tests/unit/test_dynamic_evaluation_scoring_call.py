@@ -150,6 +150,34 @@ def test_scoring_payload_stays_within_its_char_budget():
     assert len(excerpt) <= WIKIVOYAGE_EVIDENCE_CHARS + 40  # + subsection labels
 
 
+def test_an_interest_filed_under_soft_preferences_still_selects_prose():
+    """P04's food and market interests landed in soft_preferences, not
+    activity_preferences, so relevance selection had nothing to match on."""
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        activity_preferences=[],
+        # Verbatim from the P04 profile of validation_runs/20260805T061515Z.
+        soft_preferences=["good food scene", "strong street food culture", "strong market culture"],
+    )
+    filler = "The cathedral dates from the twelfth century. " * 30
+    evidence = _activities_evidence(
+        "Palermo",
+        {
+            "counts_by_category": {},
+            "wikivoyage_see_context": _section(
+                ("Churches", filler),
+                ("Markets", "The Ballaro street market sells food from dawn."),
+            ),
+        },
+    )
+    payload = build_unresolved_scoring_payload(
+        [_evaluation("Palermo", unscored_evidence=["activities"])], profile, evidence
+    )
+    activities = payload[0]["criteria"]["activities"]
+    assert activities["wikivoyage_excerpt"].startswith("[Markets]")
+    assert set(activities["wikivoyage_matched_interests"]) >= {"food", "market"}
+
+
 def test_a_stray_word_from_a_preference_phrase_is_not_treated_as_a_match():
     """"car-free livability" once matched a line about a "free PDF guide"."""
     profile = PlaceRequestProfile(purpose="remote_work", mobility_requirements=["car-free livability"])
