@@ -27,7 +27,9 @@ RADIUS_M = 3000
 # discarded usable context evidence).
 OSM_SUBCALL_TIMEOUT_SECONDS = 40.0
 OVERPASS_SOURCE_NAME = "OpenStreetMap local mobility infrastructure"
-OVERPASS_SOURCE_URL = "https://wiki.openstreetmap.org/wiki/Overpass_API"
+# The data, not the manual. Citing the Overpass API documentation page as
+# the source of a count is not a citation a reader can check (D44).
+OVERPASS_SOURCE_URL = "https://www.openstreetmap.org/"
 WIKIVOYAGE_SOURCE_NAME = "Wikivoyage Get around section"
 GET_AROUND_SECTION_NAMES = ("Get around", "Getting around")
 COMPONENTS = ("bus_stops", "rail_metro_tram_stations", "pedestrian_ways", "cycleways")

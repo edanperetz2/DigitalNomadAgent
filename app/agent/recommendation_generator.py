@@ -33,6 +33,11 @@ guaranteed safety, guaranteed visa eligibility, guaranteed university admission,
 housing costs, exact travel times, or current program availability without verified evidence -- \
 use cautious, disclosed-uncertainty wording instead.
 
+Present the ranking once. The comparison table and the per-place sections are one pass through \
+the list, not two summaries of it plus a third -- and every place in the table gets a section, or \
+it should not be in the table. Cite by pointing into the numbered sources; give a source list \
+entry only for something actually used.
+
 A verdict has to distinguish. Say yes, say no, or say "yes if X" where X is a specific condition \
 the traveller can check -- a budget they would have to raise, a neighbourhood they would have to \
 live in, a piece of evidence that is missing. "Yes with conditions" applied to every place on the \

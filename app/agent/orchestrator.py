@@ -319,15 +319,22 @@ class Orchestrator:
     @staticmethod
     def _collect_sources(evidence_by_place: dict[str, list[ToolResult]]) -> list[dict]:
         sources: dict[tuple[str, str | None], dict] = {}
-        for results in evidence_by_place.values():
+        for place, results in evidence_by_place.items():
             for r in results:
                 if r.error:
                     continue
                 for item in r.resolved_evidence_items():
-                    key = (item.source.source_name, item.source.source_url)
+                    # Say which place each entry is about. P01's bibliography
+                    # carried "Wikivoyage Get around section" five times and
+                    # "OpenStreetMap Nominatim" six, so a reader could not tell
+                    # which city any of them supported (D44).
+                    name = item.source.source_name
+                    if place and place.casefold() not in name.casefold():
+                        name = f"{name} — {place}"
+                    key = (name, item.source.source_url)
                     if key not in sources:
                         sources[key] = {
-                            "source_name": item.source.source_name,
+                            "source_name": name,
                             "source_url": item.source.source_url,
                             "retrieved_at": item.source.retrieved_at.date().isoformat(),
                             "data_date": item.source.data_date,

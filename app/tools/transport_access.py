@@ -30,7 +30,9 @@ COMPONENTS = (
     "ferry_terminals_within_10km",
 )
 GET_IN_SECTION_NAMES = ("Get in", "Getting in")
-OVERPASS_SOURCE_URL = "https://wiki.openstreetmap.org/wiki/Overpass_API"
+# The data, not the manual. Citing the Overpass API documentation page as
+# the source of a count is not a citation a reader can check (D44).
+OVERPASS_SOURCE_URL = "https://www.openstreetmap.org/"
 SUBLOOKUP_TIMEOUT_SECONDS = 40
 
 

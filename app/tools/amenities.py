@@ -10,7 +10,9 @@ from app.evidence.models import ToolResult
 from app.tools.overpass_client import OverpassClient, build_counted_query, parse_counts
 
 RADIUS_M = 3000
-OVERPASS_SOURCE_URL = "https://wiki.openstreetmap.org/wiki/Overpass_API"
+# The data, not the manual. Citing the Overpass API documentation page as
+# the source of a count is not a citation a reader can check (D44).
+OVERPASS_SOURCE_URL = "https://www.openstreetmap.org/"
 CATEGORY_REGISTRY_SOURCE = "DigitalNomadAgent amenity category registry"
 
 # User text never reaches query construction directly; only these bounded OSM

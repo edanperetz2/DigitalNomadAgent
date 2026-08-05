@@ -86,6 +86,30 @@ def test_source_collection_includes_every_explicit_source():
 
     sources = Orchestrator._collect_sources({"Lisbon": [result]})
 
-    assert {source["source_name"] for source in sources} == {"Source A", "Source B"}
+    # D44: each entry names the place it is about, so a reader can tell which
+    # city a citation supports. P01 listed "Wikivoyage Get around section"
+    # five times with no way to distinguish them.
+    assert {source["source_name"] for source in sources} == {
+        "Source A — Lisbon",
+        "Source B — Lisbon",
+    }
     assert all(source["confidence"] == "medium" for source in sources)
     assert all(source["stale"] is False for source in sources)
+
+
+def test_a_source_already_naming_its_place_is_not_labelled_twice():
+    """D44: "WhereNext City Price Dataset (Seville)" already says which city."""
+    from app.agent.orchestrator import Orchestrator
+
+    result = ToolResult(
+        tool_name="BudgetFitTool",
+        place="Seville",
+        normalized_data={},
+        source_name="WhereNext City Price Dataset (Seville)",
+        retrieved_at=datetime.now(UTC),
+        confidence="medium",
+    )
+
+    sources = Orchestrator._collect_sources({"Seville": [result]})
+
+    assert [s["source_name"] for s in sources] == ["WhereNext City Price Dataset (Seville)"]

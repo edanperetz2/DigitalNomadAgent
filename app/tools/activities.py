@@ -22,7 +22,9 @@ from app.tools.wikivoyage_sections import (
 
 MAX_CATEGORIES = 5
 SUBLOOKUP_TIMEOUT_SECONDS = 40
-OVERPASS_SOURCE_URL = "https://wiki.openstreetmap.org/wiki/Overpass_API"
+# The data, not the manual. Citing the Overpass API documentation page as
+# the source of a count is not a citation a reader can check (D44).
+OVERPASS_SOURCE_URL = "https://www.openstreetmap.org/"
 WIKIVOYAGE_SECTION_GROUPS = {"see": ("See",), "do": ("Do",)}
 
 CATEGORY_RADII_M = {
