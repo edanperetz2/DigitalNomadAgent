@@ -23,7 +23,7 @@ Last updated: **2026-08-05**.
 **Every defect on the ledger is closed**, including D28 and D29, which the full paid run of
 2026-08-05 exposed and which were fixed the same day. D19's original finding turned out to be wrong in
 the other direction: there *is* a provider-side cap, on the account rather than the key. The
-offline gate is green (**545 passed, 1 skipped**, `ruff` clean) and **$11.58 of the $13.00 budget remains**
+offline gate is green (**550 passed, 1 skipped**, `ruff` clean) and **$11.54 of the $13.00 budget remains**
 (account-authoritative — see the D19 note for why the account figure, not the key's, is the one
 that binds).
 
@@ -76,6 +76,7 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D27 | A requested region that cannot be resolved to countries is never actually researched: P08 asks for Scandinavia and gets 30 candidates, none Scandinavian | **Fixed** (2026-08-05) | `dbda6bb` |
 | D28 | An unmeetable hard constraint emptied the field and failed the request outright — D24 solved this for timezone only, so P08's $400 budget in Scandinavia killed the whole run | **Fixed** (2026-08-05) | `e45a936` |
 | D29 | A named destination was eliminated and vanished from the answer: `verify_candidates` never copied the geocoded country, so a synthesized candidate matched no region | **Fixed** (2026-08-05) | `e45a936` |
+| D30 | `named_destinations` never reached the Recommendation Generator, so it could not lead with a verdict on the place the user actually asked about | **Fixed** (2026-08-05) | `416d734` |
 
 One deliberate non-change, flagged rather than decided unilaterally:
 
@@ -154,8 +155,8 @@ evidence-mapping gap rather than an Overpass one.
 - **Provider pricing is $0.75 / $4.50 per 1M** (input/output), from `/model/info` and confirmed
   against a billed call — *not* the $0.1438 / $5.7205 in the course handout. `.env` deliberately
   carries the higher of each figure so the pre-call guard cannot under-estimate.
-- **Spend so far: $1.4220 of $13.00** (account-authoritative, after all four 2026-08-05 runs),
-  leaving **$11.58** — about 32 more full suite runs. Read this from `/user/info`, not `/key/info`: this
+- **Spend so far: $1.4558 of $13.00** (account-authoritative, after all five 2026-08-05 runs),
+  leaving **$11.54** — about 32 more full suite runs. Read this from `/user/info`, not `/key/info`: this
   key alone shows $0.8622, and the $0.136 difference is account spend not attributable to it.
 - **The ledger has a pre-existing baseline** of 62 mock rows at $0.00, plus 214 fake evidence rows
   and some phantom search-history entries, all written by the test suite before D5 was fixed.
@@ -342,11 +343,14 @@ P08 and P09 re-run against the real provider after the fixes: 9 calls, **$0.0944
   if staying outside the center… Center estimate appears above budget, so location choice within
   the city matters."*
 
-One residual quality point, not a defect: the generator's opening line reads "You asked for
-remote-work-friendly destinations" rather than acknowledging that a *specific* place was put up
-for assessment. Lisbon ranking 2nd behind Seville is honest — Seville scores higher — but a
-request phrased as "I've settled on X, sanity-check it" would read better if the interpretation
-said so. Worth a look if the named-destination path gets attention again.
+That run also surfaced **D30**, first noted here as a quality point and then found to be a
+missing field: the opening line read "You asked for remote-work-friendly destinations" because
+`_build_payload` never sent `named_destinations` at all. The generator was accurately describing
+the only thing it had been given. Fixed in `416d734` and confirmed against the real provider
+(`20260805T151138Z-real-api-d30`, $0.0338) — the answer now opens: *"you specifically named
+**Lisbon** as a place to judge… the verdict on Lisbon is **yes-with-conditions**: it is a strong
+remote-work city, but it is **not the top-ranked option** here because the center-cost scenario is
+slightly above your all-in budget."*
 
 ### Follow-ups this report does not cover
 
@@ -931,14 +935,15 @@ user-visible impact per unit of effort. Cost impact noted because the $13 cap is
 | 2026-08-05 | **Confirmation run** — P03, P04, P05 real, API | 12 | 47,171 | 16,545 | $0.1098 |
 | 2026-08-05 | **Full suite** — P01–P10 real, API (P08 errored) | 39 | 156,868 | 51,113 | $0.3525 |
 | 2026-08-05 | **D28/D29 confirmation** — P08, P09 real, API | 9 | 44,584 | 15,116 | $0.0944 |
+| 2026-08-05 | **D30 confirmation** — P09 real, API | 4 | 16,898 | 4,699 | $0.0338 |
 
 | | |
 |---|---:|
-| Local ledger total | **$1.3559** |
-| Provider `/key/info` — this key only | **$1.2857** |
-| **Provider `/user/info` (authoritative — the capped account)** | **$1.4220** |
-| Remaining of the $13.00 account cap | **$11.58** |
-| Budget consumed | **10.9 %** |
+| Local ledger total | **$1.3898** |
+| Provider `/key/info` — this key only | **$1.3195** |
+| **Provider `/user/info` (authoritative — the capped account)** | **$1.4558** |
+| Remaining of the $13.00 account cap | **$11.54** |
+| Budget consumed | **11.2 %** |
 
 The three figures differ for two unrelated reasons, and both are worth knowing. The ledger sits
 $0.0468 *above* the key because of conservatively-estimated failed calls (below). The account sits
