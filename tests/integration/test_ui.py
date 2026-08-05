@@ -40,3 +40,12 @@ def test_app_js_escapes_html_before_rendering():
     js = js_path.read_text(encoding="utf-8")
     assert "escapeHtml" in js
     assert "textContent" in js
+
+
+def test_index_does_not_claim_capabilities_the_system_lacks(client):
+    """D13: there is no visa tool and nothing is real-time; the landing page
+    must not promise either. Generated responses explicitly disclaim both."""
+    html = client.get("/").text.lower()
+    assert "visa" not in html
+    assert "real-time" not in html
+    assert "up-to-date" not in html
