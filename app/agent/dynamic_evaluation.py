@@ -9,6 +9,7 @@ candidate outright rather than merely lowering its score.
 from __future__ import annotations
 
 import json
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -136,6 +137,20 @@ _HARD_CONSTRAINT_KEYWORDS: dict[str, tuple[str, ...]] = {
     "activities": ("activit", "hiking", "beach", "culture", "nightlife"),
     "safety": ("safety", "safe", "crime", "danger", "security"),
 }
+
+# Timezone is deliberately absent from the table above: those rows threshold a
+# 0-1 score at 0.2, and "at least four hours of overlap" is a claim about hours,
+# not about a score. P05 stated that minimum, Lisbon delivered ~3.0h -- scoring
+# 0.75, comfortably over 0.2 -- and was recommended first anyway. The hours are
+# measured, so compare the hours.
+_TIMEZONE_CONSTRAINT_KEYWORDS = ("overlap", "time zone", "timezone", "working hours")
+_NUMBER_WORDS: dict[str, float] = {
+    "one": 1.0, "two": 2.0, "three": 3.0, "four": 4.0, "five": 5.0, "six": 6.0,
+    "seven": 7.0, "eight": 8.0, "nine": 9.0, "ten": 10.0, "eleven": 11.0, "twelve": 12.0,
+}
+_STATED_HOURS_PATTERN = re.compile(
+    r"\b(?P<amount>\d+(?:\.\d+)?|" + "|".join(_NUMBER_WORDS) + r")\s*\+?\s*(?:hours?|hrs?)\b"
+)
 
 SCORING_SYSTEM_PROMPT = """You are the Dynamic Evaluation module of DigitalNomadAgent, resolving the \
 criteria that deterministic normalization cannot score directly: cost, transportation, \
@@ -447,10 +462,78 @@ def check_geocoded_constraints(
     return False, None
 
 
+def _stated_overlap_hours(profile: PlaceRequestProfile) -> float | None:
+    """Hours of working-day overlap the request demands, if it demands any.
+
+    Parsed from the individual constraint phrase rather than the joined text, so
+    an unrelated "no more than 5 hours flight" cannot supply the number. A
+    phrase that names the requirement without a figure falls back to
+    REQUIRED_TIMEZONE_OVERLAP_HOURS, the same bar the scoring normalizer uses.
+    """
+    for phrase in list(profile.hard_constraints) + list(profile.deal_breakers):
+        lowered = phrase.casefold()
+        if not any(keyword in lowered for keyword in _TIMEZONE_CONSTRAINT_KEYWORDS):
+            continue
+        match = _STATED_HOURS_PATTERN.search(lowered)
+        if match is None:
+            return REQUIRED_TIMEZONE_OVERLAP_HOURS
+        amount = match.group("amount")
+        return _NUMBER_WORDS.get(amount) or float(amount)
+    return None
+
+
+def _measured_overlap_hours(results: list[ToolResult]) -> float | None:
+    """What TimezoneFitTool actually measured, or None if it never reported."""
+    for result in results:
+        if result.tool_name != "TimezoneFitTool" or result.error:
+            continue
+        hours = result.normalized_data.get("estimated_workday_overlap_hours")
+        if isinstance(hours, int | float) and not isinstance(hours, bool):
+            return float(hours)
+    return None
+
+
+def _relax_unmeetable_overlap(
+    evaluations: list[CandidateEvaluation],
+) -> list[CandidateEvaluation]:
+    """When no candidate can meet the stated overlap, rank and disclose -- never fail.
+
+    Eliminating the whole field leaves the orchestrator raising "All candidate
+    destinations were eliminated by hard constraints", i.e. no answer at all,
+    which is strictly worse for the reader than a ranked list that says plainly
+    what it cannot satisfy. Verified with mock P05, whose candidate set is
+    entirely European and so cannot reach four hours of US Eastern overlap.
+    Relaxing keeps the failed check visible in `hard_constraint_results` and
+    promotes the shortfall to the candidate's leading drawback.
+    """
+    if not evaluations or any(not e.eliminated for e in evaluations):
+        return evaluations
+    if not all(e.hard_constraint_results.get("timezone") is False for e in evaluations):
+        return evaluations
+
+    relaxed: list[CandidateEvaluation] = []
+    for evaluation in evaluations:
+        shortfall = evaluation.elimination_reason
+        drawbacks = evaluation.drawbacks
+        if shortfall and shortfall not in drawbacks:
+            drawbacks = [shortfall, *drawbacks][:5]
+        relaxed.append(
+            evaluation.model_copy(
+                update={
+                    "eliminated": False,
+                    "elimination_reason": None,
+                    "drawbacks": drawbacks,
+                }
+            )
+        )
+    return relaxed
+
+
 def _check_hard_constraints(
     profile: PlaceRequestProfile,
     criterion_scores: dict[str, float],
     candidate: CandidatePlace,
+    results: list[ToolResult],
 ) -> tuple[bool, str | None, dict[str, bool]]:
     """Region check (always available) plus keyword-triggered score-threshold checks.
 
@@ -458,6 +541,9 @@ def _check_hard_constraints(
     missing evidence) and textually referenced as a hard constraint/deal-breaker
     -- conservative by design, since a false elimination is worse than an
     occasional missed one.
+
+    Timezone is the exception to the score-threshold rule: a stated minimum is
+    in hours, so it is compared against the measured hours (see D24).
     """
     region_eliminated, region_reason = check_geocoded_constraints(profile, candidate)
     if region_eliminated:
@@ -470,6 +556,18 @@ def _check_hard_constraints(
     hard_text = " ".join(profile.hard_constraints + profile.deal_breakers).casefold()
     if not hard_text:
         return eliminated, reason, hard_results
+
+    required_overlap = _stated_overlap_hours(profile)
+    measured_overlap = _measured_overlap_hours(results)
+    if required_overlap is not None and measured_overlap is not None:
+        passes = measured_overlap >= required_overlap
+        hard_results["timezone"] = passes
+        if not passes:
+            eliminated = True
+            reason = (
+                f"{candidate.place_name} gives about {measured_overlap:.1f}h of working-hours "
+                f"overlap, short of the {required_overlap:g}h the request requires."
+            )
 
     for criterion, keywords in _HARD_CONSTRAINT_KEYWORDS.items():
         if criterion not in criterion_scores or not any(keyword in hard_text for keyword in keywords):
@@ -670,7 +768,7 @@ def apply_llm_scores(
         candidate = candidates_by_place.get(evaluation.place)
         if candidate is not None:
             eliminated, elimination_reason, hard_constraint_results = _check_hard_constraints(
-                profile, criterion_scores, candidate
+                profile, criterion_scores, candidate, results
             )
         else:
             eliminated, elimination_reason, hard_constraint_results = False, None, {}
@@ -696,6 +794,7 @@ def apply_llm_scores(
             )
         )
 
+    updated = _relax_unmeetable_overlap(updated)
     updated.sort(key=lambda e: (e.eliminated, -e.total_score))
     return updated
 
@@ -717,7 +816,7 @@ def evaluate_candidates(
             confidence_factors,
         ) = _extract_criterion_scores(results, profile)
         eliminated, elimination_reason, hard_constraint_results = _check_hard_constraints(
-            profile, criterion_scores, candidate
+            profile, criterion_scores, candidate, results
         )
 
         missing_evidence = unevidenced_criteria(profile.relevant_criteria, criterion_scores)
@@ -759,5 +858,6 @@ def evaluate_candidates(
             )
         )
 
+    evaluations = _relax_unmeetable_overlap(evaluations)
     evaluations.sort(key=lambda e: (e.eliminated, -e.total_score))
     return evaluations

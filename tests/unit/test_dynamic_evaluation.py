@@ -841,6 +841,121 @@ def test_scored_criteria_are_not_reported_missing_under_free_form_names():
     assert evaluation.missing_evidence == ["airport_connectivity", "budget"]
 
 
+def _timezone_profile(*hard_constraints: str) -> PlaceRequestProfile:
+    return PlaceRequestProfile(
+        purpose="remote_work",
+        hard_constraints=list(hard_constraints),
+        relevant_criteria=["time_zone_overlap"],
+        inferred_weights={"time_zone_overlap": 1.0},
+        budget=Budget(),
+    )
+
+
+def _overlap_evidence(place: str, hours: float) -> dict[str, list[ToolResult]]:
+    return {
+        place: [
+            _tool_result("TimezoneFitTool", place, {"estimated_workday_overlap_hours": hours})
+        ]
+    }
+
+
+def test_stated_overlap_minimum_eliminates_a_candidate_that_misses_it():
+    """P05 asked for four hours; Lisbon gave ~3.0h and was still recommended first.
+
+    The score (3.0/4.0 = 0.75) clears the 0.2 elimination threshold easily, so
+    only comparing the hours themselves catches this.
+    """
+    profile = _timezone_profile("at least four hours of overlap with US Eastern")
+    evidence = _overlap_evidence("Lisbon", 3.0) | _overlap_evidence("Guadalajara", 6.0)
+    evaluations = {
+        e.place: e
+        for e in evaluate_candidates([_candidate("Lisbon"), _candidate("Guadalajara")], profile, evidence)
+    }
+
+    assert evaluations["Lisbon"].eliminated is True
+    assert evaluations["Lisbon"].hard_constraint_results["timezone"] is False
+    assert "3.0h" in evaluations["Lisbon"].elimination_reason
+    assert evaluations["Guadalajara"].eliminated is False
+    assert evaluations["Guadalajara"].hard_constraint_results["timezone"] is True
+
+
+def _overlap_verdicts(profile: PlaceRequestProfile, hours: dict[str, float]) -> dict[str, bool]:
+    """Each place's timezone hard-constraint verdict, whatever the field does as a whole."""
+    evidence: dict[str, list[ToolResult]] = {}
+    for place, value in hours.items():
+        evidence |= _overlap_evidence(place, value)
+    evaluations = evaluate_candidates([_candidate(p) for p in hours], profile, evidence)
+    return {e.place: e.hard_constraint_results["timezone"] for e in evaluations}
+
+
+def test_digits_and_number_words_both_state_a_minimum():
+    verdicts = _overlap_verdicts(
+        _timezone_profile("must have 6 hours of overlap with London"),
+        {"Lima": 5.0, "Accra": 6.0},
+    )
+    assert verdicts == {"Lima": False, "Accra": True}
+
+
+def test_a_requirement_without_a_figure_falls_back_to_the_scoring_bar():
+    profile = _timezone_profile("must have working hours overlap with the team")
+    verdicts = _overlap_verdicts(profile, {"Lima": 3.9, "Oslo": 4.1})
+    assert verdicts == {"Lima": False, "Oslo": True}
+
+
+def test_an_unrelated_hours_constraint_does_not_supply_the_overlap_minimum():
+    """P02 caps flight time in hours; that number must not become the overlap bar."""
+    profile = _timezone_profile("no more than 5 hours flight from Tel Aviv")
+    evaluation = evaluate_candidates([_candidate("Sofia")], profile, _overlap_evidence("Sofia", 1.0))[0]
+    assert evaluation.eliminated is False
+    assert "timezone" not in evaluation.hard_constraint_results
+
+
+def test_an_overlap_no_candidate_can_meet_ranks_and_discloses_rather_than_failing():
+    """Eliminating the whole field means no answer at all -- strictly worse.
+
+    Mock P05's candidate set is entirely European, so none of it reaches four
+    hours of US Eastern overlap; enforcing the minimum turned the request into
+    "All candidate destinations were eliminated by hard constraints".
+    """
+    profile = _timezone_profile("four hours of overlap with us eastern")
+    evidence = (
+        _overlap_evidence("Lisbon", 3.0)
+        | _overlap_evidence("Barcelona", 2.0)
+        | _overlap_evidence("Taipei", 0.0)
+    )
+    places = [_candidate("Lisbon"), _candidate("Barcelona"), _candidate("Taipei")]
+    evaluations = evaluate_candidates(places, profile, evidence)
+
+    assert [e.eliminated for e in evaluations] == [False, False, False]
+    # The failed check stays visible, and the shortfall leads the drawbacks.
+    assert all(e.hard_constraint_results["timezone"] is False for e in evaluations)
+    assert "short of the 4h" in evaluations[0].drawbacks[0]
+    # Best available overlap still ranks first.
+    assert evaluations[0].place == "Lisbon"
+
+
+def test_a_candidate_still_loses_when_another_meets_the_overlap():
+    """Relaxation is only for an unmeetable bar, not a merely demanding one."""
+    profile = _timezone_profile("four hours of overlap with us eastern")
+    evidence = _overlap_evidence("Lisbon", 3.0) | _overlap_evidence("Guadalajara", 6.0)
+    evaluations = {
+        e.place: e
+        for e in evaluate_candidates(
+            [_candidate("Lisbon"), _candidate("Guadalajara")], profile, evidence
+        )
+    }
+    assert evaluations["Lisbon"].eliminated is True
+    assert evaluations["Guadalajara"].eliminated is False
+
+
+def test_overlap_minimum_never_eliminates_on_missing_evidence():
+    """The tool timing out must not read as a failed constraint."""
+    profile = _timezone_profile("at least four hours of overlap with US Eastern")
+    evaluation = evaluate_candidates([_candidate("Nowhere")], profile, {"Nowhere": []})[0]
+    assert evaluation.eliminated is False
+    assert "timezone" not in evaluation.hard_constraint_results
+
+
 def test_unevidenced_criteria_reports_each_criterion_once():
     """Two raw names for one criterion must not become two research targets."""
     assert unevidenced_criteria(["internet quality", "coworking availability"], {}) == [
