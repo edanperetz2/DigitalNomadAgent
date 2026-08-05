@@ -207,6 +207,16 @@ def _amenity_component(counts: dict, category: str, saturation: float) -> float 
     return min(1.0, count / saturation)
 
 
+def _amenity_detail(counts: dict, categories: tuple[str, ...]) -> str:
+    """The counts behind an amenity score, so the sentence differs per place.
+
+    "Good density of coworking spaces and cafes nearby" was the identical *why
+    it fits* for five of P01's finalists -- a reader could not tell why rank 1
+    beat rank 4 (E1). The numbers were there the whole time.
+    """
+    return ", ".join(f"{counts.get(category, 0):g} {category}" for category in categories)
+
+
 def _climate_evaluation(
     results: list[ToolResult], profile: PlaceRequestProfile
 ) -> tuple[dict[str, float], list[str], list[str], float]:
@@ -347,10 +357,11 @@ def _extract_criterion_scores(
                         "cafe": round(cafe, 4),
                     }
                     confidence_factors["work_infrastructure"] = support_factor
+                    detail = _amenity_detail(counts, ("coworking", "cafe"))
                     if score >= 0.6:
-                        advantages.append("Good density of coworking spaces and cafes nearby.")
+                        advantages.append(f"Work setup nearby: {detail}.")
                     else:
-                        drawbacks.append("Coworking and cafe evidence suggests limited work infrastructure nearby.")
+                        drawbacks.append(f"Thin work setup nearby: {detail}.")
 
             if "study" in purposes or "student_life" in profile.relevant_criteria:
                 university = _amenity_component(
@@ -365,10 +376,11 @@ def _extract_criterion_scores(
                         "library": round(library, 4),
                     }
                     confidence_factors["student_life"] = support_factor
+                    detail = _amenity_detail(counts, ("university", "library"))
                     if score >= 0.6:
-                        advantages.append("Good density of universities and libraries nearby.")
+                        advantages.append(f"Student surroundings nearby: {detail}.")
                     else:
-                        drawbacks.append("University and library density appears limited nearby.")
+                        drawbacks.append(f"Thin student surroundings nearby: {detail}.")
 
         elif r.tool_name == "ActivitiesTool":
             limitation = (
@@ -431,13 +443,14 @@ def _extract_criterion_scores(
                         if isinstance(value, (int, float))
                     }
                 confidence_factors["safety"] = 1.0 if r.confidence == "medium" else 0.5
-                description = (
-                    "available safety evidence compares favorably"
-                    if score >= 0.7
-                    else "available safety evidence raises concerns"
-                )
+                verdict = "compares favorably" if score >= 0.7 else "raises concerns"
+                sources = ", ".join(
+                    f"{name.replace('_', ' ')} {value:.2f}"
+                    for name, value in sorted(component_scores.get("safety", {}).items())
+                ) or f"{component_count} sources"
                 (advantages if score >= 0.7 else drawbacks).append(
-                    f"The {description}; this is comparative evidence, not a universal city-safety rating."
+                    f"Safety evidence {verdict} at {score:.2f} ({sources}); comparative between "
+                    "candidates, not a universal city-safety rating."
                 )
 
     return scores, component_scores, advantages, drawbacks, confidence_factors

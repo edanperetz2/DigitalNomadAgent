@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 
-from app.agent.candidate_funnel import estimate_affordability
+from app.agent.candidate_funnel import budget_comparison, estimate_affordability
 from app.core.module_names import (
     AGENTIC_RESEARCH,
     DYNAMIC_EVALUATION,
@@ -1261,27 +1261,63 @@ def _score_from_prose(evidence: dict, subject: str) -> tuple[float, str] | None:
     return score, f"{subject} evidence is descriptive rather than counted, so this score is approximate."
 
 
+# "informs this score" was doing the work of a reason in every one of these, and
+# for cost there was not even a number: "Cost evidence compared against the
+# stated budget informs this score" was the *why it fits* for most candidates in
+# a mock run, so a reader could not tell why rank 1 beat rank 4 (E1). Each
+# rationale now states its actual reading. Real mode does not use any of this --
+# the LLM writes its own -- but $0 mock runs are how most verification here gets
+# done, and they were being read through a renderer that said nothing.
+
+
+def _cost_rationale(evidence: dict) -> str:
+    comparison = budget_comparison(evidence)
+    if comparison is None:
+        status = (evidence.get("budget_context") or {}).get("status")
+        if status in (None, "not_provided"):
+            return "No budget was stated, so cost is not counted against this place."
+        return "Cost evidence was collected but could not be compared with the stated budget."
+
+    monthly, remaining, currency = comparison
+    unit = f" {currency}" if currency else ""
+    budget = monthly + remaining
+    if remaining >= 0:
+        return (
+            f"About {monthly:,.0f}{unit} a month against a {budget:,.0f}{unit} budget — "
+            f"{remaining:,.0f}{unit} to spare."
+        )
+    over = -remaining
+    multiple = monthly / budget if budget > 0 else 0.0
+    scale = f", about {multiple:.1f}x the budget" if multiple >= 1.5 else ""
+    return (
+        f"About {monthly:,.0f}{unit} a month against a {budget:,.0f}{unit} budget — "
+        f"over by {over:,.0f}{unit}{scale}."
+    )
+
+
 def _score_transportation(evidence: dict) -> tuple[float, str] | None:
     counts = evidence.get("counts_by_component")
     if not isinstance(counts, dict) or not counts:
         return _score_from_prose(evidence, "Local mobility")
     total = _counts_sum(counts)
     score = min(1.0, total / _COUNT_SATURATION)
-    return score, f"Local mobility infrastructure count ({total:g}) informs this score."
+    named = _largest_components(counts)
+    return score, f"{total:g} mapped local-transport features nearby{named}."
 
 
 def _score_accessibility(evidence: dict) -> tuple[float, str] | None:
     distance_km = evidence.get("straight_line_distance_km")
     if isinstance(distance_km, (int, float)):
         return max(0.0, min(1.0, 1.0 - distance_km / 3000.0)), (
-            f"Straight-line distance from origin (~{distance_km:g}km) informs this score."
+            f"About {distance_km:g}km from the stated origin in a straight line."
         )
     counts = evidence.get("counts_by_component")
     if not isinstance(counts, dict) or not counts:
         return _score_from_prose(evidence, "Arrival-infrastructure")
     total = _counts_sum(counts)
     score = min(1.0, total / _COUNT_SATURATION)
-    return score, f"Arrival-infrastructure count ({total:g}) informs this score, no origin distance available."
+    named = _largest_components(counts)
+    return score, f"{total:g} mapped arrival points nearby{named}; no origin was given to measure from."
 
 
 def _score_activities(evidence: dict, activity_preferences: list) -> tuple[float, str] | None:
@@ -1292,7 +1328,26 @@ def _score_activities(evidence: dict, activity_preferences: list) -> tuple[float
     matched = [pref for pref in activity_preferences if counts.get(pref)]
     base = min(1.0, total / _COUNT_SATURATION)
     score = min(1.0, base + 0.1 * len(matched))
-    return score, f"Activity counts ({total:g}), matching {len(matched)} requested preference(s)."
+    if matched:
+        detail = "covering " + ", ".join(f"{pref} ({counts[pref]:g})" for pref in matched)
+    elif activity_preferences:
+        detail = "none of them in the categories asked for"
+    else:
+        detail = "no particular activity was requested"
+    return score, f"{total:g} mapped activity sites nearby, {detail}."
+
+
+def _largest_components(counts: dict) -> str:
+    """The two biggest contributors, so a bare total is traceable to something."""
+    ranked = sorted(
+        ((name, value) for name, value in counts.items() if isinstance(value, int | float) and value),
+        key=lambda row: row[1],
+        reverse=True,
+    )
+    if not ranked:
+        return ""
+    named = ", ".join(f"{name.replace('_', ' ')} {value:g}" for name, value in ranked[:2])
+    return f" (mostly {named})"
 
 
 def score_unresolved_mock(payload: dict) -> list[dict]:
@@ -1310,7 +1365,7 @@ def score_unresolved_mock(payload: dict) -> list[dict]:
 
         if "cost" in criteria:
             score = estimate_affordability(criteria["cost"])
-            rationale = "Cost evidence compared against the stated budget informs this score."
+            rationale = _cost_rationale(criteria["cost"])
             scores.append({"place": place, "criterion": "cost", "score": round(score, 4), "rationale": rationale})
         if "transportation" in criteria:
             scored = _score_transportation(criteria["transportation"])

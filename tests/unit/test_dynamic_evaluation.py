@@ -962,3 +962,50 @@ def test_unevidenced_criteria_reports_each_criterion_once():
         "internet quality"
     ]
     assert unevidenced_criteria(["cost of living", "climate"], {"cost": 0.5}) == ["climate"]
+
+
+def test_amenity_and_safety_justifications_differ_between_places():
+    """E1: five of P01's finalists carried the identical "why it fits", and all
+    four of P03's carried the identical safety line. The numbers were there."""
+    profile = PlaceRequestProfile(
+        purpose="remote_work",
+        relevant_criteria=["work_infrastructure", "safety"],
+        budget=Budget(),
+    )
+
+    def amenities(place: str, coworking: int, cafe: int) -> ToolResult:
+        return _tool_result(
+            "AmenitiesTool",
+            place,
+            {"counts_by_category": {"coworking": coworking, "cafe": cafe}, "partial": False},
+        )
+
+    def safety(place: str, composite: float) -> ToolResult:
+        return _tool_result(
+            "SafetyTool",
+            place,
+            {
+                "composite_score": composite,
+                "available_component_count": 2,
+                "component_scores": {"advisory": composite, "crime_index": composite - 0.05},
+            },
+        )
+
+    evidence = {
+        "Krakow": [amenities("Krakow", 4, 337), safety("Krakow", 0.82)],
+        "Barcelona": [amenities("Barcelona", 53, 967), safety("Barcelona", 0.74)],
+    }
+    evaluations = {
+        e.place: e
+        for e in evaluate_candidates([_candidate("Krakow"), _candidate("Barcelona")], profile, evidence)
+    }
+
+    krakow = " ".join(evaluations["Krakow"].advantages)
+    barcelona = " ".join(evaluations["Barcelona"].advantages)
+
+    assert "4 coworking, 337 cafe" in krakow
+    assert "53 coworking, 967 cafe" in barcelona
+    assert "0.82" in krakow and "0.74" in barcelona
+    assert "advisory" in krakow and "crime index" in krakow
+    # The whole point: a reader can tell the two apart.
+    assert krakow != barcelona

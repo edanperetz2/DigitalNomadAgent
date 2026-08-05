@@ -123,3 +123,52 @@ def test_markdown_renders_more_than_three_candidates():
     for i in range(1, 9):
         assert f"City{i - 1}" in markdown
         assert f"### {i}. City{i - 1}" in markdown
+
+
+def test_a_candidate_with_scores_but_no_advantage_is_not_called_under_evidenced():
+    """Uppsala carried a full set of scores and was rendered "Provisional match
+    based on limited evidence". Unfavourable is not the same as unevidenced."""
+    from app.core.rendering import render_recommendation_markdown
+
+    markdown = render_recommendation_markdown(
+        {
+            "purpose_summary": "a vacation request",
+            "candidates": [
+                {
+                    "place": "Uppsala",
+                    "country": "Sweden",
+                    "criterion_scores": {"cost": 0.0, "transportation": 0.4, "activities": 0.55},
+                    "advantages": [],
+                    "drawbacks": ["Over budget."],
+                    "confidence_score": 0.9,
+                }
+            ],
+        }
+    )
+
+    assert "Provisional match" not in markdown
+    assert "balance of the evidence" in markdown
+    assert "weakest on cost" in markdown
+
+
+def test_a_candidate_with_no_evidence_at_all_still_says_so():
+    from app.core.rendering import render_recommendation_markdown
+
+    markdown = render_recommendation_markdown(
+        {
+            "purpose_summary": "a vacation request",
+            "candidates": [
+                {
+                    "place": "Nowhere",
+                    "country": "Testland",
+                    "criterion_scores": {},
+                    "missing_evidence": ["climate"],
+                    "advantages": [],
+                    "drawbacks": [],
+                    "confidence_score": 0.1,
+                }
+            ],
+        }
+    )
+
+    assert "climate could not be verified" in markdown

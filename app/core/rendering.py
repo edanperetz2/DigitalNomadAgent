@@ -31,10 +31,25 @@ def render_recommendation_markdown(payload: dict[str, Any]) -> str:
         return ", ".join(c.get("missing_evidence") or [])
 
     def _why_it_fits(c: dict) -> str:
+        """No advantage recorded is not the same as no evidence gathered.
+
+        A candidate whose criteria all scored below the advantage threshold used
+        to be described as a "Provisional match based on limited evidence" --
+        Uppsala got that line while carrying a full set of scores. Its evidence
+        was not limited, it was unfavourable, and the two need different
+        sentences (the D11 rule, applied to the positive column).
+        """
         advantages = c.get("advantages") or []
         if advantages:
             return advantages[0]
         missing = _missing(c)
+        scores = c.get("criterion_scores") or {}
+        if scores:
+            weakest = ", ".join(sorted(scores, key=lambda name: scores[name])[:2])
+            return (
+                f"Nothing scored strongly here; it ranks on the balance of the evidence, "
+                f"weakest on {weakest}"
+            )
         if missing:
             return f"Ranked on partial evidence; {missing} could not be verified"
         return "Provisional match based on limited evidence"

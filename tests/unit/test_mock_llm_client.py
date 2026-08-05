@@ -148,7 +148,7 @@ def test_missing_count_evidence_is_never_scored_as_a_zero_count():
     by_criterion = {s["criterion"]: s for s in scores}
     # No count was obtained, so no score may be justified by a count.
     assert all(s["score"] != 0.0 for s in scores)
-    assert not any("count (0)" in s["rationale"] for s in scores)
+    assert not any("mapped" in s["rationale"] for s in scores)
     # Prose is evidence and is read as such, clearly labelled.
     assert by_criterion["transportation"]["score"] == 0.4
     assert "descriptive rather than counted" in by_criterion["transportation"]["rationale"]
@@ -184,4 +184,134 @@ def test_genuine_zero_counts_still_score_as_evidence_of_absence():
     assert len(scores) == 1
     assert scores[0]["criterion"] == "transportation"
     assert scores[0]["score"] == 0.0
-    assert "count (0)" in scores[0]["rationale"]
+    # A measured zero is a real reading and says so: it is not "not assessed".
+    assert scores[0]["rationale"].startswith("0 mapped")
+
+
+def _cost_evidence(monthly_usd: float, budget_usd: float) -> dict:
+    return {
+        "budget_context": {"status": "converted_to_usd", "comparison_amount": budget_usd},
+        "country_context": {"monthly_estimate_usd": monthly_usd},
+    }
+
+
+def test_the_cost_rationale_states_the_comparison_it_made():
+    """E1: "Cost evidence compared against the stated budget informs this score"
+    was the *why it fits* for most candidates and carried no information at all."""
+    from app.llm.mock import score_unresolved_mock
+
+    scores = score_unresolved_mock(
+        {
+            "candidates": [
+                {
+                    "place": "Uppsala",
+                    "criteria": {"cost": _cost_evidence(3050.0, 400.0)},
+                    "preferences": {},
+                },
+                {
+                    "place": "Tirana",
+                    "criteria": {"cost": _cost_evidence(385.0, 400.0)},
+                    "preferences": {},
+                },
+            ]
+        }
+    )
+    by_place = {s["place"]: s["rationale"] for s in scores}
+
+    assert "3,050 USD" in by_place["Uppsala"] and "400 USD" in by_place["Uppsala"]
+    assert "over by 2,650 USD" in by_place["Uppsala"]
+    assert "7.6x the budget" in by_place["Uppsala"]
+
+    assert "385 USD" in by_place["Tirana"]
+    assert "15 USD to spare" in by_place["Tirana"]
+    assert "over by" not in by_place["Tirana"]
+
+
+def test_the_cost_rationale_does_not_invent_a_comparison_it_cannot_make():
+    from app.llm.mock import score_unresolved_mock
+
+    def rationale(cost_evidence: dict) -> str:
+        scores = score_unresolved_mock(
+            {"candidates": [{"place": "X", "criteria": {"cost": cost_evidence}, "preferences": {}}]}
+        )
+        return scores[0]["rationale"]
+
+    assert "No budget was stated" in rationale({"budget_context": {"status": "not_provided"}})
+    assert "could not be compared" in rationale(
+        {"budget_context": {"status": "converted_to_usd", "comparison_amount": 400.0}}
+    )
+
+
+def test_count_rationales_name_what_the_count_was_made_of():
+    """A bare total is not traceable; the biggest contributors make it checkable."""
+    from app.llm.mock import score_unresolved_mock
+
+    scores = score_unresolved_mock(
+        {
+            "candidates": [
+                {
+                    "place": "Krakow",
+                    "criteria": {
+                        "transportation": {
+                            "counts_by_component": {
+                                "bus_stops": 64,
+                                "rail_metro_tram_stations": 161,
+                                "cycleways": 3,
+                            }
+                        },
+                        "activities": {"counts_by_category": {"culture": 40, "nightlife": 2}},
+                    },
+                    "preferences": {"activity_preferences": ["nightlife"]},
+                }
+            ]
+        }
+    )
+    by_criterion = {s["criterion"]: s["rationale"] for s in scores}
+
+    assert by_criterion["transportation"].startswith("228 mapped local-transport features")
+    assert "rail metro tram stations 161" in by_criterion["transportation"]
+    assert "bus stops 64" in by_criterion["transportation"]
+
+    assert by_criterion["activities"].startswith("42 mapped activity sites")
+    assert "covering nightlife (2)" in by_criterion["activities"]
+
+
+def test_an_activity_request_that_matched_nothing_says_so():
+    from app.llm.mock import score_unresolved_mock
+
+    scores = score_unresolved_mock(
+        {
+            "candidates": [
+                {
+                    "place": "Nowhere",
+                    "criteria": {"activities": {"counts_by_category": {"culture": 5}}},
+                    "preferences": {"activity_preferences": ["hiking"]},
+                }
+            ]
+        }
+    )
+    assert "none of them in the categories asked for" in scores[0]["rationale"]
+
+
+def test_no_rationale_still_says_informs_this_score():
+    """The filler phrase that made every justification interchangeable."""
+    from app.llm.mock import score_unresolved_mock
+
+    scores = score_unresolved_mock(
+        {
+            "candidates": [
+                {
+                    "place": "Krakow",
+                    "criteria": {
+                        "cost": _cost_evidence(900.0, 1800.0),
+                        "transportation": {"counts_by_component": {"bus_stops": 30}},
+                        "accessibility": {"straight_line_distance_km": 1200},
+                        "activities": {"counts_by_category": {"culture": 12}},
+                    },
+                    "preferences": {},
+                }
+            ]
+        }
+    )
+    assert scores, "fixture produced no scores"
+    assert not any("informs this score" in s["rationale"] for s in scores)
