@@ -33,6 +33,7 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "student_life": 0.5,
     "education": 0.6,
     "accessibility": 0.4,
+    "flight_duration": 0.5,
     "culture": 0.3,
     "nightlife": 0.3,
     "safety": 0.6,
@@ -45,6 +46,10 @@ DEFAULT_WEIGHTS: dict[str, float] = {
 # weighted time_zone_overlap 1.0 and it never reached the timezone criterion).
 # Ordered: the first matching pattern wins, so specific phrases come first.
 _WEIGHT_KEY_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # Ahead of "accessibility", whose "airport"/"arrival" patterns would
+    # otherwise swallow a stated flight-time limit into a criterion that cannot
+    # express hours (D33).
+    ("flight_duration", ("flight time", "flight duration", "flying time", "flight length", "flight")),
     ("timezone", ("timezone", "time zone", "overlap", "working hours")),
     ("work_infrastructure", ("work infrastructure", "internet", "wifi", "cowork", "remote work")),
     ("cost", ("budget", "cost", "afford", "price", "expense")),
@@ -118,6 +123,14 @@ def unevidenced_criteria(
 
 
 REQUIRED_TIMEZONE_OVERLAP_HOURS = 4.0
+# Turning a great-circle distance into block hours (D33). Calibrated against
+# P02's own candidate set from Tel Aviv: Antalya ~1.4h, Crete ~2.1h, Split
+# ~3.2h, Nice ~4.2h, Mallorca ~4.6h, Madeira ~6.3h -- which is the one that
+# clears the request's five-hour ceiling, and the one that had been ranked
+# first.
+CRUISE_SPEED_KMH = 800.0
+FLIGHT_ROUTING_INFLATION = 1.06
+FLIGHT_GROUND_HOURS = 0.5
 WIKIVOYAGE_CLIMATE_WEIGHT = 0.20
 CLIMATE_CONTRADICTION_GAP = 0.50
 WORK_AMENITY_SATURATION = {"coworking": 5.0, "cafe": 25.0}
@@ -194,6 +207,19 @@ _HARD_CONSTRAINT_KEYWORDS: dict[str, tuple[str, ...]] = {
     "accessibility": ("airport", "distance", "remote", "arrival", "get there"),
     "activities": ("activit", "hiking", "beach", "culture", "nightlife"),
     "safety": ("safety", "safe", "crime", "danger", "security"),
+    "flight_duration": ("flight time", "flight duration", "flying time", "hours of flying", "hour flight"),
+}
+
+# What to call each criterion when telling the reader a stated requirement went
+# unmeasured. The criterion keys are internal; these are not.
+_CONSTRAINT_LABELS: dict[str, str] = {
+    "cost": "the stated budget",
+    "transportation": "getting around without a car",
+    "accessibility": "how reachable it is",
+    "activities": "the activities asked for",
+    "safety": "safety",
+    "flight_duration": "the flight-time limit",
+    "timezone": "the working-hours overlap",
 }
 
 # Timezone is deliberately absent from the table above: those rows threshold a
@@ -202,6 +228,9 @@ _HARD_CONSTRAINT_KEYWORDS: dict[str, tuple[str, ...]] = {
 # 0.75, comfortably over 0.2 -- and was recommended first anyway. The hours are
 # measured, so compare the hours.
 _TIMEZONE_CONSTRAINT_KEYWORDS = ("overlap", "time zone", "timezone", "working hours")
+# Same reasoning for flight time: "anything over five hours" is a claim about
+# hours, so only FlightTimeTool's measured hours can settle it (D33).
+_FLIGHT_CONSTRAINT_KEYWORDS = ("flight time", "flight duration", "flying time", "flight", "flying")
 _NUMBER_WORDS: dict[str, float] = {
     "one": 1.0, "two": 2.0, "three": 3.0, "four": 4.0, "five": 5.0, "six": 6.0,
     "seven": 7.0, "eight": 8.0, "nine": 9.0, "ten": 10.0, "eleven": 11.0, "twelve": 12.0,
@@ -382,6 +411,23 @@ def _extract_criterion_scores(
         scores["climate"] = sum(climate_components.values()) / len(climate_components)
         component_scores["climate"] = climate_components
         confidence_factors["climate"] = climate_support
+
+    # A stated flight ceiling makes distance a ranked criterion, not only a
+    # gate: among candidates that all clear five hours, the shorter flight is
+    # genuinely the better answer for a six-year-old (P02).
+    flight_ceiling = _stated_flight_hours(profile)
+    flight_hours = _measured_flight_hours(results)
+    if flight_ceiling is not None and flight_hours is not None:
+        scores["flight_duration"] = clamp(1.0 - flight_hours / (flight_ceiling * 2))
+        confidence_factors["flight_duration"] = 0.75
+        verdict = (
+            f"About {flight_hours:.1f}h in the air, within the {flight_ceiling:g}h limit"
+            if flight_hours <= flight_ceiling
+            else f"About {flight_hours:.1f}h in the air, over the {flight_ceiling:g}h limit"
+        )
+        (advantages if flight_hours <= flight_ceiling else drawbacks).append(
+            f"{verdict} (nonstop estimate from great-circle distance)."
+        )
     advantages.extend(climate_advantages)
     drawbacks.extend(climate_drawbacks)
 
@@ -593,6 +639,54 @@ def _measured_overlap_hours(results: list[ToolResult]) -> float | None:
     return None
 
 
+def _stated_flight_hours(profile: PlaceRequestProfile) -> float | None:
+    """The flight-time ceiling the request sets, if it sets one.
+
+    Same shape as _stated_overlap_hours and for the same reason: P02's "anything
+    over five hours and the younger one falls apart" is a claim about hours, and
+    only an hours-to-hours comparison can enforce it. Parsed per phrase so a
+    timezone-overlap figure elsewhere cannot supply the number.
+    """
+    for phrase in list(profile.hard_constraints) + list(profile.deal_breakers):
+        lowered = phrase.casefold()
+        if not any(keyword in lowered for keyword in _FLIGHT_CONSTRAINT_KEYWORDS):
+            continue
+        match = _STATED_HOURS_PATTERN.search(lowered)
+        if match is None:
+            continue
+        amount = match.group("amount")
+        return _NUMBER_WORDS.get(amount) or float(amount)
+    return None
+
+
+def flight_hours_from_distance(distance_km: float) -> float:
+    """Nonstop block hours for a great-circle distance.
+
+    Deliberately not a new tool: TransportAccessTool already resolves the origin
+    and computes this Haversine distance, and P02's answer already *cited* that
+    calculation while declaring the flight-time constraint unverifiable. The
+    number was on the evidence the whole time; nothing converted it into the
+    hours the constraint is stated in.
+
+    Routing inflation covers the gap between great-circle and a real airway;
+    the overhead is taxi, climb and descent. Nonstop-equivalent, so a route with
+    no direct service is if anything understated -- acceptable for a ceiling
+    check, where understating can only ever be generous to the candidate.
+    """
+    return round(distance_km * FLIGHT_ROUTING_INFLATION / CRUISE_SPEED_KMH + FLIGHT_GROUND_HOURS, 2)
+
+
+def _measured_flight_hours(results: list[ToolResult]) -> float | None:
+    """Flight hours implied by the origin-to-candidate distance, if resolved."""
+    for result in results:
+        if result.tool_name != "TransportAccessTool" or result.error:
+            continue
+        distance = result.normalized_data.get("straight_line_distance_km")
+        if isinstance(distance, int | float) and not isinstance(distance, bool) and distance >= 0:
+            return flight_hours_from_distance(float(distance))
+    return None
+
+
 def _relax_unmeetable_constraint(
     evaluations: list[CandidateEvaluation],
 ) -> list[CandidateEvaluation]:
@@ -682,18 +776,42 @@ def _check_hard_constraints(
 
     required_overlap = _stated_overlap_hours(profile)
     measured_overlap = _measured_overlap_hours(results)
-    if required_overlap is not None and measured_overlap is not None:
-        passes = measured_overlap >= required_overlap
-        hard_results["timezone"] = passes
-        if not passes:
-            eliminated = True
-            reason = (
-                f"{candidate.place_name} gives about {measured_overlap:.1f}h of working-hours "
-                f"overlap, short of the {required_overlap:g}h the request requires."
-            )
+    if required_overlap is not None:
+        if measured_overlap is None:
+            hard_results["timezone"] = None
+        else:
+            passes = measured_overlap >= required_overlap
+            hard_results["timezone"] = passes
+            if not passes:
+                eliminated = True
+                reason = (
+                    f"{candidate.place_name} gives about {measured_overlap:.1f}h of working-hours "
+                    f"overlap, short of the {required_overlap:g}h the request requires."
+                )
+
+    required_flight_hours = _stated_flight_hours(profile)
+    measured_flight_hours = _measured_flight_hours(results)
+    if required_flight_hours is not None:
+        if measured_flight_hours is None:
+            hard_results["flight_duration"] = None
+        else:
+            passes = measured_flight_hours <= required_flight_hours
+            hard_results["flight_duration"] = passes
+            if not passes and not eliminated:
+                eliminated = True
+                reason = (
+                    f"{candidate.place_name} is about {measured_flight_hours:.1f}h of flying, over "
+                    f"the {required_flight_hours:g}h ceiling the request sets."
+                )
 
     for criterion, keywords in _HARD_CONSTRAINT_KEYWORDS.items():
-        if criterion not in criterion_scores or not any(keyword in hard_text for keyword in keywords):
+        if criterion in hard_results or not any(keyword in hard_text for keyword in keywords):
+            continue
+        if criterion not in criterion_scores:
+            # Stated, and nothing measured it. Recorded rather than skipped: a
+            # silent skip is why an unconfirmed five-hour flight cap cost
+            # Madeira nothing and it ranked first anyway (D33).
+            hard_results[criterion] = None
             continue
         passes = criterion_scores[criterion] >= HARD_CONSTRAINT_ELIMINATION_THRESHOLD
         hard_results[criterion] = passes
@@ -705,6 +823,39 @@ def _check_hard_constraints(
             )
 
     return eliminated, reason, hard_results
+
+
+def constraint_tier(hard_constraint_results: dict[str, bool | None]) -> int:
+    """0 every stated constraint verified, 1 something unverified, 2 something failed.
+
+    Used as the primary sort key so a candidate that cannot be shown to meet a
+    hard requirement never outranks one that can. It never removes anything --
+    when no candidate clears its constraints the tier is uniform and the
+    ordering is unchanged, which keeps the D24/D28 guarantee that the field
+    cannot empty.
+    """
+    values = hard_constraint_results.values()
+    if any(passed is False for passed in values):
+        return 2
+    if any(passed is None for passed in values):
+        return 1
+    return 0
+
+
+def unmet_constraint_note(hard_constraint_results: dict[str, bool | None]) -> str | None:
+    """Say which stated requirement could not be confirmed, in the reader's terms."""
+    unverified = [
+        _CONSTRAINT_LABELS.get(criterion, criterion.replace("_", " "))
+        for criterion, passed in sorted(hard_constraint_results.items())
+        if passed is None
+    ]
+    if not unverified:
+        return None
+    return (
+        "Ranked below places that could be checked: nothing in the evidence confirms "
+        + ", ".join(unverified)
+        + ", which the request treats as non-negotiable."
+    )
 
 
 def _score_totals(
@@ -1001,6 +1152,9 @@ def apply_llm_scores(
             eliminated, elimination_reason, hard_constraint_results = False, None, {}
 
         missing_evidence = unevidenced_criteria(profile.relevant_criteria, criterion_scores)
+        unmet_note = unmet_constraint_note(hard_constraint_results)
+        if unmet_note:
+            drawbacks.insert(0, unmet_note)
 
         updated.append(
             evaluation.model_copy(
@@ -1023,7 +1177,9 @@ def apply_llm_scores(
         )
 
     updated = _relax_unmeetable_constraint(updated)
-    updated.sort(key=lambda e: (e.eliminated, -e.total_score))
+    updated.sort(
+        key=lambda e: (e.eliminated, constraint_tier(e.hard_constraint_results), -e.total_score)
+    )
     return updated
 
 
@@ -1062,6 +1218,10 @@ def evaluate_candidates(
             criterion_scores, profile.inferred_weights, confidence_factors
         )
 
+        unmet_note = unmet_constraint_note(hard_constraint_results)
+        if unmet_note:
+            drawbacks.insert(0, unmet_note)
+
         if not criterion_scores and not eliminated:
             drawbacks.append("No scored evidence was available; this candidate is provisional.")
         elif not drawbacks and not eliminated:
@@ -1088,5 +1248,11 @@ def evaluate_candidates(
         )
 
     evaluations = _relax_unmeetable_constraint(evaluations)
-    evaluations.sort(key=lambda e: (e.eliminated, -e.total_score))
+    # Constraint tier outranks score: a place that cannot be shown to meet a
+    # stated non-negotiable never sits above one that can (D33). Nothing is
+    # dropped, so when no candidate clears its constraints the tier is uniform
+    # and this degrades to the previous score ordering.
+    evaluations.sort(
+        key=lambda e: (e.eliminated, constraint_tier(e.hard_constraint_results), -e.total_score)
+    )
     return evaluations

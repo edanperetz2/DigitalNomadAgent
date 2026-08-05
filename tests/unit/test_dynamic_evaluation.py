@@ -180,7 +180,9 @@ def test_budget_hard_constraint_remains_unresolved_before_llm_reasoning():
     }
     evaluations = evaluate_candidates([expensive], profile, evidence)
     assert evaluations[0].eliminated is False
-    assert evaluations[0].hard_constraint_results == {}
+    # D33: recorded as unverified rather than as nothing at all. Still never
+    # eliminated on missing evidence -- that contract is what this test guards.
+    assert evaluations[0].hard_constraint_results == {"cost": None}
     assert "cost" not in evaluations[0].criterion_scores
     assert evaluations[0].unscored_evidence == ["cost"]
     assert any("affordability scoring awaits" in drawback for drawback in evaluations[0].drawbacks)
@@ -995,7 +997,8 @@ def test_overlap_minimum_never_eliminates_on_missing_evidence():
     profile = _timezone_profile("at least four hours of overlap with US Eastern")
     evaluation = evaluate_candidates([_candidate("Nowhere")], profile, {"Nowhere": []})[0]
     assert evaluation.eliminated is False
-    assert "timezone" not in evaluation.hard_constraint_results
+    # D33: unverified, not passed and not failed. It costs rank, never survival.
+    assert evaluation.hard_constraint_results["timezone"] is None
 
 
 def test_unevidenced_criteria_reports_each_criterion_once():
@@ -1179,3 +1182,96 @@ def test_a_named_place_survives_a_region_that_excludes_it():
 
     assert by_place["Lisbon"].eliminated is False
     assert by_place["Oslo"].eliminated is False
+
+
+def _flight_profile() -> PlaceRequestProfile:
+    return PlaceRequestProfile(
+        purpose="vacation",
+        origin="Tel Aviv",
+        relevant_criteria=["flight duration", "safety"],
+        hard_constraints=["flight time from Tel Aviv under five hours"],
+        deal_breakers=["flight time over five hours"],
+        budget=Budget(),
+    )
+
+
+def _transport_access(place: str, distance_km: float | None) -> ToolResult:
+    return _tool_result(
+        "TransportAccessTool", place, {"straight_line_distance_km": distance_km}
+    )
+
+
+def test_a_flight_over_the_stated_ceiling_cannot_outrank_one_under_it():
+    """D33: P02 capped flight time at five hours from Tel Aviv. Madeira -- about
+    4,800 km, near seven hours nonstop -- was ranked first, the answer admitting
+    in the same breath that it could not confirm the flight was short."""
+    profile = _flight_profile()
+    evidence = {
+        "Madeira": [_transport_access("Madeira", 4805.0)],
+        "Crete": [_transport_access("Crete", 1064.0)],
+    }
+
+    ranked = evaluate_candidates(
+        [_candidate("Madeira"), _candidate("Crete")], profile, evidence
+    )
+
+    assert [e.place for e in ranked] == ["Crete", "Madeira"]
+    assert ranked[0].hard_constraint_results["flight_duration"] is True
+    assert ranked[1].hard_constraint_results["flight_duration"] is False
+
+
+def test_an_unmeasured_hard_constraint_ranks_below_a_verified_one():
+    """The third state: stated, never measured. It used to cost nothing at all."""
+    profile = _flight_profile()
+    evidence = {
+        "Unknown": [_transport_access("Unknown", None)],
+        "Crete": [_transport_access("Crete", 1064.0)],
+    }
+
+    ranked = evaluate_candidates(
+        [_candidate("Unknown"), _candidate("Crete")], profile, evidence
+    )
+
+    assert [e.place for e in ranked] == ["Crete", "Unknown"]
+    assert ranked[1].hard_constraint_results["flight_duration"] is None
+    assert ranked[1].eliminated is False
+    assert any("non-negotiable" in drawback for drawback in ranked[1].drawbacks)
+
+
+def test_an_unverified_constraint_never_removes_a_candidate():
+    """The D24/D28 guarantee: when nothing can be checked the tier is uniform,
+    the ordering is unchanged, and the field cannot empty."""
+    profile = _flight_profile()
+    evidence = {
+        "A": [_transport_access("A", None)],
+        "B": [_transport_access("B", None)],
+    }
+
+    ranked = evaluate_candidates([_candidate("A"), _candidate("B")], profile, evidence)
+
+    assert len(ranked) == 2
+    assert all(e.eliminated is False for e in ranked)
+    assert all(e.hard_constraint_results["flight_duration"] is None for e in ranked)
+
+
+def test_a_shorter_flight_scores_better_among_candidates_that_all_qualify():
+    profile = _flight_profile()
+    evidence = {
+        "Antalya": [_transport_access("Antalya", 653.0)],
+        "Mallorca": [_transport_access("Mallorca", 2996.0)],
+    }
+
+    ranked = evaluate_candidates(
+        [_candidate("Mallorca"), _candidate("Antalya")], profile, evidence
+    )
+
+    assert [e.place for e in ranked] == ["Antalya", "Mallorca"]
+    assert all(e.hard_constraint_results["flight_duration"] is True for e in ranked)
+
+
+def test_flight_hours_are_calibrated_against_real_routes_from_tel_aviv():
+    from app.agent.dynamic_evaluation import flight_hours_from_distance
+
+    assert flight_hours_from_distance(653.0) == pytest.approx(1.37, abs=0.05)
+    assert flight_hours_from_distance(2720.0) == pytest.approx(4.10, abs=0.05)
+    assert flight_hours_from_distance(4805.0) == pytest.approx(6.87, abs=0.05)

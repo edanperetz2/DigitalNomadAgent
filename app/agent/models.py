@@ -107,7 +107,12 @@ class CandidateEvaluation(BaseModel):
     criterion_sources: dict[str, list[str]] = Field(default_factory=dict)
     total_score: float = 0.0
     confidence_score: float = 0.0
-    hard_constraint_results: dict[str, bool] = Field(default_factory=dict)
+    # True passed, False failed, None *stated but never measured*. The third
+    # state exists because an unmeasured hard constraint used to cost a
+    # candidate nothing at all: P02 capped flight time at five hours from Tel
+    # Aviv and Madeira -- roughly eight -- ranked first, the answer admitting in
+    # the same breath that it could not confirm the flight was short (D33).
+    hard_constraint_results: dict[str, bool | None] = Field(default_factory=dict)
     missing_evidence: list[str] = Field(default_factory=list)
     unscored_evidence: list[str] = Field(default_factory=list)
     advantages: list[str] = Field(default_factory=list)
