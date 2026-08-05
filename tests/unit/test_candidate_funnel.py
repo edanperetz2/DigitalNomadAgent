@@ -211,3 +211,150 @@ def test_select_finalists_caps_at_max_finalists():
     finalists = select_finalists(candidates, profile, {}, max_finalists=3)
     assert len(finalists) == 3
     assert [c.place_name for c in finalists] == ["Place0", "Place1", "Place2"]
+
+
+def _budget_estimate_result(place: str, monthly_usd: float, budget_usd: float) -> ToolResult:
+    """BudgetFitTool's shape when it has a country-level estimate to compare."""
+    return ToolResult(
+        tool_name="BudgetFitTool",
+        place=place,
+        normalized_data={
+            "budget_context": {"status": "converted_to_usd", "comparison_amount": budget_usd},
+            "country_context": {"monthly_estimate_usd": monthly_usd},
+        },
+        source_name="Numbeo-style estimate",
+        retrieved_at=datetime.now(UTC),
+        confidence="medium",
+    )
+
+
+def _scandinavia_profile(amount: float = 400.0) -> PlaceRequestProfile:
+    from app.agent.models import Budget
+
+    return PlaceRequestProfile(
+        purpose="vacation",
+        preferred_regions=["Scandinavia"],
+        budget=Budget(
+            amount=amount, currency="USD", period="monthly", includes_accommodation=True
+        ),
+    )
+
+
+def test_a_budget_nothing_can_meet_is_stated_not_just_scored_low():
+    """P08 asks for a month in Scandinavia on $400 including accommodation.
+
+    The run handled it without error and disclosed the relaxed region, but never
+    told the reader the budget and the request are irreconcilable.
+    """
+    from app.agent.orchestrator import _disclose_unmeetable_budget
+
+    profile = _scandinavia_profile()
+    evidence = {
+        "Oslo": [_budget_estimate_result("Oslo", 2400.0, 400.0)],
+        "Bergen": [_budget_estimate_result("Bergen", 2100.0, 400.0)],
+        "Tallinn": [_budget_estimate_result("Tallinn", 1150.0, 400.0)],
+    }
+
+    disclosed = _disclose_unmeetable_budget(profile, evidence)
+    statement = disclosed.assumptions[-1]
+
+    assert "None of the 3 places researched" in statement
+    assert "400 USD monthly" in statement
+    assert "including accommodation" in statement
+    assert "Tallinn" in statement and "1,150 USD" in statement  # the cheapest, named
+    # The original profile is never mutated -- callers still hold it.
+    assert profile.assumptions == []
+
+
+def test_no_budget_claim_when_something_researched_actually_fits():
+    """An expensive-but-possible request must not be told it is impossible."""
+    from app.agent.orchestrator import _disclose_unmeetable_budget
+
+    profile = _scandinavia_profile(amount=2500.0)
+    evidence = {
+        "Oslo": [_budget_estimate_result("Oslo", 2400.0, 2500.0)],
+        "Bergen": [_budget_estimate_result("Bergen", 2600.0, 2500.0)],
+    }
+
+    assert _disclose_unmeetable_budget(profile, evidence).assumptions == []
+
+
+def test_no_budget_claim_from_a_single_data_point_or_from_none():
+    """One over-budget city is not evidence that nothing works."""
+    from app.agent.orchestrator import _disclose_unmeetable_budget
+
+    profile = _scandinavia_profile()
+    lone = {"Oslo": [_budget_estimate_result("Oslo", 2400.0, 400.0)]}
+    assert _disclose_unmeetable_budget(profile, lone).assumptions == []
+    assert _disclose_unmeetable_budget(profile, {}).assumptions == []
+
+
+def test_no_budget_claim_when_the_user_never_stated_one():
+    from app.agent.orchestrator import _disclose_unmeetable_budget
+
+    profile = PlaceRequestProfile(purpose="vacation")
+    evidence = {
+        "Oslo": [_budget_estimate_result("Oslo", 2400.0, 400.0)],
+        "Bergen": [_budget_estimate_result("Bergen", 2100.0, 400.0)],
+    }
+    assert _disclose_unmeetable_budget(profile, evidence).assumptions == []
+
+
+def test_budget_comparison_returns_none_when_nothing_is_comparable():
+    from app.agent.candidate_funnel import budget_comparison
+
+    assert budget_comparison(None) is None
+    assert budget_comparison({"budget_context": {"status": "not_provided"}}) is None
+    assert budget_comparison({"budget_context": {"status": "converted_to_usd"}}) is None
+
+
+def test_a_local_currency_estimate_is_not_reported_as_usd():
+    """monthly_total_local is in the place's own currency, so labelling every
+    figure USD would misreport it."""
+    from app.agent.candidate_funnel import budget_comparison
+
+    local = {
+        "budget_context": {
+            "status": "comparable_without_conversion",
+            "comparison_currency": "NOK",
+        },
+        "fixed_cost_scenarios": {
+            "center": {
+                "monthly_total_local": 24000.0,
+                "budget_remaining_after_named_items": {"amount": -20000.0},
+            }
+        },
+    }
+    assert budget_comparison(local) == (24000.0, -20000.0, "NOK")
+
+    usd = {
+        "budget_context": {"status": "converted_to_usd"},
+        "fixed_cost_scenarios": {
+            "center": {
+                "monthly_total_usd": 2400.0,
+                "budget_remaining_after_named_items": {"amount": -2000.0},
+            }
+        },
+    }
+    assert budget_comparison(usd) == (2400.0, -2000.0, "USD")
+
+
+def test_the_region_relaxation_does_not_claim_selection_targeted_the_region():
+    """P08 asks for Scandinavia and gets Lisbon, Tbilisi, Chiang Mai and Bali.
+
+    The disclosure used to end "candidate selection still targeted it", which is
+    true when the generator stays in the region and false when it does not --
+    and nothing here can tell the two apart, because the region cannot be
+    resolved to countries in the first place. So it must not be asserted.
+    """
+    from app.agent.orchestrator import _relax_unresolvable_preferred_regions
+
+    profile = PlaceRequestProfile(purpose="vacation", preferred_regions=["Scandinavia"])
+    candidates = [_candidate("Tbilisi", country="Georgia", country_code="GE")]
+
+    statement = _relax_unresolvable_preferred_regions(profile, candidates).assumptions[-1]
+
+    assert "Scandinavia" in statement
+    assert "guidance rather than a filter" in statement
+    assert "still targeted it" not in statement
+    assert "may therefore not be in the region asked for" in statement

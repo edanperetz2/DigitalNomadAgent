@@ -13,7 +13,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from app.agent.agentic_research import generate_candidates, select_tools
-from app.agent.candidate_funnel import select_finalists
+from app.agent.candidate_funnel import budget_comparison, select_finalists
 from app.agent.dynamic_evaluation import (
     apply_llm_scores,
     canonical_criterion_name,
@@ -133,10 +133,15 @@ def _relax_unresolvable_preferred_regions(
     field, failing the request outright.
 
     Relaxing is the fail-open behaviour the rest of the pipeline already applies
-    to evidence it cannot evaluate, and the region intent is still carried by
-    candidate generation and by the recommendation prompt. excluded_regions is
-    deliberately left alone: it is a stated deal-breaker and it *can* be
-    resolved, since it is matched against country identity directly.
+    to evidence it cannot evaluate. excluded_regions is deliberately left alone:
+    it is a stated deal-breaker and it *can* be resolved, since it is matched
+    against country identity directly.
+
+    What relaxing does NOT do is preserve the region intent. That was assumed --
+    "candidate generation still carries it" -- until P08 showed otherwise: asked
+    for Scandinavia, the generator proposed Lisbon, Tbilisi, Chiang Mai and Bali,
+    not one of them Scandinavian. So the disclosure warns the reader to check
+    rather than reassuring them, and nothing here claims the region was honored.
     """
     if not profile.preferred_regions or not candidates:
         return profile
@@ -148,10 +153,65 @@ def _relax_unresolvable_preferred_regions(
     relaxed.assumptions.append(
         "The stated region preference ("
         + ", ".join(profile.preferred_regions)
-        + ") could not be matched against any candidate's country, so it was treated as "
-        "guidance rather than a filter; candidate selection still targeted it."
+        + ") could not be matched against any candidate's country, so it was treated as guidance "
+        "rather than a filter. The places below may therefore not be in the region asked for — "
+        "worth checking before anything else."
     )
     return relaxed
+
+
+def _disclose_unmeetable_budget(
+    profile: PlaceRequestProfile, evidence_by_place: dict[str, list[ToolResult]]
+) -> PlaceRequestProfile:
+    """Say plainly when nothing researched can be had for the stated budget.
+
+    A budget nothing can meet is only ever expressed as a low cost score today,
+    which is a whisper: a reader comparing rank 1 against rank 4 cannot hear
+    "none of these is affordable at all" in a pair of numbers.
+
+    The claim is bounded by what was measured -- "nothing researched fits, and
+    the cheapest was X" -- rather than a general assertion about a region's cost,
+    which this codebase has no dataset to support. Silence unless *every*
+    comparable candidate is over budget, so an ordinary expensive-but-possible
+    request is unaffected.
+
+    Note this does NOT fire for P08, the prompt that motivated it. P08 asks for
+    Scandinavia on $400/month; the pipeline cannot resolve the region, drops it,
+    and researches cheap places worldwide instead -- Tirana at ~$385 fits, so
+    the budget is met and staying silent is correct. P08's real defect is
+    upstream and is not fixed here: the requested region is never researched at
+    all. See the ledger.
+    """
+    if profile.budget.amount is None:
+        return profile
+
+    comparisons: list[tuple[str, float, float, str]] = []
+    for place, results in evidence_by_place.items():
+        for result in results:
+            if result.tool_name != "BudgetFitTool" or result.error:
+                continue
+            comparison = budget_comparison(result.normalized_data)
+            if comparison is not None:
+                comparisons.append((place, *comparison))
+            break
+
+    if len(comparisons) < 2 or any(remaining >= 0 for _, _, remaining, _ in comparisons):
+        return profile
+
+    place, monthly_total, _, estimate_currency = min(comparisons, key=lambda row: row[1])
+    stated_currency = profile.budget.currency or "USD"
+    period = profile.budget.period if profile.budget.period != "unknown" else "monthly"
+    cheapest = f"{monthly_total:,.0f}{' ' + estimate_currency if estimate_currency else ''}"
+    disclosed = profile.model_copy(deep=True)
+    disclosed.assumptions.append(
+        f"None of the {len(comparisons)} places researched can be done for "
+        f"{profile.budget.amount:g} {stated_currency} {period}"
+        + (" including accommodation" if profile.budget.includes_accommodation else "")
+        + f". The cheapest evidenced option is {place} at about {cheapest} a month, so the "
+        "stated budget and the rest of the request cannot both be satisfied; the ranking below "
+        "optimises everything else and the shortfall is reported per place rather than hidden."
+    )
+    return disclosed
 
 
 class Orchestrator:
@@ -602,6 +662,8 @@ class Orchestrator:
                     state = AgentState.EVALUATING
 
                 elif state == AgentState.EVALUATING:
+                    profile = _disclose_unmeetable_budget(profile, evidence_by_place)
+                    checkpoint.profile = profile
                     evaluations = evaluate_candidates(candidates, profile, evidence_by_place)
                     checkpoint.evaluations = list(evaluations)
                     if all(e.eliminated for e in evaluations):
