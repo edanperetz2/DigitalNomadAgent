@@ -1421,3 +1421,68 @@ def test_a_priority_measured_for_even_one_candidate_is_not_reported_as_universal
     )
 
     assert universally_unmeasured_priorities(profile, evaluations) == []
+
+
+def test_a_zero_in_a_well_mapped_area_is_unmeasured_not_absent():
+    """D37: Gdansk -- a city of 470,000 -- was excluded from P01 on "0 coworking
+    and 0 cafes". Across every captured run cafe counts are 21-967 while
+    coworking is 0 or 1 even where hundreds of cafes are mapped, which is a fact
+    about OpenStreetMap, not about the cities."""
+    from app.agent.dynamic_evaluation import credible_amenity_counts
+
+    credible, uncredible = credible_amenity_counts({"coworking": 0, "cafe": 610})
+
+    assert uncredible == ["coworking"]
+    assert "coworking" not in credible
+    assert credible["cafe"] == 610
+
+
+def test_a_zero_in_a_thinly_mapped_area_is_also_not_treated_as_absence():
+    from app.agent.dynamic_evaluation import credible_amenity_counts
+
+    credible, uncredible = credible_amenity_counts({"coworking": 0, "cafe": 0})
+
+    assert uncredible == []
+    assert credible == {"coworking": 0.0, "cafe": 0.0}
+
+
+def test_work_infrastructure_still_scores_when_one_component_is_dropped():
+    """Requiring both components meant a dropped zero took the whole criterion
+    with it -- the same absence-of-evidence error one level up."""
+    profile = PlaceRequestProfile(
+        purpose="remote_work", relevant_criteria=["work_infrastructure"], budget=Budget()
+    )
+    evidence = {
+        "Gdansk": [
+            _tool_result(
+                "AmenitiesTool",
+                "Gdansk",
+                {"counts_by_category": {"coworking": 0, "cafe": 610}, "partial": False},
+            )
+        ]
+    }
+
+    evaluation = evaluate_candidates([_candidate("Gdansk")], profile, evidence)[0]
+
+    assert "work_infrastructure" in evaluation.criterion_scores
+    assert evaluation.criterion_component_scores["work_infrastructure"] == {"cafe": 1.0}
+    assert any("unmeasured rather than absent" in d for d in evaluation.drawbacks)
+
+
+def test_a_dropped_zero_never_appears_as_a_count_in_the_write_up():
+    profile = PlaceRequestProfile(
+        purpose="remote_work", relevant_criteria=["work_infrastructure"], budget=Budget()
+    )
+    evidence = {
+        "Gdansk": [
+            _tool_result(
+                "AmenitiesTool",
+                "Gdansk",
+                {"counts_by_category": {"coworking": 0, "cafe": 610}, "partial": False},
+            )
+        ]
+    }
+
+    evaluation = evaluate_candidates([_candidate("Gdansk")], profile, evidence)[0]
+
+    assert all("0 coworking" not in line for line in evaluation.advantages + evaluation.drawbacks)

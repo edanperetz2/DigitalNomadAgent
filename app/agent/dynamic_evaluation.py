@@ -303,6 +303,43 @@ def _amenity_component(counts: dict, category: str, saturation: float) -> float 
     return min(1.0, count / saturation)
 
 
+# Below this many mapped amenities in total, the area is thinly mapped and a
+# zero in one category tells you nothing either way. At or above it, the area is
+# demonstrably well mapped, so a lone zero is far likelier to be a tagging gap
+# than a true absence (D37).
+AMENITY_MAPPING_DENSITY_FLOOR = 50
+
+
+def credible_amenity_counts(counts: dict) -> tuple[dict, list[str]]:
+    """Split amenity counts into ones worth scoring and zeros that are not.
+
+    Gdansk -- a city of 470,000 -- was *excluded* from P01 on "0 coworking and 0
+    cafes", and Wroclaw described as having "1 coworking space and 25 cafes".
+    Across every captured run the cafe counts are large and plausible (21-967)
+    while coworking is 0 or 1 even in cities with hundreds of mapped cafes, which
+    is a fact about OpenStreetMap's coverage of coworking, not about the cities.
+
+    A zero is only evidence of absence when the surrounding area is otherwise
+    well mapped enough for absence to mean something -- and when it is *not*
+    well mapped, the zero is unmeasured rather than bad. Either way it must never
+    read as "there are none here".
+    """
+    numeric = {
+        category: float(value)
+        for category, value in counts.items()
+        if isinstance(value, int | float) and not isinstance(value, bool) and value >= 0
+    }
+    total = sum(numeric.values())
+    credible: dict[str, float] = {}
+    uncredible: list[str] = []
+    for category, value in numeric.items():
+        if value == 0 and total >= AMENITY_MAPPING_DENSITY_FLOOR:
+            uncredible.append(category)
+            continue
+        credible[category] = value
+    return credible, sorted(uncredible)
+
+
 def _amenity_detail(counts: dict, categories: tuple[str, ...]) -> str:
     """The counts behind an amenity score, so the sentence differs per place.
 
@@ -545,26 +582,45 @@ def _extract_criterion_scores(
                     + ", ".join(str(category) for category in unsupported)
                     + "."
                 )
-            counts = nd.get("counts_by_category", {})
-            if not isinstance(counts, dict):
+            raw_counts = nd.get("counts_by_category", {})
+            if not isinstance(raw_counts, dict):
                 continue
             if nd.get("partial") and nd.get("valid_element_count", 0) == 0:
                 continue
+            counts, uncredible_zeros = credible_amenity_counts(raw_counts)
+            if uncredible_zeros:
+                drawbacks.append(
+                    "Treated as unmeasured rather than absent: OpenStreetMap has no "
+                    + ", ".join(uncredible_zeros)
+                    + " mapped here, in an area that is otherwise well mapped."
+                )
 
             purposes = _profile_purposes(profile)
             support_factor = 0.5 if nd.get("partial") or r.confidence == "low" or r.stale else 1.0
             if "remote_work" in purposes or "work_infrastructure" in profile.relevant_criteria:
                 coworking = _amenity_component(counts, "coworking", WORK_AMENITY_SATURATION["coworking"])
                 cafe = _amenity_component(counts, "cafe", WORK_AMENITY_SATURATION["cafe"])
-                if coworking is not None and cafe is not None:
-                    score = round(0.6 * coworking + 0.4 * cafe, 4)
+                # Either component alone still scores. Requiring both meant one
+                # dropped as an uncredible zero took the whole criterion with it,
+                # which is the same "absence of evidence" error one level up.
+                if coworking is not None or cafe is not None:
+                    parts = {
+                        name: value
+                        for name, value in (("coworking", coworking), ("cafe", cafe))
+                        if value is not None
+                    }
+                    weights_by_part = {"coworking": 0.6, "cafe": 0.4}
+                    weight_total = sum(weights_by_part[name] for name in parts)
+                    score = round(
+                        sum(weights_by_part[name] * value for name, value in parts.items()) / weight_total,
+                        4,
+                    )
                     scores["work_infrastructure"] = score
                     component_scores["work_infrastructure"] = {
-                        "coworking": round(coworking, 4),
-                        "cafe": round(cafe, 4),
+                        name: round(value, 4) for name, value in parts.items()
                     }
                     confidence_factors["work_infrastructure"] = support_factor
-                    detail = _amenity_detail(counts, ("coworking", "cafe"))
+                    detail = _amenity_detail(counts, tuple(parts))
                     if score >= 0.6:
                         advantages.append(f"Work setup nearby: {detail}.")
                     else:
@@ -575,15 +631,19 @@ def _extract_criterion_scores(
                     counts, "university", STUDENT_AMENITY_SATURATION["university"]
                 )
                 library = _amenity_component(counts, "library", STUDENT_AMENITY_SATURATION["library"])
-                if university is not None and library is not None:
-                    score = round((university + library) / 2, 4)
+                if university is not None or library is not None:
+                    parts = {
+                        name: value
+                        for name, value in (("university", university), ("library", library))
+                        if value is not None
+                    }
+                    score = round(sum(parts.values()) / len(parts), 4)
                     scores["student_life"] = score
                     component_scores["student_life"] = {
-                        "university": round(university, 4),
-                        "library": round(library, 4),
+                        name: round(value, 4) for name, value in parts.items()
                     }
                     confidence_factors["student_life"] = support_factor
-                    detail = _amenity_detail(counts, ("university", "library"))
+                    detail = _amenity_detail(counts, tuple(parts))
                     if score >= 0.6:
                         advantages.append(f"Student surroundings nearby: {detail}.")
                     else:

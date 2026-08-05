@@ -16,7 +16,12 @@ CATEGORY_REGISTRY_SOURCE = "DigitalNomadAgent amenity category registry"
 # User text never reaches query construction directly; only these bounded OSM
 # selectors can be interpolated into an Overpass request.
 CATEGORY_TAGS: dict[str, tuple[tuple[str, str], ...]] = {
-    "coworking": (("office", "coworking"), ("amenity", "coworking_space")),
+    # Three taggings are in live use for the same thing: office=coworking is the
+    # current one, amenity=coworking_space the deprecated one still widely
+    # present, and coworking=yes what cafes and other venues that offer desks
+    # carry. Querying only the first two returned 0 or 1 for cities with
+    # hundreds of mapped cafes (D37).
+    "coworking": (("office", "coworking"), ("amenity", "coworking_space"), ("coworking", "yes")),
     "cafe": (("amenity", "cafe"),),
     "university": (("amenity", "university"),),
     "library": (("amenity", "library"),),
