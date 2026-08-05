@@ -152,3 +152,46 @@ def test_a_region_named_inside_a_phrase_still_resolves():
     assert resolve_region("somewhere in Scandinavia") == resolve_region("Scandinavia")
     assert resolve_region("the Nordics") == resolve_region("Nordics")
     assert resolve_region("anywhere in Southeast Asia") == resolve_region("Southeast Asia")
+
+
+def test_territories_and_dependencies_count_as_their_continent():
+    """Nominatim returns these as the `country` for places inside them, so a
+    set built only from sovereign states silently eliminates them: "somewhere
+    in Europe" would have dropped a Gibraltar candidate. Found by diffing the
+    table against the country names real geocoding actually returned."""
+    europe = resolve_region("Europe")
+    for territory in ("Gibraltar", "Isle of Man", "Jersey", "Faroe Islands"):
+        assert territory.casefold() in europe, territory
+    assert "aruba" in resolve_region("Caribbean")
+
+
+def test_the_balkans_are_in_europe():
+    """_BALKANS was left out of the _EUROPE union, so Kosovo sat in the table
+    and outside the continent at the same time."""
+    europe = resolve_region("Europe")
+    for country in resolve_region("the Balkans"):
+        assert country in europe, country
+
+
+def test_transcontinental_countries_resolve_to_europe():
+    """A traveller asking for Europe would not be surprised by Istanbul or Baku."""
+    europe = resolve_region("Europe")
+    for country in ("Turkey", "Georgia", "Armenia", "Azerbaijan"):
+        assert country.casefold() in europe, country
+
+
+def test_every_sub_region_is_contained_by_its_continent():
+    """A sub-region that leaks outside its continent means one of the two is
+    wrong, and the failure mode is a silent elimination either way."""
+    containment = {
+        "Europe": ("Scandinavia", "Nordics", "the Baltics", "Benelux", "Iberia", "the Balkans",
+                   "Western Europe", "Central Europe", "Eastern Europe", "Southern Europe"),
+        "Asia": ("Southeast Asia", "East Asia", "South Asia", "Central Asia"),
+        "Africa": ("North Africa", "East Africa", "West Africa", "Southern Africa"),
+        "North America": ("Central America", "Caribbean"),
+    }
+    for continent, sub_regions in containment.items():
+        members = resolve_region(continent)
+        for sub in sub_regions:
+            escaped = resolve_region(sub) - members
+            assert not escaped, f"{sub} escapes {continent}: {sorted(escaped)}"

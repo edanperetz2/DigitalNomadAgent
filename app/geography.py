@@ -48,10 +48,27 @@ _SOUTHERN_EUROPE = (
     "albania", "bosnia and herzegovina", "croatia", "cyprus", "greece", "italy", "malta",
     "montenegro", "north macedonia", "portugal", "san marino", "serbia", "slovenia", "spain",
 )
+# Crown dependencies, overseas territories and island autonomies. Nominatim
+# returns these as the `country` for places inside them, so a continent set
+# built only from sovereign states silently eliminates them: "somewhere in
+# Europe" would have dropped a Gibraltar candidate. Found by comparing the
+# table against the 85 distinct country names 357 cached geocoding results
+# actually returned, rather than by reasoning about which ones matter.
+_EUROPEAN_TERRITORIES = (
+    "gibraltar", "isle of man", "jersey", "guernsey", "faroe islands",
+    "aland islands", "åland islands", "svalbard and jan mayen",
+)
 _EUROPE = tuple(
     sorted(
-        set(_NORDICS + _BALTICS + _WESTERN_EUROPE + _CENTRAL_EUROPE + _EASTERN_EUROPE + _SOUTHERN_EUROPE)
-        | {"iceland", "andorra", "vatican city", "georgia", "armenia", "turkey"}
+        set(
+            _NORDICS + _BALTICS + _WESTERN_EUROPE + _CENTRAL_EUROPE + _EASTERN_EUROPE
+            # _BALKANS was omitted from this union, which is how Kosovo -- present
+            # in the table since it was written -- was still outside Europe.
+            + _SOUTHERN_EUROPE + _BALKANS + _EUROPEAN_TERRITORIES
+        )
+        # Transcontinental: included because a traveller asking for "Europe"
+        # would not be surprised to be offered Tbilisi, Yerevan, Istanbul or Baku.
+        | {"iceland", "andorra", "vatican city", "georgia", "armenia", "turkey", "azerbaijan"}
     )
 )
 _SOUTHEAST_ASIA = (
@@ -71,8 +88,10 @@ _CENTRAL_AMERICA = (
     "belize", "costa rica", "el salvador", "guatemala", "honduras", "nicaragua", "panama",
 )
 _CARIBBEAN = (
-    "bahamas", "barbados", "cuba", "dominican republic", "grenada", "haiti", "jamaica",
-    "puerto rico", "trinidad and tobago",
+    "antigua and barbuda", "aruba", "bahamas", "barbados", "cuba", "curaçao", "curacao",
+    "dominica", "dominican republic", "grenada", "guadeloupe", "haiti", "jamaica",
+    "martinique", "puerto rico", "saint lucia", "sint maarten", "trinidad and tobago",
+    "us virgin islands", "british virgin islands",
 )
 _NORTH_AMERICA = tuple(sorted({"canada", "mexico", "united states"} | set(_CENTRAL_AMERICA) | set(_CARIBBEAN)))
 _SOUTH_AMERICA = (
