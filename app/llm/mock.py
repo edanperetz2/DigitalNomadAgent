@@ -506,6 +506,17 @@ def _apply_ranked_order(
         inferred_weights[criterion] = round(max(0.4, 0.95 - 0.1 * rank), 2)
 
 
+_SELF_DECLARED_UNCERTAINTY = re.compile(
+    r"\b(?:"
+    r"do ?n'?t (?:really )?know what (?:i'?m|i am) (?:looking for|after)"
+    r"|no idea where"
+    r"|not sure what (?:i|we) want"
+    r"|open to (?:anything|suggestions)"
+    r"|never (?:really )?travell?ed (?:properly )?before"
+    r")\b"
+)
+
+
 def interpret_prompt(prompt: str) -> dict:
     """Deterministic, rule-based interpretation used by MockLLMClient."""
     text = prompt.strip()
@@ -602,9 +613,24 @@ def interpret_prompt(prompt: str) -> dict:
     missing_information: list[str] = []
     clarification_required = False
     clarification_question = None
-    if unknown_purpose:
+    # Someone saying outright that they cannot specify the request is the
+    # clearest case for asking there is. P07 -- "I've been burnt out for the
+    # better part of a year... I don't really know what I'm looking for" -- was
+    # answered with a ranked scoring table and no question at all (D45).
+    if _SELF_DECLARED_UNCERTAINTY.search(lowered):
         clarification_required = True
         clarification_question = (
+            "Happy to narrow this down with you. Two things would help most: do you want somewhere "
+            "warm and quiet to rest, somewhere lively enough to meet people easily, or somewhere "
+            "cheap enough to stay a long while -- and roughly what can you spend a month?"
+        )
+        missing_information.append("what kind of trip would actually help")
+    if unknown_purpose:
+        clarification_required = True
+        # Does not overwrite a question already chosen above: asking someone who
+        # just said they do not know what they want to state their purpose is
+        # the least useful of the two questions available.
+        clarification_question = clarification_question or (
             "Could you clarify the main purpose of this trip (remote work, study, "
             "vacation, or something else), your approximate budget, and how long "
             "you plan to stay?"

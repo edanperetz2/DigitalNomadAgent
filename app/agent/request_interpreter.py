@@ -52,7 +52,11 @@ Interpret "must"/"required"/"non-negotiable" as hard constraints, "most importan
 high weight, "prefer" as a moderate weight, "would be nice" as a low weight, "do not care about \
 X" as removing/minimizing that criterion, and "avoid"/"never" as a deal breaker. Only set \
 clarification_required=true when missing information could materially change the \
-recommendation (e.g. the purpose is entirely unclear). \
+recommendation (e.g. the purpose is entirely unclear), or when the traveller says outright that \
+they do not know what they want ("I don't really know what I'm looking for", "I've never \
+travelled before, where should I go?") -- someone telling you they cannot specify the request is \
+the clearest case there is for asking, and the question should offer two or three concrete \
+directions rather than asking them to specify from nothing. \
 Otherwise proceed using an explicit, stated assumption. For amenity_preferences, include only \
 positively requested nearby-place categories and normalize them to these supported values when \
 applicable: "coworking", "cafe", "university", "library", "park", "pharmacy", \

@@ -332,3 +332,37 @@ def test_an_ordinary_request_asks_for_nothing_out_of_scope():
     assert out_of_scope_requests(
         "I want three months in Europe, car-free, under EUR 1800 a month including rent."
     ) == []
+
+
+def test_saying_you_do_not_know_what_you_want_earns_a_question():
+    """D45: P07 -- "I've been burnt out for the better part of a year... I don't
+    really know what I'm looking for" -- got a ranked scoring table with
+    four-decimal totals and no question at all, on the one prompt where the
+    traveller had said outright they could not specify the request."""
+    profile = interpret_prompt(
+        "I've been burnt out for the better part of a year and I've finally saved enough to get "
+        "away for a while. I don't really know what I'm looking for. I've never really travelled "
+        "properly before. Where should I go?"
+    )
+
+    assert profile["clarification_required"] is True
+    assert "narrow this down" in profile["clarification_question"]
+
+
+def test_the_question_offers_directions_rather_than_asking_for_a_spec():
+    """Asking someone who just said they cannot specify to specify is no help."""
+    profile = interpret_prompt("I have no idea where to go. Somewhere nice?")
+    question = profile["clarification_question"]
+
+    assert "rest" in question and "meet people" in question
+
+
+def test_a_specific_request_is_still_answered_without_asking():
+    profile = interpret_prompt(
+        "I want three months in Europe working remotely, car-free, under EUR 1800 a month."
+    )
+    assert profile["clarification_required"] is False
+
+
+def test_interpreter_prompt_covers_self_declared_uncertainty():
+    assert "do not know what they want" in SYSTEM_PROMPT
