@@ -47,6 +47,28 @@ def _coerce_cost(value: object, *, source: str) -> float | None:
     return cost
 
 
+# Long enough to carry a provider's own explanation ("content_filter",
+# "context_length_exceeded"), short enough not to dump a page into the trace.
+MAX_ERROR_DETAIL_CHARS = 300
+
+
+def _error_detail(response: httpx.Response) -> str:
+    """The provider's own explanation for a refusal, however it is shaped."""
+    try:
+        body = response.json()
+    except ValueError:
+        return response.text.strip()[:MAX_ERROR_DETAIL_CHARS] or "no response body"
+    if isinstance(body, dict):
+        error = body.get("error")
+        if isinstance(error, dict):
+            message = error.get("message") or error.get("code") or error.get("type")
+            if message:
+                return str(message)[:MAX_ERROR_DETAIL_CHARS]
+        if isinstance(error, str) and error:
+            return error[:MAX_ERROR_DETAIL_CHARS]
+    return str(body)[:MAX_ERROR_DETAIL_CHARS]
+
+
 class LLModClient(BaseLLMClient):
     def __init__(
         self,
@@ -135,8 +157,14 @@ class LLModClient(BaseLLMClient):
             raise LLMOutputError("LLMod.ai request failed after retries.") from exc
 
         if response.status_code >= 400:
+            # The body was discarded, so a 400 was unattributable after the fact.
+            # P10's Request Interpreter call failed this way on a real run and the
+            # deterministic parser silently took over; without the provider's own
+            # message there was no way to tell a content filter from a malformed
+            # payload from an expired key (D32).
             raise LLMOutputError(
-                f"LLMod.ai returned an error status ({response.status_code})."
+                f"LLMod.ai returned an error status ({response.status_code}): "
+                f"{redact(_error_detail(response))}"
             )
 
         try:

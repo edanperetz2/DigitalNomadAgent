@@ -107,5 +107,10 @@ def test_llm_timeout_or_failure_uses_deterministic_pipeline_fallbacks(client, mo
     assert data["status"] == "ok"
     assert data["error"] is None
     assert "## Best matches" in data["response"]
-    assert "deterministic parser" in data["response"]
-    assert "curated seed set" in data["response"]
+    # D32: these are appended after the generator runs, not routed through it.
+    # As profile.assumptions they were the model's to rewrite, and it dropped
+    # them -- P10's interpreter failed outright and the answer read like an
+    # ordinary complete run.
+    assert "**Reduced-capability run:**" in data["response"]
+    assert "simpler rule-based reader" in data["response"]
+    assert "fixed seed set" in data["response"]

@@ -25,7 +25,7 @@ from app.agent.dynamic_evaluation import (
 from app.agent.models import CandidateEvaluation, CandidatePlace, PlaceRequestProfile, ValidationResult
 from app.agent.recommendation_generator import generate_recommendation, render_recommendation_fallback
 from app.agent.recommendation_validator import validate_recommendations
-from app.agent.request_interpreter import interpret_request
+from app.agent.request_interpreter import interpret_request, out_of_scope_requests
 from app.agent.state import MAX_STATE_TRANSITIONS, TERMINAL_STATES, AgentState
 from app.core.exceptions import BudgetExceededError, LLMOutputError, PlaceMatchError
 from app.core.logging import logger
@@ -72,6 +72,11 @@ class _RunCheckpoint:
     evidence_by_place: dict[str, list[ToolResult]] = field(default_factory=dict)
     evaluations: list = field(default_factory=list)
     validation: ValidationResult | None = None
+    # Ways this particular run was degraded, kept out of profile.assumptions so
+    # the Recommendation Generator cannot paraphrase them away (D32).
+    service_notices: list[str] = field(default_factory=list)
+    # Asks the agent structurally cannot fulfil, named so they can be declined.
+    out_of_scope: list[str] = field(default_factory=list)
 
 
 def _resolve_ambiguous_profile(profile: PlaceRequestProfile) -> PlaceRequestProfile:
@@ -470,6 +475,7 @@ class Orchestrator:
                 validation,
                 self._collect_sources(checkpoint.evidence_by_place),
                 max_final_recommendations=self._max_final_recommendations,
+                service_notices=checkpoint.service_notices,
             )
             response += "\n\n**Timing note:** incomplete research was cancelled so this response could arrive on time."
             return AgentResult(status="ok", response=response, error=None, steps=execution_trace)
@@ -513,6 +519,10 @@ class Orchestrator:
                     )
 
                 if state == AgentState.RECEIVED:
+                    # Read off the raw prompt, so a request for something this
+                    # agent cannot do is declined by name even if the
+                    # interpreter call later fails outright (D32).
+                    checkpoint.out_of_scope = out_of_scope_requests(prompt)
                     state = AgentState.INTERPRETING
 
                 elif state == AgentState.INTERPRETING:
@@ -527,8 +537,10 @@ class Orchestrator:
                         )
                     except (BudgetExceededError, LLMOutputError):
                         profile = PlaceRequestProfile.model_validate(interpret_prompt_fallback(prompt))
-                        profile.assumptions.append(
-                            "The request-interpreter model was unavailable; a deterministic parser was used."
+                        checkpoint.service_notices.append(
+                            "The request-interpreter model was unavailable, so your request was parsed by a "
+                            "simpler rule-based reader. It can miss nuance -- check that the interpretation "
+                            "above matches what you actually meant."
                         )
                     checkpoint.profile = profile
                     state = (
@@ -572,8 +584,9 @@ class Orchestrator:
                                 : self._max_bulk_candidates
                             ]
                         ]
-                        profile.assumptions.append(
-                            "The candidate-generation model was unavailable; a curated seed set was used."
+                        checkpoint.service_notices.append(
+                            "The candidate-generation model was unavailable, so the shortlist was drawn from a "
+                            "fixed seed set rather than researched for your request."
                         )
                     candidates = _include_named_destinations(profile, candidates)
                     if not candidates:
@@ -752,6 +765,8 @@ class Orchestrator:
                             validation,
                             sources,
                             max_final_recommendations=self._max_final_recommendations,
+                            service_notices=checkpoint.service_notices,
+                            out_of_scope=checkpoint.out_of_scope,
                         )
                     else:
                         response_text = await generate_recommendation(
@@ -766,6 +781,8 @@ class Orchestrator:
                             max_output_tokens=self._max_output_tokens,
                             max_final_recommendations=self._max_final_recommendations,
                             llm_timeout_seconds=remaining_hard_time - 1.0,
+                            service_notices=checkpoint.service_notices,
+                            out_of_scope=checkpoint.out_of_scope,
                         )
                     state = AgentState.COMPLETED
 

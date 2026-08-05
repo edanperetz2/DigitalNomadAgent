@@ -6,6 +6,8 @@ PlaceRequestProfile with one repair attempt allowed on malformed output.
 
 from __future__ import annotations
 
+import re
+
 from app.agent.models import PlaceRequestProfile
 from app.core.module_names import REQUEST_INTERPRETER
 from app.llm.base import BaseLLMClient
@@ -59,6 +61,46 @@ lowercase string so the tool can report it as unresolved. For activity_preferenc
 positively requested leisure or sightseeing categories and normalize applicable requests to \
 "culture", "nightlife", "parks", "beaches", or "hiking". Preserve unsupported requested \
 activities as short lowercase strings so the tool can report them as unresolved."""
+
+
+# Things this agent structurally cannot do, matched on the raw prompt rather
+# than on the interpreted profile: P10 asked for confirmed flight and hotel
+# prices and a current visa fee, the interpreter call then failed outright, and
+# the answer came back as an ordinary ranked list of cities that never mentioned
+# any of the three. Detected deterministically so the refusal survives both a
+# model failure and a model that would rather answer something easier (D32).
+_OUT_OF_SCOPE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(r"\b(?:flight|airfare|plane ticket)s?\b(?=[^.?!]*\b(?:price|cost|fare|cheap|book)\w*)", re.I),
+        "live or confirmed flight prices",
+    ),
+    (
+        re.compile(r"\b(?:hotel|accommodation|room|nightly)\b(?=[^.?!]*\b(?:price|rate|cost|cheap|book)\w*)", re.I),
+        "current hotel or nightly accommodation rates",
+    ),
+    (
+        re.compile(r"\bvisa\b(?=[^.?!]*\b(?:fee|cost|price|requirement|eligib\w*)\b)", re.I),
+        "visa fees or entry eligibility",
+    ),
+    (
+        re.compile(r"\b(?:book|reserve|purchase|buy)\b[^.?!]*\b(?:flight|hotel|room|ticket)s?\b", re.I),
+        "booking or purchasing anything",
+    ),
+)
+
+
+def out_of_scope_requests(prompt: str) -> list[str]:
+    """Named asks this agent cannot fulfil, in the reader's terms.
+
+    Returned so the response can decline them by name. The generator's system
+    prompt already forbids *claiming* live prices; that is not the same as
+    telling someone their question went unanswered.
+    """
+    found: list[str] = []
+    for pattern, description in _OUT_OF_SCOPE_PATTERNS:
+        if pattern.search(prompt) and description not in found:
+            found.append(description)
+    return found
 
 
 async def interpret_request(

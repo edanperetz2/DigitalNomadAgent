@@ -365,6 +365,21 @@ _NAMED_DESTINATION_PATTERNS = (
     re.compile(r"\b(?i:settled on|decided on|thinking about|considering|leaning towards?|set on)\s+" + _PLACE),
     re.compile(r"\b(?i:is)\s+" + _PLACE + r"\s+(?i:actually\s+)?(?i:a good|the right|right|suitable)\b"),
     re.compile(r"\b(?i:how|what)\s+(?i:about)\s+" + _PLACE),
+    # A bare place after a destination preposition: "prices for Bali", "go to
+    # Tokyo", "about Buenos Aires". Every trigger above needs the user to
+    # deliberate out loud, so a request that simply *names* where it means went
+    # unrecorded -- P10 asked about Bali and was answered with a ranked list of
+    # Israeli cities, the named place never having reached the profile (D32).
+    # "of"/"from" are deliberately excluded: they mark an origin, not a target.
+    re.compile(r"\b(?i:for|to|about|visit|visiting)\s+" + _PLACE),
+)
+
+# Capitalised words that follow those prepositions without naming a place.
+_NOT_A_DESTINATION = frozenset(
+    set(_MONTH_NUMBERS)
+    | set(_SEASON_MONTHS)
+    | {region.casefold() for region in _KNOWN_REGIONS}
+    | {region.removeprefix("the ").casefold() for region in _KNOWN_REGIONS}
 )
 
 
@@ -379,7 +394,9 @@ def _extract_named_destinations(text: str) -> list[str]:
     for pattern in _NAMED_DESTINATION_PATTERNS:
         for match in pattern.finditer(text):
             name = match.group(1).strip()
-            if name and name not in names:
+            if not name or name.casefold() in _NOT_A_DESTINATION:
+                continue
+            if name not in names:
                 names.append(name)
     return names
 

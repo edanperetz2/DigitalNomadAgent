@@ -92,3 +92,60 @@ def test_the_payload_tells_the_generator_a_place_was_named():
     # Absent otherwise, so the nine prompts that name nothing are untouched.
     plain = _build_payload(PlaceRequestProfile(purpose="remote_work"), [], validation, [], 3)
     assert "named_destinations" not in plain
+
+
+@pytest.mark.asyncio
+async def test_degradation_notice_survives_the_generator_rewriting_everything():
+    """D32: the notice used to ride in profile.assumptions, which the generator
+    is free to reword -- and did. P10's Request Interpreter failed with a 400,
+    the deterministic parser took over, and the answer came back looking like an
+    ordinary complete run. The model here returns markdown that mentions none of
+    it, exactly as the real one did."""
+    profile, validation = _profile_and_validation()
+
+    markdown = await generate_recommendation(
+        profile,
+        [],
+        validation,
+        [],
+        client=_RealLikeClient(),
+        budget=_FakeBudget(),
+        request_id="r1",
+        execution_trace=[],
+        max_output_tokens=128,
+        service_notices=["The request-interpreter model was unavailable."],
+    )
+
+    assert "**Reduced-capability run:**" in markdown
+    assert "The request-interpreter model was unavailable." in markdown
+
+
+@pytest.mark.asyncio
+async def test_out_of_scope_asks_are_declined_by_name():
+    """D32: P10 asked for confirmed flight prices, nightly hotel rates and a
+    visa fee, and got a ranked list of cities mentioning none of the three."""
+    profile, validation = _profile_and_validation()
+
+    markdown = await generate_recommendation(
+        profile,
+        [],
+        validation,
+        [],
+        client=_RealLikeClient(),
+        budget=_FakeBudget(),
+        request_id="r1",
+        execution_trace=[],
+        max_output_tokens=128,
+        out_of_scope=["live or confirmed flight prices", "visa fees or entry eligibility"],
+    )
+
+    assert "outside what this agent can answer" in markdown
+    assert "live or confirmed flight prices" in markdown
+    assert "visa fees or entry eligibility" in markdown
+
+
+def test_a_clean_run_carries_neither_disclosure():
+    profile, validation = _profile_and_validation()
+    markdown = render_recommendation_fallback(profile, [], validation, [])
+    assert "Reduced-capability run" not in markdown
+    assert "outside what this agent can answer" not in markdown

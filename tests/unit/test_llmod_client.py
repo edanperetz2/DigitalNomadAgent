@@ -239,3 +239,40 @@ def test_masked_api_key_is_rejected_with_an_actionable_message():
     message = str(exc_info.value)
     assert "non-ASCII" in message
     assert "masked" in message
+
+
+@pytest.mark.asyncio
+async def test_error_status_carries_the_providers_own_explanation(monkeypatch):
+    """D32: the body was discarded, so a real 400 on P10's Request Interpreter
+    was unattributable -- content filter, bad payload and expired key all
+    produced the same bare "returned an error status (400)"."""
+    client = _client()
+
+    async def stub(payload):
+        return _response(
+            status_code=400,
+            body={"error": {"message": "content_filter: prompt rejected", "type": "invalid_request_error"}},
+        )
+
+    monkeypatch.setattr(client, "_post", stub)
+
+    with pytest.raises(LLMOutputError) as exc:
+        await client.complete(_MESSAGES, max_output_tokens=64)
+
+    assert "400" in str(exc.value)
+    assert "content_filter: prompt rejected" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_error_status_tolerates_a_non_json_body(monkeypatch):
+    client = _client()
+
+    async def stub(payload):
+        return httpx.Response(413, text="Request Entity Too Large", request=httpx.Request("POST", "https://x"))
+
+    monkeypatch.setattr(client, "_post", stub)
+
+    with pytest.raises(LLMOutputError) as exc:
+        await client.complete(_MESSAGES, max_output_tokens=64)
+
+    assert "Request Entity Too Large" in str(exc.value)

@@ -1,4 +1,4 @@
-from app.agent.request_interpreter import SYSTEM_PROMPT
+from app.agent.request_interpreter import SYSTEM_PROMPT, out_of_scope_requests
 from app.llm.mock import generate_candidates, interpret_prompt
 
 
@@ -297,3 +297,38 @@ def test_may_and_march_only_count_as_months_when_capitalised():
 
 def test_interpreter_prompt_asks_for_target_months():
     assert "target_months" in SYSTEM_PROMPT
+
+
+def test_a_bare_named_place_is_captured_without_a_deliberation_phrase():
+    """D32: every trigger needed the user to deliberate out loud ("settled on
+    X"). P10 simply named Bali and was answered with Israeli cities."""
+    profile = interpret_prompt(
+        "I need the cheapest confirmed flight and hotel prices for Bali for the week of the 14th."
+    )
+    assert profile["named_destinations"] == ["Bali"]
+
+
+def test_regions_months_and_origins_are_not_mistaken_for_named_places():
+    assert interpret_prompt("I want to spend three months somewhere in Europe.")["named_destinations"] == []
+    assert interpret_prompt("Ten days in October, somewhere warm.")["named_destinations"] == []
+    assert (
+        interpret_prompt("We're flying out of Tel Aviv for two weeks in August.")["named_destinations"] == []
+    )
+
+
+def test_out_of_scope_asks_are_detected_from_the_raw_prompt():
+    """Detected off the prompt, not the profile, so the refusal survives an
+    interpreter call that fails outright -- which is what happened on P10."""
+    asks = out_of_scope_requests(
+        "I need the cheapest confirmed flight and hotel prices for Bali with the actual current "
+        "nightly rates, and tell me exactly what the visa fee is for an Israeli passport holder."
+    )
+    assert "live or confirmed flight prices" in asks
+    assert "current hotel or nightly accommodation rates" in asks
+    assert "visa fees or entry eligibility" in asks
+
+
+def test_an_ordinary_request_asks_for_nothing_out_of_scope():
+    assert out_of_scope_requests(
+        "I want three months in Europe, car-free, under EUR 1800 a month including rent."
+    ) == []
