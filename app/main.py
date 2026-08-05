@@ -170,6 +170,7 @@ async def lifespan(app: FastAPI):
         max_llm_calls_per_request=settings.max_llm_calls_per_request,
         input_cost_per_1m=settings.llm_input_cost_per_1m,
         output_cost_per_1m=settings.llm_output_cost_per_1m,
+        max_input_tokens=settings.llm_max_input_tokens,
     )
     llm_client = getattr(app.state, "llm_client_override", None) or _build_llm_client(settings)
     tool_registry = getattr(app.state, "tool_registry_override", None) or _build_tool_registry(

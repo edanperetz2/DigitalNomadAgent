@@ -31,7 +31,13 @@ class Settings(BaseSettings):
     # --- Budget controls ---------------------------------------------------------
     max_project_budget_usd: float = 13.0
     max_llm_calls_per_request: int = 4
-    llm_max_input_tokens: int = 4000
+    # Ceiling on one prompt, enforced by BudgetManager.check_before_call. It was
+    # 4000 while nothing read it; the real 2026-08-05 run showed ordinary calls
+    # at 4,194-8,471 input tokens, so enforcing 4000 would have refused most of
+    # them. 16000 is roughly double the largest observed call, which leaves room
+    # for a full finalist set with rich evidence while still bounding a runaway
+    # prompt at about $0.012.
+    llm_max_input_tokens: int = 16000
     llm_max_output_tokens: int = 4000
     llm_input_cost_per_1m: float = 0.0
     llm_output_cost_per_1m: float = 0.0

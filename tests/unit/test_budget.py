@@ -19,6 +19,7 @@ def _manager(db, **overrides) -> BudgetManager:
         max_llm_calls_per_request=4,
         input_cost_per_1m=0.0,
         output_cost_per_1m=0.0,
+        max_input_tokens=0,
     )
     defaults.update(overrides)
     return BudgetManager(db, **defaults)
@@ -49,6 +50,33 @@ async def test_per_request_call_cap_enforced(db):
     await manager.record_call("req1", "Agentic Research", "m", 10, 10, 0.0, True)
     with pytest.raises(BudgetExceededError):
         await manager.check_before_call("req1", "Recommendation Generator", 10, 10)
+
+
+@pytest.mark.asyncio
+async def test_oversized_prompt_is_refused_before_it_is_billed(db):
+    manager = _manager(db, max_input_tokens=16_000)
+    with pytest.raises(BudgetExceededError, match="input tokens"):
+        await manager.check_before_call("req1", "Dynamic Evaluation", 16_001, 100)
+
+
+@pytest.mark.asyncio
+async def test_the_input_ceiling_clears_real_measured_prompt_sizes(db):
+    """The old 4000 would have refused most real calls, which is why nothing
+    could be allowed to read it. These are the sizes the 2026-08-05 run billed."""
+    manager = _manager(db, max_input_tokens=16_000)
+    for module, tokens in [
+        ("Request Interpreter", 691),
+        ("Agentic Research", 529),
+        ("Dynamic Evaluation", 5_868),
+        ("Recommendation Generator", 8_471),
+    ]:
+        await manager.check_before_call("req1", module, tokens, 4_000)
+
+
+@pytest.mark.asyncio
+async def test_a_zero_ceiling_disables_the_check(db):
+    manager = _manager(db, max_input_tokens=0)
+    await manager.check_before_call("req1", "Dynamic Evaluation", 10_000_000, 100)
 
 
 @pytest.mark.asyncio

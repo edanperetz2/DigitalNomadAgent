@@ -21,12 +21,17 @@ class BudgetManager:
         max_llm_calls_per_request: int,
         input_cost_per_1m: float,
         output_cost_per_1m: float,
+        max_input_tokens: int = 0,
     ):
         self._db = db
         self.max_project_budget_usd = max_project_budget_usd
         self.max_llm_calls_per_request = max_llm_calls_per_request
         self.input_cost_per_1m = input_cost_per_1m
         self.output_cost_per_1m = output_cost_per_1m
+        # 0 disables the ceiling. It exists to stop one pathological prompt from
+        # spending a large share of the project budget in a single call, not to
+        # trim ordinary ones -- see check_before_call.
+        self.max_input_tokens = max_input_tokens
 
     async def _running_total(self) -> float:
         cursor = await self._db.conn.execute(
@@ -55,6 +60,11 @@ class BudgetManager:
             raise BudgetExceededError(
                 f"The per-request LLM call limit ({self.max_llm_calls_per_request}) has been "
                 f"reached; cannot make another call for {module}."
+            )
+        if self.max_input_tokens and est_input_tokens > self.max_input_tokens:
+            raise BudgetExceededError(
+                f"The prompt for {module} is about {est_input_tokens:,} input tokens, over the "
+                f"{self.max_input_tokens:,} ceiling; the call was refused before it was billed."
             )
         worst_case = self._estimate_cost(est_input_tokens, est_output_tokens)
         running_total = await self._running_total()
