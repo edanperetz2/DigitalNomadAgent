@@ -6,11 +6,12 @@ fixing. Two things are kept deliberately separate: **defects** (it does not work
 
 Last updated: **2026-08-05**.
 
-> **Reading order.** Section 0 is the current status, including the results of the post-fix
-> verification run against the real provider (2026-08-04) and the fixes that followed. Sections
-> 2–9 are the original findings, written before the fixes landed — they still describe several
-> defects as open. Section 0 is authoritative on what is fixed; the detail below explains *why*
-> each one mattered and is worth keeping for that reason.
+> **Reading order.** Section 0 is the current status, including the results of both real-provider
+> runs — the post-fix verification run (2026-08-04) and the subset re-validation (2026-08-05) —
+> and the fixes that followed each. Sections 2–9 are the original findings, written before the
+> fixes landed — they still describe several defects as open. Section 0 is authoritative on what
+> is fixed; the detail below explains *why* each one mattered and is worth keeping for that
+> reason.
 
 ---
 
@@ -19,12 +20,15 @@ Last updated: **2026-08-05**.
 ### Where this stands, in one paragraph
 
 Every defect on the ledger is closed except **D19**, which cannot be fixed from this repository —
-the API key's budget cap is administered by the course provider. The offline gate is green (**481
-passed, 1 skipped**, `ruff` clean) and $12.36 of the $13.00 budget remains. The one gap worth
-knowing about: **the current code has never been run against the real LLM.** The five fix commits
-after `6da2464` were verified with mock LLM + real tools at $0 and offline against a captured
-real-LLM profile, but the last paid suite run (`validation_runs/20260804T175107Z-real-api-postfix`)
-predates them. See "Suggested next session" at the end of this section.
+the API key's budget cap is administered by the course provider. The offline gate is green (**493
+passed, 1 skipped**, `ruff` clean) and $12.25 of the $13.00 budget remains.
+
+The outstanding risk named here previously — that the post-`6da2464` fix commits had never met the
+real LLM — **is closed.** The 2026-08-05 subset run
+(`validation_runs/20260805T051351Z-real-api-postfix-2`, $0.1130) confirmed **D8b, D20 and D21 all
+hold in real mode**, and turned up two new defects, **D23 and D24**, both since fixed. Those two
+fixes have themselves been verified offline and in mock mode but *not* against the real provider;
+that is now the outstanding gap, and it is a much smaller one. See "Suggested next session".
 
 ### Defect status
 
@@ -56,6 +60,8 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D21 | Free-form interpreter weight keys (`time_zone_overlap`) never matched the scoring vocabulary, so every user-stated weight fell back to the 0.5 default | **Fixed** | `17927a0` |
 | D8b | Residual of D8: global `Semaphore(2)` starved Amenities/LocalMobility jobs, and a killed LocalMobilityTool lost its already-fetched Wikivoyage prose | **Fixed** | `9405937` |
 | D22 | Mock scorer rendered a failed count lookup as a scored `count (0)` — absence of evidence as evidence of absence | **Fixed** | `d6b2939` |
+| D23 | `missing_evidence` compared free-form interpreter criterion names against the canonical scoring vocabulary, so every criterion was reported missing even when scored — and the same mismatch made the gap-research iteration select no tools | **Fixed** (2026-08-05) | `7a99f1a` |
+| D24 | A stated working-hours overlap minimum ("at least four hours with US Eastern") was never checked, so a candidate missing it ranked #1 | **Fixed** (2026-08-05) | `5606431` |
 
 One deliberate non-change, flagged rather than decided unilaterally:
 
@@ -112,8 +118,8 @@ evidence-mapping gap rather than an Overpass one.
 - **Provider pricing is $0.75 / $4.50 per 1M** (input/output), from `/model/info` and confirmed
   against a billed call — *not* the $0.1438 / $5.7205 in the course handout. `.env` deliberately
   carries the higher of each figure so the pre-call guard cannot under-estimate.
-- **Spend so far: $0.6395 of $13.00** (provider-authoritative, after the verification run).
-  About 40 more full suite runs fit in the remaining budget.
+- **Spend so far: $0.7524 of $13.00** (provider-authoritative, after the 2026-08-05 subset run).
+  About 37 more full suite runs fit in the remaining $12.25.
 - **The ledger has a pre-existing baseline** of 62 mock rows at $0.00, plus 214 fake evidence rows
   and some phantom search-history entries, all written by the test suite before D5 was fixed.
   Harmless for cost reporting; the history entries are user-visible and can be cleared with
@@ -158,23 +164,75 @@ P05 investigation split into two distinct defects (D20, D21).
   so it renders as "not assessed"; a genuine dict of zero counts is real evidence and still
   scores. Both cases are pinned by tests.
 
+### The subset re-validation run — DONE (2026-08-05, `validation_runs/20260805T051351Z-real-api-postfix-2`)
+
+P01, P03 and P05 against the real provider: three prompts, 13 calls, **$0.1130** — ledger and
+provider-billed agree to the tenth of a cent. All three `status: ok`. Offline gate green first (481 passed, 1 skipped,
+`ruff` clean); `.env` was left at `MOCK_LLM=true` and overridden by environment variable at launch.
+
+| Fix under test | Outcome |
+|---|---|
+| **D8b** — do Amenities/LocalMobility evidence the car-free criterion in real mode? | **PASS**, and this closes the previous run's one substantive negative finding. P01's finalists carry real component counts (Seville, Cluj-Napoca, Timișoara all `work_infrastructure 1.0` from `{coworking: 1.0, cafe: 1.0}`) and differentiated `transportation` (0.87 / 0.76 / 0.69) with concrete prose — Seville's rechargeable travel card, Timișoara's "schedule reliability is a major problem" |
+| **D20** — does a named reference timezone score? | **PASS**. Every P05 candidate scored on measured hours: Guadalajara ~6.0h → 1.0, Santiago ~8.0h → 1.0, Lisbon ~3.0h → 0.75, Barcelona ~2.0h → 0.5. On 2026-08-04 this criterion was never scored at all despite carrying weight 1.0 |
+| **D21** — do free-form weight keys drive ranking? | **PASS**. No flat 0.5 profile anywhere. `time_zone_overlap: 1.0` → `timezone: 0.282` (highest, P05); `cost_of_living: 0.95` → `cost: 0.306` (highest, P01); P03's ranked priorities → `student_life 0.253 > safety 0.227 > transportation 0.213 > cost 0.200 > activities 0.107`, descending in the stated order |
+
+Two new defects came out of reading the traces, both fixed the same day.
+
+- **D23 — everything reported as missing evidence** (`7a99f1a`): `missing_evidence` was
+  `[c for c in profile.relevant_criteria if c not in criterion_scores]` — free-form interpreter
+  prose on the left, canonical vocabulary on the right, so nothing ever matched. Seville listed 7
+  of 7 criteria missing against 4 real scores; Lisbon 5 of 5 against 4. Not cosmetic: the
+  validator intersects that list with the high-weight criteria to set `should_research_again`, and
+  the orchestrator maps each item through `_CRITERION_TO_TOOLS` to choose gap tools — so **P03 and
+  P05 each spent a gap research iteration that selected no tools at all**, then disclosed "some
+  high-priority criteria remain unverified" about evidence they were holding. P01 escaped only
+  because its interpreter happened to write `"cost of living"` in one list and `cost_of_living` in
+  the other; whether a wasted iteration fired came down to LLM spelling. `_tool_priorities` had
+  the same mismatch, dropping a wanted criterion to priority 0.0. D21 introduced the canonicalizer
+  for the weights path; this extracts the per-name half and applies it at all four sites. Replayed
+  against the captured profiles: Seville 7 → 1, Munich 4 → 1, Lisbon 5 → 0, and the survivors
+  (`city size`, `english_taught_programs`) are genuinely unscored.
+- **D24 — a stated overlap minimum was never enforced** (`5606431`): P05 asks for "at least four
+  hours of overlap with US Eastern" and the interpreter records it as a hard constraint, but
+  `_HARD_CONSTRAINT_KEYWORDS` has no timezone row — and adding one would not have helped, because
+  those rows threshold a 0-1 score at 0.2 and Lisbon's ~3.0h scores 0.75. **Lisbon ranked #1 while
+  missing the minimum the request was built around.** An hours minimum is now compared in hours,
+  against `estimated_workday_overlap_hours`, with the figure read from the constraint phrase that
+  mentions the overlap (so P02's "no more than 5 hours flight" cannot supply it).
+  *Enforcement alone was worse than the defect:* mock P05's candidate set holds no city that
+  reaches four hours (Lisbon 3.0h is the best of it, Taipei 0.0h the worst), so everything was
+  eliminated and the request failed outright — the same
+  no-answer-at-all failure D16 had to undo for continental regions. When no candidate can meet the
+  bar the field is now un-eliminated and ranked, with the failed check kept in
+  `hard_constraint_results` and the shortfall promoted to the leading drawback. Verified in mock
+  mode at $0: `status: error` → `status: ok`, Lisbon first on the best available 3.0h, Taipei last
+  at 0.0h, every candidate stating how far short it falls.
+
 ### Follow-ups this report does not cover
 
 - The enhancement backlog (section 8) is untouched. E1 (boilerplate justifications) and E3
   (Wikivoyage prose collected then discarded) are the most valuable.
 - There is still **no CI**, no coverage measurement, and no frontend test tooling.
+- **Region preferences still never filter.** Both P01 and P05 disclose "the stated region
+  preference (Europe) could not be matched against any candidate's country, so it was treated as
+  guidance rather than a filter". That is D16's fix working as designed — `check_geocoded_constraints`
+  matches country names and ISO codes, and deliberately does not resolve a continent to its member
+  countries because no region taxonomy exists in the codebase. It is disclosed and candidate
+  selection still targets the region, so it is an enhancement rather than a defect, but it is the
+  reason a continental preference cannot be enforced.
 
 ### Suggested next session
 
 Ranked. The first item is the only one with a correctness argument behind it; the rest are
 improvements.
 
-**1. Re-validate the current code against the real provider (~$0.33, or ~$0.07 for the subset).**
-This is the outstanding risk: five fix commits have never met the real LLM. The highest-value
-subset is **P01** (D8b — do Amenities/LocalMobility now evidence the car-free criterion?),
-**P05** (D20/D21 — does a named reference timezone score, and do the real interpreter's
-free-form weight keys now drive ranking?) and **P03** (D21 — do ranked priorities still produce
-descending weights after canonicalization?). Full suite if you want the complete picture.
+**1. Confirm D23 and D24 against the real provider (~$0.08 for P05 + P03, ~$0.34 full suite).**
+Both were verified offline and in mock mode, but neither has met the real LLM. **P05** is the
+one that matters: it should now show *no* spurious `missing_evidence`, spend *no* wasted gap
+research iteration, and either eliminate the sub-four-hour candidates outright or — if the
+candidate set has no qualifying city — rank them with the shortfall stated. **P03** is the
+cheap confirmation that the gap iteration it wasted last time is gone. Full suite only if you
+want the complete picture; nothing else is known to be at risk.
 
 ```bash
 # 1. Offline gate -- must be green before spending anything
@@ -183,20 +241,23 @@ pytest -q && ruff check .
 # 2. Provider state, read-only, $0
 python scripts/probe_llmod_account.py
 
-# 3. Set MOCK_LLM=false in .env, then start the server
-uvicorn app.main:app --port 8000
+# 3. Start the server against the real provider. Prefer the environment
+#    variable over editing .env -- there is then nothing to remember to revert.
+#    PowerShell: $env:MOCK_LLM="false"; uvicorn app.main:app --port 8000
+MOCK_LLM=false uvicorn app.main:app --port 8000
 
 # 4. Second shell -- captures to validation_runs/, judges nothing
-python scripts/run_e2e_suite.py --label real-api-postfix-2
+python scripts/run_e2e_suite.py --label real-api-d23-d24 --only P03,P05
 
-# 5. Reconcile spend, then put MOCK_LLM back to true in .env
+# 5. Reconcile spend
 python scripts/show_llm_usage.py --calls && python scripts/probe_llmod_account.py
 ```
 
-What to look for, beyond the per-prompt table in the verification-run section above: P01's
-finalists should now carry real coworking/mobility numbers rather than "missing verification";
-P05 should rank by overlap with US Eastern rather than by cost; and no prompt should show a flat
-0.5 weight profile.
+What to look for in the captured `steps`, beyond `status: ok`: each candidate's
+`missing_evidence` should list only criteria that genuinely have no score (compare against its
+`criterion_scores`); `validation_issues` should no longer claim high-priority criteria are
+unverified when they are scored; and P05's `hard_constraint_results` should carry a `timezone`
+entry, which it never did before.
 
 **2. E1 — boilerplate justifications.** The single most visible quality gap: "Cost evidence
 compared against the stated budget informs this score" appears as the *why it fits* for most
