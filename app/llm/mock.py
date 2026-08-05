@@ -1202,24 +1202,37 @@ def _counts_sum(counts: dict | None) -> float:
     return sum(v for v in counts.values() if isinstance(v, (int, float)))
 
 
-def _score_transportation(evidence: dict) -> tuple[float, str]:
-    total = _counts_sum(evidence.get("counts_by_component"))
+# A criterion with no numeric evidence returns None rather than a fabricated
+# zero: a failed count lookup must surface as "not assessed", never as
+# "count (0)" -- a genuine dict of zero counts is real evidence and still scores.
+
+
+def _score_transportation(evidence: dict) -> tuple[float, str] | None:
+    counts = evidence.get("counts_by_component")
+    if not isinstance(counts, dict) or not counts:
+        return None
+    total = _counts_sum(counts)
     score = min(1.0, total / _COUNT_SATURATION)
     return score, f"Local mobility infrastructure count ({total:g}) informs this score."
 
 
-def _score_accessibility(evidence: dict) -> tuple[float, str]:
+def _score_accessibility(evidence: dict) -> tuple[float, str] | None:
     distance_km = evidence.get("straight_line_distance_km")
     if isinstance(distance_km, (int, float)):
         score = max(0.0, min(1.0, 1.0 - distance_km / 3000.0))
         return score, f"Straight-line distance from origin (~{distance_km:g}km) informs this score."
-    total = _counts_sum(evidence.get("counts_by_component"))
+    counts = evidence.get("counts_by_component")
+    if not isinstance(counts, dict) or not counts:
+        return None
+    total = _counts_sum(counts)
     score = min(1.0, total / _COUNT_SATURATION)
     return score, f"Arrival-infrastructure count ({total:g}) informs this score, no origin distance available."
 
 
-def _score_activities(evidence: dict, activity_preferences: list) -> tuple[float, str]:
-    counts = evidence.get("counts_by_category") or {}
+def _score_activities(evidence: dict, activity_preferences: list) -> tuple[float, str] | None:
+    counts = evidence.get("counts_by_category")
+    if not isinstance(counts, dict) or not counts:
+        return None
     total = _counts_sum(counts)
     matched = [pref for pref in activity_preferences if counts.get(pref)]
     base = min(1.0, total / _COUNT_SATURATION)
@@ -1245,22 +1258,26 @@ def score_unresolved_mock(payload: dict) -> list[dict]:
             rationale = "Cost evidence compared against the stated budget informs this score."
             scores.append({"place": place, "criterion": "cost", "score": round(score, 4), "rationale": rationale})
         if "transportation" in criteria:
-            score, rationale = _score_transportation(criteria["transportation"])
-            scores.append(
-                {"place": place, "criterion": "transportation", "score": round(score, 4), "rationale": rationale}
-            )
+            scored = _score_transportation(criteria["transportation"])
+            if scored is not None:
+                score, rationale = scored
+                scores.append(
+                    {"place": place, "criterion": "transportation", "score": round(score, 4), "rationale": rationale}
+                )
         if "accessibility" in criteria:
-            score, rationale = _score_accessibility(criteria["accessibility"])
-            scores.append(
-                {"place": place, "criterion": "accessibility", "score": round(score, 4), "rationale": rationale}
-            )
+            scored = _score_accessibility(criteria["accessibility"])
+            if scored is not None:
+                score, rationale = scored
+                scores.append(
+                    {"place": place, "criterion": "accessibility", "score": round(score, 4), "rationale": rationale}
+                )
         if "activities" in criteria:
-            score, rationale = _score_activities(
-                criteria["activities"], preferences.get("activity_preferences", [])
-            )
-            scores.append(
-                {"place": place, "criterion": "activities", "score": round(score, 4), "rationale": rationale}
-            )
+            scored = _score_activities(criteria["activities"], preferences.get("activity_preferences", []))
+            if scored is not None:
+                score, rationale = scored
+                scores.append(
+                    {"place": place, "criterion": "activities", "score": round(score, 4), "rationale": rationale}
+                )
     return scores
 
 

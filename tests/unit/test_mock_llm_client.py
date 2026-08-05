@@ -114,3 +114,60 @@ async def test_mock_client_never_reports_nonzero_cost():
         [{"role": "user", "content": "test"}], max_output_tokens=100, metadata={"module": REQUEST_INTERPRETER}
     )
     assert response.provider_cost_usd == 0.0
+
+
+def test_missing_count_evidence_is_left_unassessed_not_scored_zero():
+    """A failed count lookup must not surface as 'count (0)' -- absent counts
+    leave the criterion unscored so it renders as 'not assessed' downstream."""
+    from app.llm.mock import score_unresolved_mock
+
+    scores = score_unresolved_mock(
+        {
+            "candidates": [
+                {
+                    "place": "Lisbon",
+                    "criteria": {
+                        "transportation": {
+                            "counts_by_component": {},
+                            "wikivoyage_excerpt": "The metro is extensive.",
+                        },
+                        "accessibility": {"counts_by_component": None},
+                        "activities": {"counts_by_category": {}},
+                    },
+                    "preferences": {},
+                }
+            ]
+        }
+    )
+
+    assert scores == []
+
+
+def test_genuine_zero_counts_still_score_as_evidence_of_absence():
+    from app.llm.mock import score_unresolved_mock
+
+    scores = score_unresolved_mock(
+        {
+            "candidates": [
+                {
+                    "place": "Remoteville",
+                    "criteria": {
+                        "transportation": {
+                            "counts_by_component": {
+                                "bus_stops": 0,
+                                "rail_metro_tram_stations": 0,
+                                "pedestrian_ways": 0,
+                                "cycleways": 0,
+                            }
+                        }
+                    },
+                    "preferences": {},
+                }
+            ]
+        }
+    )
+
+    assert len(scores) == 1
+    assert scores[0]["criterion"] == "transportation"
+    assert scores[0]["score"] == 0.0
+    assert "count (0)" in scores[0]["rationale"]
