@@ -106,7 +106,7 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D50 | **The Vercel deployment served nothing.** `vercel.json` rewrites every request to `/main.py` and the Python runtime hands the ASGI app that rewritten path, so FastAPI matched no route and answered `{"detail":"Not Found"}` to everything, `/openapi.json` included, while importing and running correctly | **Fixed** (2026-08-06) | `ac9c118` |
 | D51 | A *failed* hard constraint and an *unconfirmed* one produced the same verdict; evidence that a place does not meet a non-negotiable is a no, not a "yes only if" | **Fixed** (2026-08-06) | `ac9c118` |
 | D52 | Monthly rent-inclusive living costs were used to judge a two-week holiday: P02 read "$1,063 per month" as "mid-range rather than luxury" | **Fixed** (2026-08-06) | `ac9c118` |
-| D53 | "I don't care about nightlife at all" was recorded as a deal-breaker *and* weighted 0.0. Harmless until D35 made deal-breakers score against a place; after that a city is marked down for something the traveller shrugged at | **Fixed** (2026-08-06) | pending |
+| D53 | "I don't care about nightlife at all" was recorded as a deal-breaker *and* weighted 0.0. Harmless until D35 made deal-breakers score against a place; after that a city is marked down for something the traveller shrugged at | **Fixed** (2026-08-06) | `e492629` |
 
 ### Reading the answers a second time (2026-08-06)
 
