@@ -103,6 +103,94 @@ def test_a_native_english_city_outranks_one_where_english_is_only_widespread():
     assert [e.place for e in ranked] == ["Dublin", "Lisbon"]
 
 
+def test_naming_english_is_not_answered_worse_than_leaving_it_implied():
+    """D58: P06 asked for English and the named-language branch scored every
+    country whose *official* list omits it at 0.0 -- below the elimination
+    threshold. Cyprus is in this project's own English-widespread table, and its
+    four cities were still eliminated for not speaking English. Seven of the
+    eight researched places died that way and the answer collapsed to one row.
+    """
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        relevant_criteria=["language_spoken"],
+        hard_constraints=["English widely spoken"],
+        preferred_languages=["English"],
+        budget=Budget(),
+    )
+    evidence = {
+        place: [
+            _tool_result(
+                "LanguageTool",
+                place,
+                {
+                    "spoken_languages": list(spoken_languages(country)),
+                    "english_reach": english_reach(country),
+                    "english_score": {"native": 1.0, "widespread": 0.75, "limited": 0.25}[
+                        english_reach(country)
+                    ],
+                    "requested_languages": ["English"],
+                    "matched_languages": [
+                        language
+                        for language in ["English"]
+                        if language.casefold()
+                        in {spoken.casefold() for spoken in spoken_languages(country)}
+                    ],
+                },
+            )
+        ]
+        for place, country in (("Valletta", "Malta"), ("Limassol", "Cyprus"), ("Malaga", "Spain"))
+    }
+
+    ranked = evaluate_candidates(
+        [
+            _candidate("Valletta", "Malta"),
+            _candidate("Limassol", "Cyprus"),
+            _candidate("Malaga", "Spain"),
+        ],
+        profile,
+        evidence,
+    )
+
+    # Nothing is eliminated for a language the reference says is usable, and the
+    # three bands still discriminate: official > widespread > limited.
+    assert [e.place for e in ranked] == ["Valletta", "Limassol", "Malaga"]
+    assert not [e.place for e in ranked if e.eliminated]
+
+    limassol = next(e for e in ranked if e.place == "Limassol")
+    assert any("widely usable" in note for note in limassol.advantages + limassol.drawbacks)
+
+
+def test_a_requested_language_other_than_english_still_fails_when_unspoken():
+    """The D58 fallback is English-only on purpose: the reference table has a
+    reach band for English and nothing comparable for any other language, so
+    asking for Japanese in Portugal must still be answered honestly."""
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        relevant_criteria=["language_spoken"],
+        preferred_languages=["Japanese"],
+        budget=Budget(),
+    )
+    evidence = {
+        "Lisbon": [
+            _tool_result(
+                "LanguageTool",
+                "Lisbon",
+                {
+                    "spoken_languages": ["Portuguese"],
+                    "english_reach": "widespread",
+                    "english_score": 0.75,
+                    "requested_languages": ["Japanese"],
+                    "matched_languages": [],
+                },
+            )
+        ]
+    }
+
+    ranked = evaluate_candidates([_candidate("Lisbon", "Portugal")], profile, evidence)
+
+    assert any("None of the languages you asked for" in note for note in ranked[0].drawbacks)
+
+
 def test_flat_terrain_outranks_steep_when_the_request_says_it_is_non_negotiable():
     profile = PlaceRequestProfile(
         purpose="vacation",

@@ -507,27 +507,48 @@ def _language_evaluation(
     A named preferred language is answered directly; otherwise the request is
     read as the far commoner "will English do?", which P06 stated outright and
     nothing ever checked (D34).
+
+    Naming English explicitly must not be answered *worse* than leaving it
+    implied. It was: the named-language branch compared the request against the
+    country's official languages only and returned a flat 0.0 on no match, never
+    reading the `english_reach` band that this very tool computes for every
+    country. P06 asked for English and the four Cypriot finalists scored 0.0 --
+    eliminated for not speaking English by a system whose own reference table
+    lists Cyprus as English-widespread. Seven of the eight researched places died
+    that way and the answer collapsed to a single row (D58).
     """
     spoken = normalized_data.get("spoken_languages") or []
     matched = normalized_data.get("matched_languages") or []
     requested = normalized_data.get("requested_languages") or []
     spoken_text = ", ".join(str(language) for language in spoken)
 
-    if requested:
-        if matched:
-            return 1.0, f"Speaks {', '.join(str(m) for m in matched)} ({spoken_text})."
-        return 0.0, f"None of the languages you asked for is spoken here; the local languages are {spoken_text}."
-
     reach = normalized_data.get("english_reach")
     score = normalized_data.get("english_score")
-    if reach is None or not isinstance(score, int | float):
-        return None, ""
+    has_english_reading = reach is not None and isinstance(score, int | float)
     phrasing = {
         "native": "English is a first language here",
         "widespread": "English is widely usable in the city",
         "limited": "English alone will not get you far day to day",
-    }[reach]
-    return float(score), f"{phrasing} (local languages: {spoken_text})."
+    }
+    unofficial_phrasing = {
+        "native": "English is not an official language here, but it is a first language in practice",
+        "widespread": "English is not an official language here, but it is widely usable in the city",
+        "limited": "English is not an official language here, and it alone will not get you far day to day",
+    }
+
+    if requested:
+        if matched:
+            return 1.0, f"Speaks {', '.join(str(m) for m in matched)} ({spoken_text})."
+        # English is the one language the reference can speak to beyond the
+        # official list, so an explicit request for it gets the same reading as
+        # an implied one. Any other language has nothing to fall back on.
+        if has_english_reading and any(str(language).casefold() == "english" for language in requested):
+            return float(score), f"{unofficial_phrasing[reach]} (local languages: {spoken_text})."
+        return 0.0, f"None of the languages you asked for is spoken here; the local languages are {spoken_text}."
+
+    if not has_english_reading:
+        return None, ""
+    return float(score), f"{phrasing[reach]} (local languages: {spoken_text})."
 
 
 def _extract_criterion_scores(
