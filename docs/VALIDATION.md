@@ -20,13 +20,13 @@ Last updated: **2026-08-06**.
 
 ### Where this stands, in one paragraph
 
-**D0–D54 and D57 are closed; D55 and D56 are open**, both found on 2026-08-06 by reading the
-ten answers of the first run against the *deployed* app. D31–D45 came from reading the ten
+**D55 is the only open defect; D0–D54 and D56–D58 are closed.** D55, D56 and D58 were all
+found on 2026-08-06 by reading the ten answers of the first run against the *deployed* app. D31–D45 came from reading the ten
 answers of the 2026-08-05 full run as prose rather than as pass/fail — every one of them had
 passed the golden set, because that suite checks *structure* (the four modules ran, a table
 exists, no banned claim leaked) and nothing in it tests whether the recommendation is **correct**.
 That blind spot is the single most important finding in this document. The offline gate is green
-(**652 passed, 1 skipped**, `ruff` clean) and **$10.27 of the $13.00 budget remains**
+(**659 passed, 1 skipped**, `ruff` clean) and **$10.27 of the $13.00 budget remains**
 (account-authoritative — see the D19 note for why the account figure, not the key's, is the one
 that binds).
 
@@ -118,7 +118,7 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D54 | The generator's 4000-token output ceiling truncated the largest answers mid-JSON, and the repair attempt asked only for valid JSON so it truncated identically — P08 lost its written answer to the template, silently | **Fixed** (2026-08-06) | `14502f0` |
 | D53 | "I don't care about nightlife at all" was recorded as a deal-breaker *and* weighted 0.0. Harmless until D35 made deal-breakers score against a place; after that a city is marked down for something the traveller shrugged at | **Fixed** (2026-08-06) | `e492629` |
 | D55 | A stated non-negotiable is recorded as **met** at a 0.2 score floor, so P06's "reasonably flat terrain" passed for a city the same evaluation calls rolling and whose cited evidence says "steep in parts (requiring walking up and down stairs)". Two of the five stated hard constraints produced no entry at all | **Open** (2026-08-06) | — |
-| D56 | The collapse disclosure is routed **through the model**, which dropped it: P06 proposed 30 places, delivered a one-row table, and never said so. D47's deterministic notice sits at finalist selection; this collapse happened later, at hard-constraint elimination | **Open** (2026-08-06) | — |
+| D56 | The collapse disclosure is routed **through the model**, which dropped it: P06 proposed 30 places, delivered a one-row table, and never said so. D47's deterministic notice sits at finalist selection; this collapse happened later, at hard-constraint elimination. Also computed before `_score_unresolved_criteria` could rescue candidates, so it fired wrongly too — P02 carried it while delivering seven | **Fixed** (2026-08-06) | `bcd84c3` |
 | D57 | Overpass failover had no memory, so every query re-paid the full 22s timeout for a dead mirror — and round-robin tried it *first* on half of them, exhausting the 50s per-invocation cap before the working endpoint was reached | **Fixed** (2026-08-06) | `f9eabc1` |
 | D58 | Naming English as a preferred language was answered *worse* than leaving it implied: the named-language branch checked the country's official list only and returned 0.0 on no match, below the elimination floor. It never read `english_reach`, which the same tool computes on the same call. **This is why P06 collapsed** — 7 of its 8 researched places were eliminated for not speaking English, four of them Cypriot, while `app/languages.py` lists Cyprus as English-widespread | **Fixed** (2026-08-06) | `7c94942` |
 
@@ -590,14 +590,17 @@ Two things came out of the investigation itself, both fixed in `4cf8bc4`:
 
 ### Next session — pick up here
 
-**State: D55 and D56 are open; everything else is closed.** The offline gate is
-green (**654 passed, 1 skipped**, `ruff` clean) and **$10.27 of the $13.00
-budget remains**.
+**State: D55 is the only open defect.** The offline gate is green (**659 passed,
+1 skipped**, `ruff` clean) and **$10.27 of the $13.00 budget remains**.
 
-**Read D58 first — it is why P06 collapsed, and D55/D56 are its symptoms.**
-Reading the record rather than the prose: 30 candidates proposed, **8 fully
-researched**, 7 of those eliminated by one scoring bug. D56 is why the reader was
-never told; D55 is the threshold that let a "met" verdict stand on top of it. The Vercel key is fixed and the deployment runs on the real
+P06's one-row answer took three defects to explain, and two are now closed:
+**D58** was the cause (30 proposed, 8 researched, 7 eliminated by one language
+scoring bug), **D56** was why the reader was never told, and **D55** — still open
+— is the threshold that let a "met" verdict stand on top of it.
+
+None of the three has been re-run against the provider. The next paid run should
+re-read P06 first: the field should no longer collapse, and if it does, the
+answer should now say so in words. The Vercel key is fixed and the deployment runs on the real
 model — the ten prompts have now been run against the deployed URL, 10/10 `ok`.
 
 Render any captured run as readable prose before judging it:
@@ -629,23 +632,26 @@ floor being used as a "requirement met" bar** for anything the traveller declare
 non-negotiable, and that a stated constraint nothing measured is silently absent
 rather than reported unverified.
 
-#### D56 — the collapse disclosure is routed through the model, which drops it
+#### D56 — CLOSED (`bcd84c3`), and the rule it proves
 
 P06 proposed **30** places, had **8 fully researched**, and delivered a
-**one-row** table without telling the reader. D47 added a deterministic
-`service_notices` entry, but it sits at *finalist selection*; P06's collapse
-happened later, at **hard-constraint elimination** — for the reason D58 records. That path's wording — "This is a shorter list than usual — most of
-the places researched did not meet the requirements you set" — is passed as
-`caveats_to_pass_on` for the model to paraphrase, and the model dropped it.
+**one-row** table without telling the reader. The wording existed but travelled
+as `caveats_to_pass_on` — input for the model to paraphrase — and the model
+dropped it.
 
-This is exactly what D32 established must never happen: anything the reader must
-see cannot be routed through the model. `_degradation_disclosure`,
-`_conflict_disclosure` and `_coverage_disclosure` are appended deterministically
-after generation and all survived; the caveats did not.
+**Keep this result.** The same run is a controlled experiment in the D32 rule:
+the four disclosures concatenated *after* the model returns
+(`_conflict_`, `_coverage_`, `_out_of_scope_`, `_degradation_`) survived in all
+ten answers, while the caveats routed *through* the model did not. Same run, same
+model, opposite outcomes, and the only variable is which side of the LLM call the
+text sits on. Anything the reader must see goes after the call.
 
-Secondary: the caveat is computed at `VALIDATING`, *before*
-`_score_unresolved_criteria` can rescue eliminated candidates, so it can be wrong
-in both directions — **P02 received it while delivering seven candidates**.
+It was also computed at `VALIDATING`, before `_score_unresolved_criteria` can
+rescue an eliminated candidate, so it fired wrongly too — **P02 carried it while
+delivering seven**. The old trigger was `viable < max_final_recommendations`,
+which under the cap of 8 called any shortlist below eight unusually short; the
+replacement uses a fixed floor of three and stays silent when nothing was
+eliminated at all.
 
 #### Still unproven after three runs: D35 and D37
 
@@ -1247,8 +1253,8 @@ session. The items that were listed here — D8, D6/D7/D10, D17, D18 — have si
 **verified against the real provider on 2026-08-04**; D8's residual (D8b) and D13 were fixed
 afterwards, and D20–D25 were found and fixed across the two 2026-08-05 runs. All of those are now
 closed, D27 included, and D19's original "no provider-side cap" finding was itself wrong — both
-corrections are in section 0. **Two defects are open — D55 and D56**, found on 2026-08-06 by
-reading the first run against the deployed app; section 0 has both.
+corrections are in section 0. **One defect is open — D55**, found on 2026-08-06 by
+reading the first run against the deployed app; section 0 has it.
 
 Also open, off the ledger: the **budget-refusal `steps` decision**, and enhancements **E4, E5,
 E7, E8**.
