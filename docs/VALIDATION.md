@@ -288,11 +288,14 @@ evidence-mapping gap rather than an Overpass one.
   `UnsupportedParamsError`. It is deliberately commented out in `.env.example`. Determinism is not
   achievable with this model, so identical prompts will not reproduce.
 - **`.env` currently has `MOCK_LLM=true`** as a safety default; real runs override it at launch.
+  **`vercel.json` sets `MOCK_LLM=false`** so the deployment uses the real provider (D50 notes).
+- **`LLM_MAX_OUTPUT_TOKENS` is 8000**, raised from 4000 on 2026-08-06 (D54). `.env` sets this
+  explicitly, so changing the code default alone will not take effect locally.
 - **Provider pricing is $0.75 / $4.50 per 1M** (input/output), from `/model/info` and confirmed
   against a billed call — *not* the $0.1438 / $5.7205 in the course handout. `.env` deliberately
   carries the higher of each figure so the pre-call guard cannot under-estimate.
-- **Spend so far: $1.8537 of $13.00** (account-authoritative, after all six 2026-08-05 runs),
-  leaving **$11.15** — about 26 more full suite runs. Read this from `/user/info`, not `/key/info`: this
+- **Spend so far: $2.32 of $13.00** (account-authoritative, after the 2026-08-06 verification
+  run and the Vercel probes), leaving **$10.68** — about 25 more full suite runs. Read this from `/user/info`, not `/key/info`: this
   key alone shows $0.8622, and the $0.136 difference is account spend not attributable to it.
 - **The ledger has a pre-existing baseline** of 62 mock rows at $0.00, plus 214 fake evidence rows
   and some phantom search-history entries, all written by the test suite before D5 was fixed.
@@ -571,58 +574,113 @@ Two things came out of the investigation itself, both fixed in `4cf8bc4`:
   assumed to need. P01 now filters on "Europe" for the first time: every finalist is European and
   the relaxation disclosure is gone, because nothing had to be given up.
 
-### Suggested next session
+### Next session — pick up here
 
-Ranked. No open defects; the first item is a coverage gap, the rest are improvements.
+**State: no open defects. D0–D54 are closed.** The offline gate is green
+(**648 passed, 1 skipped**, `ruff` clean), everything is pushed to `main`, and
+**$10.68 of the $13.00 budget remains**. The deployment routes correctly and
+serves every endpoint.
 
-**1. Full-suite run against the real provider (~$0.35, leaves ~$11.65).** Not chasing a known bug:
-closing the coverage gap, and it is now the largest one. Seven prompts (P01, P02, P06–P10) were
-last exercised on 2026-08-04 and **ten** code commits have landed since, all touching paths every
-request flows through — evidence selection, the validator's gap decision, hard-constraint
-checking, tool priority, and now region filtering and candidate generation. The three subset
-prompts exercise most of those and pass, but D27 changed which places get researched at all, which
-is the broadest change of the lot and has only been seen in mock mode.
+**One thing blocks the remaining work, and it is not code.** Every LLM call from
+the Vercel deployment fails:
 
-Two things to read specifically: whether the **real** generator honors `region_countries` now that
-the prompt names them, and whether region filtering ever over-narrows a finalist set — P08 came
-back with two finalists, which is correct there but worth watching elsewhere.
+> `401 Authentication Error, Invalid proxy server token passed. Received API Key = sk-...vQSw`
+> key hash `aac6a9b707a276a670f8c2448d3c46f05cd5ee169d5a10312772d41d43a67e5e`
+
+That hash was byte-identical across five probes and two forced rebuilds on
+2026-08-06, so the value never changed. The local `.env` key is different, is
+25 characters, and works — it billed $0.41 the same day. The user was fixing the
+Vercel environment variable at the end of that session. **Do not spend anything
+until a probe confirms the model actually answers.**
+
+#### Step 1 — probe (~$0.04)
 
 ```bash
-# 1. Offline gate -- must be green before spending anything
-pytest -q && ruff check .
-
-# 2. Provider state, read-only, $0
-python scripts/probe_llmod_account.py
-
-# 3. Start the server against the real provider. Prefer the environment
-#    variable over editing .env -- there is then nothing to remember to revert.
-#    PowerShell: $env:MOCK_LLM="false"; uvicorn app.main:app --port 8000
-MOCK_LLM=false uvicorn app.main:app --port 8000
-
-# 4. Second shell -- captures to validation_runs/, judges nothing
-python scripts/run_e2e_suite.py --label real-api-full
-
-# 5. Reconcile spend
-python scripts/show_llm_usage.py --calls && python scripts/probe_llmod_account.py
+python scripts/run_e2e_suite.py \
+  --base-url https://digitalnomadagent.vercel.app \
+  --label vercel-probe --only P01
 ```
 
-Read it against the per-prompt table in the 2026-08-04 verification-run section, which is still
-the reference for the seven prompts not since re-run. Beyond `status: ok`: `missing_evidence`
-should name only criteria with no score in the same candidate's `criterion_scores`; no
-`validation_issues` entry should claim a scored criterion is unverified; and P08's candidate list
-should be checked for whether *any* of it is Scandinavian (D27) — in mock mode it now is.
+Then read the captured record:
 
-**2. E4 — attach sources to the claims they support.** *(E1 in mock mode is done — `137304f`.)*
+- Response ends **"Generated using: a real LLM provider (LLMod.ai)"** → the key
+  is live. Go to step 2.
+- Response ends **"a deterministic fallback template"** → still broken. Pull the
+  key hash out of the trace's `provider_call_failed` detail. **Changed** from the
+  hash above means the new value landed but the provider rejects it (a key
+  problem). **Unchanged** means the value still is not reaching this deployment
+  (a Vercel project/scope problem — see the D50 notes above). Either way, stop
+  and report; do not run the suite.
 
-33 undifferentiated citations is a list, not an evidence chain. The most valuable remaining
-enhancement for real output.
+#### Step 2 — the full ten against the deployment (~$0.42, leaves ~$10.2)
 
-**4. E7 — drive UI progress from real `steps`** instead of the `setInterval` timers still in
-`app/static/app.js`, and **E5** — replace the trade-offs paragraph that is true of any ranked list.
+```bash
+python scripts/run_e2e_suite.py \
+  --base-url https://digitalnomadagent.vercel.app --label vercel-full
+python scripts/probe_llmod_account.py   # reconcile, read /user/info not /key/info
+```
 
-**5. Decide the budget-refusal `steps` question** (the one deliberate non-change above), and
-**E8** — add a golden case for a positive region constraint. D27 makes this cheap now: the
-region actually filters, so a golden case can assert on it.
+This is the first time the ten prompts will have run against the *deployed* app.
+Every run in this repository so far went to a local `uvicorn`, which is exactly
+how D50 — a deployment that answered 404 to every request — survived unnoticed.
+
+#### Step 3 — read the answers, do not trust the status
+
+`10/10 ok` has twice concealed bad advice. The golden set checks structure; it
+does not check whether the recommendation is correct. Generate readable copies
+and read them as prose:
+
+```bash
+# the 2026-08-06 set was produced this way; see validation_runs/20260806-answers/
+```
+
+Three things to look for specifically, because they have never been confirmed
+against live data:
+
+1. **D54** — does any prompt still fall back to the deterministic template? P08
+   is the one to watch: eight candidates and ~59 sources overran the old
+   4000-token ceiling and lost its written answer. If it falls back again, the
+   8000 ceiling is still short.
+2. **D35 and D37** — Overpass was unreachable for the whole 2026-08-06 run, so
+   `counts_by_category` came back empty almost everywhere and neither the
+   nightlife-avoidance scoring nor the widened coworking selector had data to
+   act on. Both rest on unit tests alone. Check P04 (should measure nightlife
+   now that "big party destinations" is a deal-breaker) and P01/P09 (coworking
+   counts should no longer be 0 or 1 in cities with hundreds of cafés).
+3. **D47** — if a prompt still collapses to one or two finalists, the answer
+   should now say so ("Only N of the M places considered could be researched in
+   time"). P03 and P06 collapsed on 2026-08-06 with ~30 proposed and 1 through.
+
+#### Deliberately not fixed — decide only if you want them
+
+- **"in the evidence provided"** appears in 7 of 10 answers. It refers to data
+  the agent was handed, but reads as ordinary hedging. Tightening it risks
+  stilted prose for no real gain.
+- **Uniform confidence within one prompt** (P02 all High, P04 all Medium, P07
+  all Low). Checked and judged correct rather than broken: confidence tracks
+  evidence coverage, and candidates researched identically have identical
+  coverage. P07 being all-Low is right for an under-specified request.
+- **P10 calls the shortlist "the named options"** when the traveller named only
+  Bali. Cosmetic; the verdicts and the lead-with-Bali behaviour are right.
+
+#### Environment notes specific to this work
+
+- **Restart the server after any code change.** `uvicorn` runs without
+  `--reload` here, and a stale server silently invalidated a verification round
+  on 2026-08-06 — the results looked like a fix had not worked when it had.
+- **Overpass is intermittently unreachable from this machine** (`ReadTimeout` on
+  overpass-api.de, `ConnectError` on the kumi mirror). Confirmed not to be
+  caused by the D37 selector change: the pre-change two-selector query fails
+  identically. When it is down, amenity counts come back empty and the answers
+  are thinner but honest.
+- **Bash heredocs mangle regex backslashes** in this environment. Write Python
+  helper scripts with the Write tool instead of piping heredocs into `python -`.
+- **Console output is cp1252.** Call `sys.stdout.reconfigure(encoding="utf-8")`
+  in any script that prints place names, or it dies on `ł`, `ș`, `å`.
+- **A public deployment with `MOCK_LLM=false` spends real money.**
+  `SQLITE_PATH=/tmp` resets on every cold start, so the local budget ledger
+  cannot accumulate — only the provider's account-side $13 cap binds, roughly
+  250 requests. No rate limit exists. Worth adding before the URL is publicised.
 
 ---
 
