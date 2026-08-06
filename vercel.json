@@ -6,8 +6,8 @@
       "includeFiles": "**"
     }
   },
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/main.py" }
+  "routes": [
+    { "src": "/(.*)", "dest": "/main.py" }
   ],
   "env": {
     "MOCK_LLM": "false",

@@ -20,12 +20,12 @@ Last updated: **2026-08-06**.
 
 ### Where this stands, in one paragraph
 
-**Every defect on the ledger is closed**, D0 through D45. D31–D45 came from reading the ten
+**Every defect on the ledger is closed**, D0 through D52. D31–D45 came from reading the ten
 answers of the 2026-08-05 full run as prose rather than as pass/fail — every one of them had
 passed the golden set, because that suite checks *structure* (the four modules ran, a table
 exists, no banned claim leaked) and nothing in it tests whether the recommendation is **correct**.
 That blind spot is the single most important finding in this document. The offline gate is green
-(**619 passed, 1 skipped**, `ruff` clean) and **$10.68 of the $13.00 budget remains**
+(**638 passed, 1 skipped**, `ruff` clean) and **$10.68 of the $13.00 budget remains**
 (account-authoritative — see the D19 note for why the account figure, not the key's, is the one
 that binds).
 
@@ -99,6 +99,34 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D43 | "Yes with conditions" was returned for nearly every candidate, naming no condition | **Fixed** (2026-08-06) | `cadc639` |
 | D44 | The bibliography never said which city a source supported, and cited the Overpass *documentation page* as the source of its counts | **Fixed** (2026-08-06) | `4f25786` |
 | D45 | P07 says outright "I don't really know what I'm looking for" and got a scoring table with no question, on the one prompt where the traveller had said they could not specify | **Fixed** (2026-08-06) | `91402f9` |
+| D46 | Terrain triggers included bare "mobility"/"accessible"/"flat", so elevation spread became the headline reason in P08 — a prompt about snow, swimming and cafés. **Introduced by D34.** | **Fixed** (2026-08-06) | `54803ef` |
+| D47 | P03 and P06 proposed ~30 places each, got one through, and printed a one-row "Best matches" table without saying the rest could not be researched | **Fixed** (2026-08-06) | `54803ef` |
+| D48 | The elimination reason read "the evidence puts it below the minimum this request sets" — for cost, that reads as *cheaper* than required. **Introduced by D41.** | **Fixed** (2026-08-06) | `54803ef` |
+| D49 | The real interpreter left `target_months` empty for "a month this winter", so P08 told the traveller it did not know when they were going — after they had said | **Fixed** (2026-08-06) | `54803ef` |
+| D50 | **The Vercel deployment served nothing.** `vercel.json` rewrites every request to `/main.py` and the Python runtime hands the ASGI app that rewritten path, so FastAPI matched no route and answered `{"detail":"Not Found"}` to everything, `/openapi.json` included, while importing and running correctly | **Fixed** (2026-08-06) | `ac9c118` |
+| D51 | A *failed* hard constraint and an *unconfirmed* one produced the same verdict; evidence that a place does not meet a non-negotiable is a no, not a "yes only if" | **Fixed** (2026-08-06) | `ac9c118` |
+| D52 | Monthly rent-inclusive living costs were used to judge a two-week holiday: P02 read "$1,063 per month" as "mid-range rather than luxury" | **Fixed** (2026-08-06) | `ac9c118` |
+
+### Reading the answers a second time (2026-08-06)
+
+The ten answers from the verification run were read as prose again rather than
+trusted to the structural checks, and produced D46–D52 — **two of them introduced
+by this week's own fixes** (D46 by D34, D48 by D41). That is the same lesson as
+before, one level up: a change that makes the structural checks pass can still
+make an answer worse, and only reading it finds that out.
+
+D50 deserves separate mention because it was invisible to every test and every
+run in this repository: all validation ran against a local `uvicorn`, never
+against the deployed URL, so a deployment that answered 404 to every request
+went unnoticed. It is reproducible without deploying — `GET /main.py` against
+the app returns the live URL's exact body — and there is now a test that does so.
+
+**`vercel.json` sets `MOCK_LLM=false`** so the deployment exercises the real
+provider. One consequence worth stating: a public URL now spends real money, and
+because `SQLITE_PATH=/tmp` resets on every cold start, the local budget ledger
+cannot accumulate across requests — only the provider's account-side $13 cap
+genuinely binds. At roughly $0.04 a request that is about 250 requests. Consider
+a rate limit before publicising the URL.
 
 ### The 2026-08-06 verification run, and what it did and did not prove
 
