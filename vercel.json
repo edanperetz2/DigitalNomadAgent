@@ -10,7 +10,7 @@
     { "source": "/(.*)", "destination": "/main.py" }
   ],
   "env": {
-    "MOCK_LLM": "true",
+    "MOCK_LLM": "false",
     "SQLITE_PATH": "/tmp/digitalnomadagent.db",
     "AGENT_EXECUTION_TIMEOUT_SECONDS": "285",
     "RECOMMENDATION_RESERVE_SECONDS": "60",

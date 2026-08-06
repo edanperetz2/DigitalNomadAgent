@@ -644,6 +644,7 @@ class Orchestrator:
                     state = AgentState.EXECUTING_TOOLS
 
                 elif state == AgentState.EXECUTING_TOOLS:
+                    proposed_count = len(candidates)
                     remaining_research = max(0.0, research_deadline - asyncio.get_running_loop().time())
                     verified, geocoding_results = await self._tools.verify_candidates(
                         candidates,
@@ -692,6 +693,16 @@ class Orchestrator:
                         raise PlaceMatchError(
                             "All candidate destinations were eliminated by region constraints "
                             "before research began."
+                        )
+                    # A comparison of one is not a comparison. P03 and P06 each
+                    # proposed ~30 places and got a single one through, and the
+                    # answer presented a one-row "Best matches" table without
+                    # ever saying that the rest could not be researched (D47).
+                    if len(finalists) < min(3, proposed_count):
+                        checkpoint.service_notices.append(
+                            f"Only {len(finalists)} of the {proposed_count} places considered could be "
+                            "researched in time, so this is a much narrower comparison than usual. "
+                            "Running the request again may reach more of them."
                         )
                     candidates = finalists
                     checkpoint.candidates = list(candidates)

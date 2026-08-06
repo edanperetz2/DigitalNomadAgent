@@ -38,9 +38,11 @@ clarification_question (string or null).
 target_months must list every calendar month the stay actually covers, worked out from \
 dates_or_season together with duration: "ten days in October" -> [10]; "three months starting in \
 April" -> [4, 5, 6]; "roughly November through April" -> [11, 12, 1, 2, 3, 4]; "next spring" -> \
-[3, 4, 5]. Treat bare season words as northern-hemisphere months and record that in assumptions. \
-Leave the list EMPTY when the request gives no usable timing at all -- climate is simply not \
-scored without it, so an empty list is correct and a guessed month is not.
+[3, 4, 5]. A bare season is usable timing and must be filled in: "a month this winter" -> \
+[12, 1, 2], "escaping the winter" -> [12, 1, 2], "next summer" -> [6, 7, 8]. Read bare season \
+words as northern-hemisphere months and record that in assumptions. Leave the list EMPTY only \
+when the request gives no timing at all, not even a season -- climate is simply not scored \
+without it, so an empty list is correct there and a guessed month is not.
 
 preferred_regions must contain ONLY geographic areas -- continents, sub-regions or countries \
 ("Europe", "Southeast Asia", "Spain"). Never put a city, a city size, or any non-geographic \

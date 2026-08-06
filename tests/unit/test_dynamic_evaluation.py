@@ -728,7 +728,9 @@ def test_budget_hard_constraint_eliminates_after_llm_scoring():
     }
 
     assert updated["ExpensiveCity"].eliminated is True
-    assert "cost" in updated["ExpensiveCity"].elimination_reason
+    # D48: named in the reader's terms. "below the minimum this request sets"
+    # read, for cost, as "cheaper than required" -- the opposite of the truth.
+    assert "the stated budget" in updated["ExpensiveCity"].elimination_reason
     assert updated["ExpensiveCity"].criterion_scores["cost"] == 0.05
     assert "cost" not in updated["ExpensiveCity"].unscored_evidence
     assert updated["CheapCity"].eliminated is False
@@ -1136,7 +1138,7 @@ def test_a_bar_no_candidate_can_meet_relaxes_whatever_criterion_it_was():
 
     assert [e.eliminated for e in updated] == [False, False, False]
     assert all(e.hard_constraint_results["cost"] is False for e in updated)
-    assert all("hard constraint on cost" in e.drawbacks[0] for e in updated)
+    assert all("the stated budget" in e.drawbacks[0] for e in updated)
 
 
 def test_a_place_the_user_named_is_never_eliminated():

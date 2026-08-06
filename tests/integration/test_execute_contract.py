@@ -114,3 +114,23 @@ def test_llm_timeout_or_failure_uses_deterministic_pipeline_fallbacks(client, mo
     assert "**Reduced-capability run:**" in data["response"]
     assert "simpler rule-based reader" in data["response"]
     assert "fixed seed set" in data["response"]
+
+
+def test_a_collapsed_candidate_funnel_is_disclosed(client, monkeypatch):
+    """D47: P03 and P06 each proposed ~30 places, got one through, and printed a
+    one-row "Best matches" table without saying the rest could not be
+    researched. A comparison of one is not a comparison."""
+    from app.agent import orchestrator as orch
+
+    real = orch.select_finalists
+    monkeypatch.setattr(orch, "select_finalists", lambda *a, **k: real(*a, **k)[:1])
+
+    response = client.post(
+        "/api/execute",
+        json={"prompt": "Find a quiet beach destination for two weeks in October with good hiking."},
+    )
+    data = response.json()
+
+    assert data["status"] == "ok"
+    assert "could be researched in time" in data["response"]
+    assert "narrower comparison than usual" in data["response"]

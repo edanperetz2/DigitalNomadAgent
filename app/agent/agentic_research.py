@@ -127,17 +127,24 @@ _LANGUAGE_TRIGGER_WORDS = [
     "widely spoken",
     "speak the language",
 ]
+# Deliberately narrow. "mobility", "accessible" and bare "flat" fire on any
+# ordinary walkability request -- P08 asks about snow, swimming and cafes, the
+# interpreter listed "mobility" and "walkability" as criteria, and terrain
+# became the headline reason for half the ranking of a prompt that never
+# mentioned it (D46). Gradient only matters when someone says it does.
 _TERRAIN_TRIGGER_WORDS = [
     "wheelchair",
     "step-free",
     "step free",
+    "step-free access",
     "flat terrain",
-    "flat",
+    "level ground",
     "hilly",
-    "hills",
-    "mobility",
-    "accessible",
-    "accessibility",
+    "steep",
+    "mobility impair",
+    "reduced mobility",
+    "mobility aid",
+    "walking difficult",
 ]
 
 

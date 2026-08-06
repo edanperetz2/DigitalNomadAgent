@@ -1024,9 +1024,14 @@ def _check_hard_constraints(
         hard_results[criterion] = passes
         if not passes and not eliminated:
             eliminated = True
+            # Says which way it fails. Removing the score in D41 left "the
+            # evidence puts it below the minimum this request sets", which for
+            # cost reads as "it is cheaper than required" -- the opposite of
+            # what a failed budget check means (D48).
+            requirement = _CONSTRAINT_LABELS.get(criterion, criterion.replace("_", " "))
             reason = (
-                f"{candidate.place_name} fails the stated hard constraint on {criterion} "
-                "(the evidence puts it below the minimum this request sets)."
+                f"{candidate.place_name} does not meet {requirement}, which this request "
+                "treats as non-negotiable, on the evidence gathered."
             )
 
     return eliminated, reason, hard_results

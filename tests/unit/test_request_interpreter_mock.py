@@ -366,3 +366,15 @@ def test_a_specific_request_is_still_answered_without_asking():
 
 def test_interpreter_prompt_covers_self_declared_uncertainty():
     assert "do not know what they want" in SYSTEM_PROMPT
+
+
+def test_a_bare_season_counts_as_timing():
+    """D49: the real interpreter left target_months empty for "a month this
+    winter", so P08's answer told the traveller it did not know when they were
+    going -- after they had said."""
+    assert interpret_prompt("Somewhere in Scandinavia for a month this winter.")["target_months"] == [12, 1, 2]
+    assert interpret_prompt("We want six months escaping the winter.")["target_months"] == [12, 1, 2]
+
+
+def test_interpreter_prompt_says_a_bare_season_is_usable_timing():
+    assert "A bare season is usable timing" in SYSTEM_PROMPT
