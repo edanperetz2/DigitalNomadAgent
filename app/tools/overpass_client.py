@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import time
+from collections.abc import Callable
 from typing import Any
 
 from app.tools.http_client import JsonHttpClient
@@ -40,6 +42,23 @@ ENDPOINT_CONCURRENCY: dict[str, int] = {
 COUNTED_QUERY_TIMEOUT_SECONDS = 20
 OVERPASS_HTTP_TIMEOUT_SECONDS = 22
 OVERPASS_HTTP_ATTEMPTS = 1
+
+# Failover with no memory re-pays the full timeout for a dead endpoint on every
+# single query. Measured 2026-08-06: overpass-api.de answered a counted query in
+# 4.0s while overpass.kumi.systems timed out on every attempt (25.4s, 30.4s,
+# 32.2s) -- and because dispatch is round-robin, half of all queries went to the
+# dead mirror *first*. At ~22s burned per attempt against a 50s per-invocation
+# tool cap, two such attempts exhaust the budget before the working endpoint is
+# ever reached, which is why `counts_by_category` came back empty for nearly
+# every candidate across a full ten-prompt run while Overpass itself was up.
+#
+# So the client remembers. An endpoint that fails this many times in a row is
+# skipped for the cooldown, and any success clears the count immediately. It
+# only ever *reorders*: when every endpoint is in cooldown they are all still
+# tried, because a stale health record must never be the reason a query is not
+# attempted at all.
+ENDPOINT_FAILURES_BEFORE_COOLDOWN = 2
+ENDPOINT_COOLDOWN_SECONDS = 300.0
 
 
 def build_counted_query(
@@ -108,6 +127,7 @@ class OverpassClient:
         *,
         endpoints: tuple[str, ...] = DEFAULT_OVERPASS_ENDPOINTS,
         max_concurrent_requests: int = 2,
+        clock: Callable[[], float] = time.monotonic,
     ):
         if not endpoints:
             raise ValueError("At least one Overpass endpoint is required")
@@ -124,24 +144,52 @@ class OverpassClient:
             for endpoint in endpoints
         }
         self._next_start_index = 0
+        self._clock = clock
+        self._consecutive_failures = dict.fromkeys(endpoints, 0)
+        self._cooldown_until = dict.fromkeys(endpoints, 0.0)
+
+    def _in_cooldown(self, endpoint: str) -> bool:
+        return self._clock() < self._cooldown_until[endpoint]
+
+    def _record_failure(self, endpoint: str) -> None:
+        self._consecutive_failures[endpoint] += 1
+        if self._consecutive_failures[endpoint] >= ENDPOINT_FAILURES_BEFORE_COOLDOWN:
+            self._cooldown_until[endpoint] = self._clock() + ENDPOINT_COOLDOWN_SECONDS
+
+    def _record_success(self, endpoint: str) -> None:
+        self._consecutive_failures[endpoint] = 0
+        self._cooldown_until[endpoint] = 0.0
+
+    def _dispatch_order(self) -> tuple[str, ...]:
+        """Healthy endpoints in rotation, then any in cooldown as a last resort.
+
+        Rotation advances over the healthy set only, so traffic spreads across
+        the endpoints that are actually answering rather than being handed to a
+        dead one every other query.
+        """
+        healthy = tuple(e for e in self._endpoints if not self._in_cooldown(e))
+        cooling = tuple(e for e in self._endpoints if self._in_cooldown(e))
+        if not healthy:
+            # Everything is in cooldown. Try them all anyway, oldest-cooldown
+            # first: a health record is a routing hint, never a veto.
+            return tuple(sorted(self._endpoints, key=lambda e: self._cooldown_until[e]))
+        start = self._next_start_index % len(healthy)
+        self._next_start_index = start + 1
+        return healthy[start:] + healthy[:start] + cooling
 
     async def query(self, query: str) -> dict[str, Any]:
-        # Rotate the starting endpoint so concurrent queries spread across the
-        # endpoint pool instead of all contending for the primary's slots; on
-        # failure, fail over through the remaining endpoints in ring order.
-        start = self._next_start_index
-        self._next_start_index = (start + 1) % len(self._endpoints)
-        ordered = self._endpoints[start:] + self._endpoints[:start]
-
         last_error: Exception | None = None
-        for endpoint in ordered:
+        for endpoint in self._dispatch_order():
             async with self._semaphores[endpoint]:
                 try:
                     payload = await self._http.get_json(endpoint, params={"data": query})
                     if not isinstance(payload, dict):
                         raise ValueError("Overpass returned a non-object JSON response")
-                    return payload
                 except Exception as exc:  # noqa: BLE001 - fail over, then expose the final error
+                    self._record_failure(endpoint)
                     last_error = exc
+                else:
+                    self._record_success(endpoint)
+                    return payload
         assert last_error is not None
         raise last_error
