@@ -142,7 +142,15 @@ def test_second_iteration_is_refused():
     assert any("additional research iteration" in issue for issue in result.issues)
 
 
-def test_fewer_than_three_viable_candidates_flagged():
+def test_a_narrowed_field_is_no_longer_flagged_here():
+    """D56: this caveat moved out of the validator.
+
+    It used to be raised as an issue, which made it a `caveats_to_pass_on` entry
+    for the generator to paraphrase -- and the model dropped it, so P06 printed a
+    one-row table out of 30 candidates in silence. It is now appended after
+    generation, where the model cannot lose it. See
+    `_collapse_disclosure` and its tests in test_recommendation_generator.py.
+    """
     profile = PlaceRequestProfile(purpose="vacation")
     evaluations = [
         _evaluation("A", 0.9),
@@ -150,8 +158,7 @@ def test_fewer_than_three_viable_candidates_flagged():
         _evaluation("C", 0.5, eliminated=True),
     ]
     result = validate_recommendations(evaluations, profile, gap_iteration_used=False)
-    # D42: reworded for the reader; the flag itself is what this guards.
-    assert any("shorter list than usual" in issue for issue in result.issues)
+    assert not any("shorter list" in issue for issue in result.issues)
 
 
 def test_ranking_stability_flagged_when_close():
@@ -168,7 +175,14 @@ def test_missing_drawbacks_flagged():
     assert any("no recorded drawbacks" in issue for issue in result.issues)
 
 
-def test_fewer_than_max_final_recommendations_flagged_with_custom_n():
+def test_a_healthy_field_is_not_called_narrow_just_because_the_cap_is_high():
+    """The old rule fired whenever viable < max_final_recommendations.
+
+    With the orchestrator's cap of 8 that meant five surviving candidates -- a
+    perfectly normal shortlist -- was announced as unusually short. P02 carried
+    the caveat while delivering seven (D56). The replacement uses a fixed floor
+    of three, so this is silent.
+    """
     profile = PlaceRequestProfile(purpose="vacation")
     evaluations = [
         _evaluation(str(i), 0.9 - i * 0.01, eliminated=(i >= 5)) for i in range(8)
@@ -176,7 +190,7 @@ def test_fewer_than_max_final_recommendations_flagged_with_custom_n():
     result = validate_recommendations(
         evaluations, profile, gap_iteration_used=False, max_final_recommendations=8
     )
-    assert any("shorter list than usual" in issue for issue in result.issues)
+    assert not any("shorter list" in issue for issue in result.issues)
 
 
 def test_top_candidates_slice_respects_custom_max_final_recommendations():

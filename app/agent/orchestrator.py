@@ -580,6 +580,10 @@ class Orchestrator:
         state = AgentState.RECEIVED
         transitions = 0
         gap_iteration_used = False
+        # How many places the shortlist started from, kept for the final answer:
+        # a one-row table means something very different out of 30 than out of 2
+        # (D56).
+        proposed_count = 0
 
         profile: PlaceRequestProfile | None = None
         candidates: list[CandidatePlace] = []
@@ -865,6 +869,7 @@ class Orchestrator:
                             out_of_scope=checkpoint.out_of_scope,
                             unmeasured_priorities=unmeasured,
                             conflicts=checkpoint.conflicts,
+                            candidates_proposed=proposed_count,
                         )
                     else:
                         response_text = await generate_recommendation(
@@ -883,6 +888,7 @@ class Orchestrator:
                             out_of_scope=checkpoint.out_of_scope,
                             unmeasured_priorities=unmeasured,
                             conflicts=checkpoint.conflicts,
+                            candidates_proposed=proposed_count,
                         )
                     state = AgentState.COMPLETED
 

@@ -30,14 +30,17 @@ def validate_recommendations(
 
     viable = [e for e in evaluations if not e.eliminated]
 
-    if len(evaluations) >= max_final_recommendations and len(viable) < max_final_recommendations:
-        # Written for the reader, not for the pipeline: P05 surfaced "Because
-        # fewer than 8 viable candidates remained after filtering" verbatim,
-        # which describes machinery the traveller never saw (D42).
-        issues.append(
-            "This is a shorter list than usual -- most of the places researched did not meet "
-            "the requirements you set, so there were fewer left to compare."
-        )
+    # The "shorter list than usual" caveat used to be raised here, as an issue.
+    # It was wrong twice over. It went into `caveats_to_pass_on` for the
+    # generator to paraphrase, and the model simply dropped it -- P06 proposed 30
+    # places, researched 8, delivered a one-row table and never said so. And it
+    # was computed here, before `_score_unresolved_criteria` can un-eliminate a
+    # candidate by supplying the score it was missing, so it also fired when it
+    # should not have: P02 carried it while delivering seven.
+    #
+    # It now lives in the orchestrator, after the rescue step, and is appended
+    # deterministically after generation like every other disclosure the reader
+    # must see (D56). See `collapse_disclosure` below.
 
     # All three vocabularies here are authored independently -- weight keys and
     # missing_evidence by the interpreter, unscored_evidence by the tool layer --
