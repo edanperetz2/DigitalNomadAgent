@@ -128,6 +128,42 @@ cannot accumulate across requests — only the provider's account-side $13 cap
 genuinely binds. At roughly $0.04 a request that is about 250 requests. Consider
 a rate limit before publicising the URL.
 
+**Deployment status after D50 (verified against the live URL, not locally):**
+
+| Endpoint | Result |
+|---|---|
+| `/` | 200, the UI |
+| `/api/team_info` | 200 JSON |
+| `/api/agent_info` | 200 JSON |
+| `/api/model_architecture` | 200 JSON |
+| `/openapi.json` | 200 JSON |
+| `/api/execute` (P09) | `ok` in 141s, all four modules traced |
+
+Two rounds were needed. Switching the entrypoint to strip the function prefix
+got the site answering, but Vercel's `rewrites` discards the original path
+entirely and passes only `/main.py` — so every request resolved to `/` and
+`/api/team_info` returned the index page. Legacy `routes` selects the function
+*without* rewriting the path it sees, which is the working configuration. The
+prefix-stripping entrypoint stays as a backstop; it is a no-op when the path is
+already correct.
+
+**One step remains and it is not a code change.** The live `/api/execute` returns
+`ok` but runs entirely on deterministic fallbacks, because every LLM call fails:
+
+> `401 Authentication Error, Invalid proxy server token passed. Received API Key = sk-...vQSw`
+
+The Vercel project has an `LLMOD_API_KEY` set, but not a valid one. It must be
+replaced with the working key in the Vercel dashboard (Settings → Environment
+Variables) and the project redeployed; the key is a secret and is deliberately
+not in this repository. Until then the deployment is honest about its state —
+the response carries the "Reduced-capability run" disclosure from D32 — but it
+is not exercising the model. Re-run
+`scripts/run_e2e_suite.py --base-url https://digitalnomadagent.vercel.app` after
+fixing the key to confirm.
+
+That the 401 is legible at all is D32: before it, the response body was
+discarded and this would have read as an unattributable 400/401.
+
 ### The 2026-08-06 verification run, and what it did and did not prove
 
 Confirmed against the real provider, per prompt:
