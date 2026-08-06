@@ -120,6 +120,7 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D55 | A stated non-negotiable is recorded as **met** at a 0.2 score floor, so P06's "reasonably flat terrain" passed for a city the same evaluation calls rolling and whose cited evidence says "steep in parts (requiring walking up and down stairs)". Two of the five stated hard constraints produced no entry at all | **Open** (2026-08-06) | — |
 | D56 | The collapse disclosure is routed **through the model**, which dropped it: P06 proposed 30 places, delivered a one-row table, and never said so. D47's deterministic notice sits at finalist selection; this collapse happened later, at hard-constraint elimination | **Open** (2026-08-06) | — |
 | D57 | Overpass failover had no memory, so every query re-paid the full 22s timeout for a dead mirror — and round-robin tried it *first* on half of them, exhausting the 50s per-invocation cap before the working endpoint was reached | **Fixed** (2026-08-06) | `f9eabc1` |
+| D58 | Naming English as a preferred language was answered *worse* than leaving it implied: the named-language branch checked the country's official list only and returned 0.0 on no match, below the elimination floor. It never read `english_reach`, which the same tool computes on the same call. **This is why P06 collapsed** — 7 of its 8 researched places were eliminated for not speaking English, four of them Cypriot, while `app/languages.py` lists Cyprus as English-widespread | **Fixed** (2026-08-06) | `7c94942` |
 
 ### Reading the answers a second time (2026-08-06)
 
@@ -590,8 +591,13 @@ Two things came out of the investigation itself, both fixed in `4cf8bc4`:
 ### Next session — pick up here
 
 **State: D55 and D56 are open; everything else is closed.** The offline gate is
-green (**652 passed, 1 skipped**, `ruff` clean) and **$10.27 of the $13.00
-budget remains**. The Vercel key is fixed and the deployment runs on the real
+green (**654 passed, 1 skipped**, `ruff` clean) and **$10.27 of the $13.00
+budget remains**.
+
+**Read D58 first — it is why P06 collapsed, and D55/D56 are its symptoms.**
+Reading the record rather than the prose: 30 candidates proposed, **8 fully
+researched**, 7 of those eliminated by one scoring bug. D56 is why the reader was
+never told; D55 is the threshold that let a "met" verdict stand on top of it. The Vercel key is fixed and the deployment runs on the real
 model — the ten prompts have now been run against the deployed URL, 10/10 `ok`.
 
 Render any captured run as readable prose before judging it:
@@ -625,10 +631,10 @@ rather than reported unverified.
 
 #### D56 — the collapse disclosure is routed through the model, which drops it
 
-P06 proposed **30** places, delivered a **one-row** table, and never told the
-reader. D47 added a deterministic `service_notices` entry, but it sits at
-*finalist selection*; P06's collapse happened later, at **hard-constraint
-elimination**. That path's wording — "This is a shorter list than usual — most of
+P06 proposed **30** places, had **8 fully researched**, and delivered a
+**one-row** table without telling the reader. D47 added a deterministic
+`service_notices` entry, but it sits at *finalist selection*; P06's collapse
+happened later, at **hard-constraint elimination** — for the reason D58 records. That path's wording — "This is a shorter list than usual — most of
 the places researched did not meet the requirements you set" — is passed as
 `caveats_to_pass_on` for the model to paraphrase, and the model dropped it.
 
