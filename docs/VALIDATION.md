@@ -20,12 +20,12 @@ Last updated: **2026-08-06**.
 
 ### Where this stands, in one paragraph
 
-**Every defect on the ledger is closed**, D0 through D52. D31–D45 came from reading the ten
+**Every defect on the ledger is closed**, D0 through D53. D31–D45 came from reading the ten
 answers of the 2026-08-05 full run as prose rather than as pass/fail — every one of them had
 passed the golden set, because that suite checks *structure* (the four modules ran, a table
 exists, no banned claim leaked) and nothing in it tests whether the recommendation is **correct**.
 That blind spot is the single most important finding in this document. The offline gate is green
-(**638 passed, 1 skipped**, `ruff` clean) and **$10.68 of the $13.00 budget remains**
+(**645 passed, 1 skipped**, `ruff` clean) and **$10.68 of the $13.00 budget remains**
 (account-authoritative — see the D19 note for why the account figure, not the key's, is the one
 that binds).
 
@@ -106,6 +106,7 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D50 | **The Vercel deployment served nothing.** `vercel.json` rewrites every request to `/main.py` and the Python runtime hands the ASGI app that rewritten path, so FastAPI matched no route and answered `{"detail":"Not Found"}` to everything, `/openapi.json` included, while importing and running correctly | **Fixed** (2026-08-06) | `ac9c118` |
 | D51 | A *failed* hard constraint and an *unconfirmed* one produced the same verdict; evidence that a place does not meet a non-negotiable is a no, not a "yes only if" | **Fixed** (2026-08-06) | `ac9c118` |
 | D52 | Monthly rent-inclusive living costs were used to judge a two-week holiday: P02 read "$1,063 per month" as "mid-range rather than luxury" | **Fixed** (2026-08-06) | `ac9c118` |
+| D53 | "I don't care about nightlife at all" was recorded as a deal-breaker *and* weighted 0.0. Harmless until D35 made deal-breakers score against a place; after that a city is marked down for something the traveller shrugged at | **Fixed** (2026-08-06) | pending |
 
 ### Reading the answers a second time (2026-08-06)
 

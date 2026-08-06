@@ -52,7 +52,10 @@ and still propose alternatives.
 
 Interpret "must"/"required"/"non-negotiable" as hard constraints, "most important" as a very \
 high weight, "prefer" as a moderate weight, "would be nice" as a low weight, "do not care about \
-X" as removing/minimizing that criterion, and "avoid"/"never" as a deal breaker. Only set \
+X" as removing/minimizing that criterion, and "avoid"/"never" as a deal breaker. Indifference is \
+not avoidance: "I don't care about nightlife at all" means weight it 0 and say nothing more about \
+it, NOT that nightlife is a deal breaker. Only put something in deal_breakers when the traveller \
+would be actively worse off for having it. Only set \
 clarification_required=true when missing information could materially change the \
 recommendation (e.g. the purpose is entirely unclear), or when the traveller says outright that \
 they do not know what they want ("I don't really know what I'm looking for", "I've never \

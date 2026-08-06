@@ -102,6 +102,37 @@ def _resolve_ambiguous_profile(profile: PlaceRequestProfile) -> PlaceRequestProf
     return updated
 
 
+def _drop_indifferent_deal_breakers(profile: PlaceRequestProfile) -> PlaceRequestProfile:
+    """Remove deal-breakers the profile itself says the traveller does not care about.
+
+    P01 says "I don't care about nightlife at all". The interpreter recorded
+    that as `deal_breakers: ["nightlife"]` *and* as `inferred_weights:
+    {"nightlife": 0.0}` -- two records that contradict each other. Indifference
+    is not avoidance, and the difference matters now that a deal-breaker is
+    actively scored against a place (D35): read the wrong way, a city gets
+    marked down for something the traveller merely shrugged at (D53).
+
+    Weight 0 is the traveller's own "this does not count", so it settles the
+    contradiction. A deal-breaker naming a criterion with no stated weight is
+    left alone -- absence of a weight says nothing either way.
+    """
+    if not profile.deal_breakers:
+        return profile
+
+    weights = canonicalize_criterion_weights(profile.inferred_weights)
+    kept = [
+        phrase
+        for phrase in profile.deal_breakers
+        if weights.get(canonical_criterion_name(phrase)) != 0.0
+    ]
+    if len(kept) == len(profile.deal_breakers):
+        return profile
+
+    updated = profile.model_copy(deep=True)
+    updated.deal_breakers = kept
+    return updated
+
+
 def _include_named_destinations(
     profile: PlaceRequestProfile, candidates: list[CandidatePlace]
 ) -> list[CandidatePlace]:
@@ -591,6 +622,7 @@ class Orchestrator:
                             "simpler rule-based reader. It can miss nuance -- check that the interpretation "
                             "above matches what you actually meant."
                         )
+                    profile = _drop_indifferent_deal_breakers(profile)
                     checkpoint.profile = profile
                     state = (
                         AgentState.CLARIFICATION_REQUIRED
