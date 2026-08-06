@@ -4,7 +4,7 @@ How DigitalNomadAgent has been validated, what the end-to-end runs found, and wh
 fixing. Two things are kept deliberately separate: **defects** (it does not work as intended) and
 **enhancements** (it works, but could be better). Correctness comes first.
 
-Last updated: **2026-08-05**.
+Last updated: **2026-08-06**.
 
 > **Reading order.** Section 0 is the current status, including the results of all three
 > real-provider runs — the post-fix verification run (2026-08-04), the subset re-validation and
@@ -20,12 +20,19 @@ Last updated: **2026-08-05**.
 
 ### Where this stands, in one paragraph
 
-**Every defect on the ledger is closed**, including D28 and D29, which the full paid run of
-2026-08-05 exposed and which were fixed the same day. D19's original finding turned out to be wrong in
-the other direction: there *is* a provider-side cap, on the account rather than the key. The
-offline gate is green (**554 passed, 1 skipped**, `ruff` clean) and **$11.15 of the $13.00 budget remains**
+**Every defect on the ledger is closed**, D0 through D45. D31–D45 came from reading the ten
+answers of the 2026-08-05 full run as prose rather than as pass/fail — every one of them had
+passed the golden set, because that suite checks *structure* (the four modules ran, a table
+exists, no banned claim leaked) and nothing in it tests whether the recommendation is **correct**.
+That blind spot is the single most important finding in this document. The offline gate is green
+(**619 passed, 1 skipped**, `ruff` clean) and **$10.68 of the $13.00 budget remains**
 (account-authoritative — see the D19 note for why the account figure, not the key's, is the one
 that binds).
+
+**The 2026-08-06 verification run is clean: 10/10 `ok`** (`20260806T053620Z-d45-smoke` P01 plus
+`20260806T053849Z-d31-d45-real` P02–P10, $0.4134, 42 calls). Across all ten answers: no internal
+score reaches the prose, no pipeline identifier leaks, and `target_months` is correct on every
+prompt that stated timing — the bug behind D31, where all ten had been scored against August.
 
 **The coverage gap is closed.** Three real-provider runs on 2026-08-05: two subsets
 (`20260805T051351Z-real-api-postfix-2`, $0.1130, confirming D8b/D20/D21 and finding D23/D24;
@@ -77,6 +84,69 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D28 | An unmeetable hard constraint emptied the field and failed the request outright — D24 solved this for timezone only, so P08's $400 budget in Scandinavia killed the whole run | **Fixed** (2026-08-05) | `e45a936` |
 | D29 | A named destination was eliminated and vanished from the answer: `verify_candidates` never copied the geocoded country, so a synthesized candidate matched no region | **Fixed** (2026-08-05) | `e45a936` |
 | D30 | `named_destinations` never reached the Recommendation Generator, so it could not lead with a verdict on the place the user actually asked about | **Fixed** (2026-08-05) | `416d734` |
+| D31 | `target_months` was absent from the interpreter's field list, so it arrived empty on every request and both climate tools fell back to *the current calendar month* — all ten prompts were scored against August | **Fixed** (2026-08-06) | `36685d2` |
+| D32 | P10's interpreter call failed with a 400 whose body was discarded; the deterministic fallback took over silently, "Bali" was never extracted, and the three out-of-scope asks went unanswered without being declined | **Fixed** (2026-08-06) | `99b53e9` |
+| D33 | A hard constraint that nothing measured cost a candidate nothing: P02 capped flight time at five hours and Madeira, at nearly seven, ranked first | **Fixed** (2026-08-06) | `008111d` |
+| D34 | Nothing measured terrain or spoken language, so P06's wheelchair user was recommended Lisbon — with its funiculars cited as evidence *for* step-free access | **Fixed** (2026-08-06) | `25c2b4f` |
+| D35 | Deal-breakers were collected and never queried, so P04's "big party destinations" exclusion put Barcelona first with its nightlife reframed as a virtue | **Fixed** (2026-08-06) | `4abf3f2` |
+| D36 | The uncertainty penalty was a flat 0.15 by count, so P04 could lose food scene, street food, market culture and party level and still rank five cities | **Fixed** (2026-08-06) | `69f8fdc` |
+| D37 | A zero amenity count read as "none here": Gdansk was *excluded* on "0 coworking and 0 cafes", and the coworking query missed the `coworking=yes` tagging entirely | **Fixed** (2026-08-06) | `f60ebbd` |
+| D38 | Only the budget half of P08's impossibility was detected — the answer never used the words "snow" or "swim" | **Fixed** (2026-08-06) | `1507602` |
+| D39 | A country-level cost estimate cannot separate two cities in one country, but carried full weight anyway (Recife and Rio both "Brazil ~$1,300") | **Fixed** (2026-08-06) | `ccf2d17` |
+| D40 | Costs were quoted in whichever currency they arrived in — P01 stated a EUR budget and answered in USD and BGN | **Fixed** (2026-08-06) | `9f75b5e` |
+| D41 | Internal 0-1 scores reached the prose ("Total score is 0.8145"), inconsistently between prompts and without discriminating (0.61 for six of seven candidates in P05) | **Fixed** (2026-08-06) | `e9a2f57` |
+| D42 | Pipeline vocabulary reached the reader, including "I did not receive a `named_destinations` field" | **Fixed** (2026-08-06) | `36b00d6` |
+| D43 | "Yes with conditions" was returned for nearly every candidate, naming no condition | **Fixed** (2026-08-06) | `cadc639` |
+| D44 | The bibliography never said which city a source supported, and cited the Overpass *documentation page* as the source of its counts | **Fixed** (2026-08-06) | `4f25786` |
+| D45 | P07 says outright "I don't really know what I'm looking for" and got a scoring table with no question, on the one prompt where the traveller had said they could not specify | **Fixed** (2026-08-06) | `91402f9` |
+
+### The 2026-08-06 verification run, and what it did and did not prove
+
+Confirmed against the real provider, per prompt:
+
+- **D31** — `target_months` correct throughout: P01 `[4,5,6]`, P02 `[8]`, P03 `[3,4,5]`, P04 `[10]`,
+  P06 `[11,12,1,2,3,4]`, P09 `[9,10,11,12,1,2]`, and correctly empty for P05 and P07. P07 says so
+  in the answer: *"Because the timing of the trip is unknown, climate is not treated as a deciding
+  factor."*
+- **D32** — P10's interpreter still fails, and the captured body finally says why:
+  `litellm.ContentPolicyViolationError` — **Azure's content filter rejects the injection prompt**.
+  That is an upstream provider policy, not a defect here, and it was unattributable before this
+  fix. The run degrades correctly: Bali is extracted by the fallback parser and named in the
+  answer, all three out-of-scope asks are declined by name, and the reduced-capability notice
+  reaches the reader.
+- **D33** — Madeira is gone from P02. Every finalist (Barcelona, Nice, Cagliari, Split, Bari,
+  Rhodes, Mallorca) is genuinely inside the stated five hours of Tel Aviv.
+- **D34** — P06 leads on winter climate and English, both newly measured, and its verdict reads
+  *"yes if you can live with a steep, stair-heavy historic centre"*.
+- **D36** — P04 names food scene, street food and market culture as unmeasured and says they were
+  not decisive. Barcelona fell from 1st to 4th.
+- **D38** — P08's snow-versus-outdoor-swimming contradiction is stated and asks which to optimise
+  for. It had never been mentioned.
+- **D41/D42** — zero internal scores and zero pipeline identifiers across all ten answers.
+- **D43** — conditional verdicts name their condition (P02: *"Yes if you want a shorter flight and
+  can accept less family-beach evidence"*).
+- **D44** — sources read "OpenStreetMap Nominatim — Seville".
+- **D45** — P07 asks, and offers three concrete directions instead of demanding a specification.
+
+**Not proved by this run: D35 and D37.** Overpass returned almost no amenity counts —
+`counts_by_category` was empty for nearly every candidate, `culture` included, so neither the
+nightlife query nor the widened coworking selector had data to act on. The cause is
+environmental, not a regression: querying the *old* two-selector coworking query directly fails
+identically (`ReadTimeout` on overpass-api.de, `ConnectError` on the kumi mirror), so the D37
+selector change is exonerated. Both defects remain covered by unit tests only, and want a rerun
+when Overpass is reachable.
+
+Two smaller things the run surfaced, neither fixed:
+
+- **P08's `target_months` came back empty** from the real interpreter, which did not read "a month
+  this winter" as timing. The deterministic parser does resolve it to `[12,1,2]`. Empty is the
+  safe direction — climate simply is not scored — but the timing was usable and was missed.
+- **P01's interpreter put `nightlife` in `deal_breakers`** for "I don't care about nightlife at
+  all", while also correctly setting its weight to `0.0`. Indifference is not avoidance, and the
+  two records contradict each other. It did no harm here (P01 is a remote-work request, so
+  ActivitiesTool never ran) but on a vacation prompt the D35 machinery would penalise a city for
+  something the traveller merely does not care about. The interpreter prompt should state that the
+  two are mutually exclusive.
 
 One deliberate non-change, flagged rather than decided unilaterally:
 
