@@ -380,3 +380,25 @@ def test_a_named_place_with_an_unconfirmed_requirement_names_the_condition():
     )
 
     assert "yes only if you can live with flight duration being unconfirmed" in markdown
+
+
+def test_a_failed_requirement_is_a_no_not_a_conditional_yes():
+    """D51: failed and unconfirmed were given the same verdict. Evidence that a
+    place does *not* meet a non-negotiable is a no."""
+    from app.core.rendering import render_recommendation_markdown
+
+    markdown = render_recommendation_markdown(
+        _named_payload(
+            ["Lisbon"],
+            [
+                {
+                    **_ranked("Lisbon", 0.9, {"cost": 0.9}),
+                    "hard_constraint_results": {"terrain": False},
+                    "drawbacks": [],
+                }
+            ],
+        )
+    )
+
+    assert "no — the evidence says it does not meet your requirement on terrain" in markdown
+    assert "yes only if" not in markdown

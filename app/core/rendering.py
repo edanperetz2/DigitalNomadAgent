@@ -85,17 +85,22 @@ def _named_destination_verdict(named: list[str], candidates: list[dict]) -> str:
             continue
         candidate = candidates[rank]
         drawback = (candidate.get("drawbacks") or [""])[0]
-        unmet = [
-            criterion
-            for criterion, passed in (candidate.get("hard_constraint_results") or {}).items()
-            if passed is not True
-        ]
+        results = candidate.get("hard_constraint_results") or {}
+        failed = sorted(c for c, passed in results.items() if passed is False)
+        unconfirmed = sorted(c for c, passed in results.items() if passed is None)
         # A verdict has to distinguish. "Yes with conditions" was returned for
         # six of eight candidates in P01, seven of eight in P02 and all of them
         # in P07 and P08 -- a label that carries no information (D43). So the
         # condition is named, or there is no condition.
-        if unmet:
-            requirement = ", ".join(sorted(unmet)).replace("_", " ")
+        #
+        # Failed and unconfirmed are different answers and were being given the
+        # same one: evidence that a place *does not* meet a non-negotiable is a
+        # no, not a yes-if (D51).
+        if failed:
+            requirement = ", ".join(failed).replace("_", " ")
+            verdict = f"no — the evidence says it does not meet your requirement on {requirement}"
+        elif unconfirmed:
+            requirement = ", ".join(unconfirmed).replace("_", " ")
             verdict = f"yes only if you can live with {requirement} being unconfirmed"
         elif rank == 0:
             verdict = "yes — it ranks first here on your stated criteria"

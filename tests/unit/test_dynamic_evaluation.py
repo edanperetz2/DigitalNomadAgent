@@ -1618,3 +1618,34 @@ def test_an_unavailable_conversion_leaves_the_figures_untouched():
 
     assert compact["fixed_cost_scenarios"]["center"]["monthly_total_in_budget_currency"] is None
     assert compact["fixed_cost_scenarios"]["center"]["monthly_total_usd"] == 1090.0
+
+
+def test_a_short_trip_is_told_the_cost_figures_are_monthly_living_costs():
+    """D52: P02 assessed a two-week family holiday with "$1,063 outside the
+    center per month" and read it as mid-range rather than luxury -- a
+    relocation number answering a holiday question."""
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        duration="two weeks",
+        relevant_criteria=["cost"],
+        budget=Budget(amount=3000.0, currency="EUR", period="total"),
+    )
+    evidence = {"Barcelona": [_budget_evidence("Barcelona", "city", "Spain")]}
+
+    evaluation = evaluate_candidates([_candidate("Barcelona")], profile, evidence)[0]
+
+    assert any("not what a short trip costs" in d for d in evaluation.drawbacks)
+
+
+def test_a_multi_month_stay_gets_no_such_caveat():
+    profile = PlaceRequestProfile(
+        purpose="remote_work",
+        duration="three months",
+        relevant_criteria=["cost"],
+        budget=Budget(amount=1800.0, currency="EUR", period="monthly"),
+    )
+    evidence = {"Seville": [_budget_evidence("Seville", "city", "Spain")]}
+
+    evaluation = evaluate_candidates([_candidate("Seville")], profile, evidence)[0]
+
+    assert all("short trip" not in d for d in evaluation.drawbacks)

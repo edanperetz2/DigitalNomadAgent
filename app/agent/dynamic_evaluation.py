@@ -344,6 +344,34 @@ def credible_amenity_counts(counts: dict) -> tuple[dict, list[str]]:
     return credible, sorted(uncredible)
 
 
+# The real interpreter writes durations in words ("two weeks", "ten days"),
+# the deterministic parser in digits ("2 weeks"). Both have to parse.
+_DURATION_WORDS = {
+    "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    "couple": 2, "few": 3, "several": 4,
+}
+_SHORT_STAY_PATTERN = re.compile(
+    r"\b(\d+|" + "|".join(_DURATION_WORDS) + r")\s+(day|week|night)s?\b", re.IGNORECASE
+)
+
+
+def _is_short_stay(profile: PlaceRequestProfile) -> bool:
+    """A trip measured in days or weeks, not months.
+
+    Monthly cost-of-living is the only cost instrument here, and for a fortnight
+    away it answers a different question than the one asked (D52).
+    """
+    match = _SHORT_STAY_PATTERN.search(profile.duration or "")
+    if not match:
+        return False
+    raw, unit = match.group(1).lower(), match.group(2).lower()
+    amount = int(raw) if raw.isdigit() else _DURATION_WORDS.get(raw, 0)
+    if not amount:
+        return False
+    return amount < 28 if unit in {"day", "night"} else amount < 4
+
+
 def _safety_band(score: float) -> str:
     """Where a safety composite sits, in words a traveller can act on."""
     if score >= 0.9:
@@ -689,6 +717,17 @@ def _extract_criterion_scores(
             # comparing the two produced P03's false universal negative: "all
             # researched options exceed the stated budget" when the budget was
             # never for the thing being priced (D39).
+            # These figures are monthly rent-inclusive living costs, which is
+            # the wrong instrument for a two-week holiday. P02 assessed a family
+            # trip's budget with "$1,063 outside the center per month" and read
+            # it as "mid-range rather than luxury" -- a relocation number
+            # answering a holiday question (D52).
+            if _is_short_stay(profile) and nd.get("fixed_cost_scenarios"):
+                drawbacks.append(
+                    "The cost figures are monthly living costs including rent, which is not what a "
+                    "short trip costs -- treat them as a rough guide to how expensive the place is, "
+                    "not as a holiday budget."
+                )
             if "study" in _profile_purposes(profile) and nd.get("fixed_cost_scenarios"):
                 drawbacks.append(
                     "The cost figures price a whole one-bedroom flat with utilities, not a room "
