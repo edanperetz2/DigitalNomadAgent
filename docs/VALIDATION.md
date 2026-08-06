@@ -20,14 +20,22 @@ Last updated: **2026-08-06**.
 
 ### Where this stands, in one paragraph
 
-**Every defect on the ledger is closed**, D0 through D54. D31–D45 came from reading the ten
+**D0–D54 and D57 are closed; D55 and D56 are open**, both found on 2026-08-06 by reading the
+ten answers of the first run against the *deployed* app. D31–D45 came from reading the ten
 answers of the 2026-08-05 full run as prose rather than as pass/fail — every one of them had
 passed the golden set, because that suite checks *structure* (the four modules ran, a table
 exists, no banned claim leaked) and nothing in it tests whether the recommendation is **correct**.
 That blind spot is the single most important finding in this document. The offline gate is green
-(**648 passed, 1 skipped**, `ruff` clean) and **$10.68 of the $13.00 budget remains**
+(**652 passed, 1 skipped**, `ruff` clean) and **$10.27 of the $13.00 budget remains**
 (account-authoritative — see the D19 note for why the account figure, not the key's, is the one
 that binds).
+
+**The deployment now runs on the real model.** The Vercel `LLMOD_API_KEY` was replaced between
+sessions, confirmed by probe on 2026-08-06 (`20260806T112005Z-vercel-probe`, P01, $0.033): the
+answer ends "a real LLM provider (LLMod.ai)" with no reduced-capability notice and no 401 in the
+record. The full ten then ran against the deployed URL for the first time
+(`20260806T112705Z-vercel-full`, $0.376) — **10/10 `ok`, every answer on the real model**. Every
+prior run in this repository went to a local `uvicorn`, which is exactly how D50 survived.
 
 **The 2026-08-06 verification run is clean: 10/10 `ok`** (`20260806T053620Z-d45-smoke` P01 plus
 `20260806T053849Z-d31-d45-real` P02–P10, $0.4134, 42 calls). Across all ten answers: no internal
@@ -40,7 +48,8 @@ prompt that stated timing — the bug behind D31, where all ten had been scored 
 ceiling), then the **full ten-prompt suite** (`20260805T122313Z-real-api-full`, $0.3525), which
 confirmed E4 and D27 and exposed **D28** and **D29**.
 
-**Nothing on the ledger is waiting on a run.** D28 and D29 were confirmed against the real
+**Only D35 and D37 are waiting on a run** (Overpass has returned no data for three runs running;
+see the handover). D28 and D29 were confirmed against the real
 provider straight after being fixed (`20260805T145400Z-real-api-d28-d29`, $0.0944): **P08 returns
 `ok`** where it had errored two hours earlier, with eight Scandinavian finalists and the budget
 disclosure firing on its own, and **P09 returns Lisbon at rank 2** under the exact
@@ -108,6 +117,9 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D52 | Monthly rent-inclusive living costs were used to judge a two-week holiday: P02 read "$1,063 per month" as "mid-range rather than luxury" | **Fixed** (2026-08-06) | `ac9c118` |
 | D54 | The generator's 4000-token output ceiling truncated the largest answers mid-JSON, and the repair attempt asked only for valid JSON so it truncated identically — P08 lost its written answer to the template, silently | **Fixed** (2026-08-06) | `14502f0` |
 | D53 | "I don't care about nightlife at all" was recorded as a deal-breaker *and* weighted 0.0. Harmless until D35 made deal-breakers score against a place; after that a city is marked down for something the traveller shrugged at | **Fixed** (2026-08-06) | `e492629` |
+| D55 | A stated non-negotiable is recorded as **met** at a 0.2 score floor, so P06's "reasonably flat terrain" passed for a city the same evaluation calls rolling and whose cited evidence says "steep in parts (requiring walking up and down stairs)". Two of the five stated hard constraints produced no entry at all | **Open** (2026-08-06) | — |
+| D56 | The collapse disclosure is routed **through the model**, which dropped it: P06 proposed 30 places, delivered a one-row table, and never said so. D47's deterministic notice sits at finalist selection; this collapse happened later, at hard-constraint elimination | **Open** (2026-08-06) | — |
+| D57 | Overpass failover had no memory, so every query re-paid the full 22s timeout for a dead mirror — and round-robin tried it *first* on half of them, exhausting the 50s per-invocation cap before the working endpoint was reached | **Fixed** (2026-08-06) | `f9eabc1` |
 
 ### Reading the answers a second time (2026-08-06)
 
@@ -294,9 +306,10 @@ evidence-mapping gap rather than an Overpass one.
 - **Provider pricing is $0.75 / $4.50 per 1M** (input/output), from `/model/info` and confirmed
   against a billed call — *not* the $0.1438 / $5.7205 in the course handout. `.env` deliberately
   carries the higher of each figure so the pre-call guard cannot under-estimate.
-- **Spend so far: $2.32 of $13.00** (account-authoritative, after the 2026-08-06 verification
-  run and the Vercel probes), leaving **$10.68** — about 25 more full suite runs. Read this from `/user/info`, not `/key/info`: this
-  key alone shows $0.8622, and the $0.136 difference is account spend not attributable to it.
+- **Spend so far: $2.73 of $13.00** (account-authoritative, after the 2026-08-06 verification run,
+  the Vercel probes, and the first full suite against the deployment), leaving **$10.27** — about
+  25 more full suite runs. Read this from `/user/info`, not `/key/info`: this key alone shows
+  $2.60, and the difference is account spend not attributable to it.
 - **The ledger has a pre-existing baseline** of 62 mock rows at $0.00, plus 214 fake evidence rows
   and some phantom search-history entries, all written by the test suite before D5 was fixed.
   Harmless for cost reporting; the history entries are user-visible and can be cleared with
@@ -576,80 +589,92 @@ Two things came out of the investigation itself, both fixed in `4cf8bc4`:
 
 ### Next session — pick up here
 
-**State: no open defects. D0–D54 are closed.** The offline gate is green
-(**648 passed, 1 skipped**, `ruff` clean), everything is pushed to `main`, and
-**$10.68 of the $13.00 budget remains**. The deployment routes correctly and
-serves every endpoint.
+**State: D55 and D56 are open; everything else is closed.** The offline gate is
+green (**652 passed, 1 skipped**, `ruff` clean) and **$10.27 of the $13.00
+budget remains**. The Vercel key is fixed and the deployment runs on the real
+model — the ten prompts have now been run against the deployed URL, 10/10 `ok`.
 
-**One thing blocks the remaining work, and it is not code.** Every LLM call from
-the Vercel deployment fails:
-
-> `401 Authentication Error, Invalid proxy server token passed. Received API Key = sk-...vQSw`
-> key hash `aac6a9b707a276a670f8c2448d3c46f05cd5ee169d5a10312772d41d43a67e5e`
-
-That hash was byte-identical across five probes and two forced rebuilds on
-2026-08-06, so the value never changed. The local `.env` key is different, is
-25 characters, and works — it billed $0.41 the same day. The user was fixing the
-Vercel environment variable at the end of that session. **Do not spend anything
-until a probe confirms the model actually answers.**
-
-#### Step 1 — probe (~$0.04)
+Render any captured run as readable prose before judging it:
 
 ```bash
-python scripts/run_e2e_suite.py \
-  --base-url https://digitalnomadagent.vercel.app \
-  --label vercel-probe --only P01
+python scripts/render_answers.py validation_runs/<run-dir>
 ```
 
-Then read the captured record:
+#### D55 — a stated non-negotiable passes on evidence that contradicts it
 
-- Response ends **"Generated using: a real LLM provider (LLMod.ai)"** → the key
-  is live. Go to step 2.
-- Response ends **"a deterministic fallback template"** → still broken. Pull the
-  key hash out of the trace's `provider_call_failed` detail. **Changed** from the
-  hash above means the new value landed but the provider rejects it (a key
-  problem). **Unchanged** means the value still is not reaching this deployment
-  (a Vercel project/scope problem — see the D50 notes above). Either way, stop
-  and report; do not run the suite.
+P06's traveller uses a wheelchair and names five hard constraints. Two of them —
+"wheelchair accessibility" and "step-free access" — produce **no constraint entry
+at all**; they only keyword-match `terrain`. The one that is checked is recorded
+`met` because `HARD_CONSTRAINT_ELIMINATION_THRESHOLD` is **0.2**, and Valletta's
+49 m spread scores `0.6308` — so a city needs roughly 78 m of spread before it
+fails a flat-terrain non-negotiable. The same evaluation's own drawback calls the
+terrain rolling, and its cited Wikivoyage evidence says the city is "steep in
+parts (requiring walking up and down stairs)". Verdict returned: *"yes if you are
+comfortable with a compact, hilly historic center"*.
 
-#### Step 2 — the full ten against the deployment (~$0.42, leaves ~$10.2)
+Note also that the `accessibility` criterion in this codebase means **airport /
+arrival** access (`"airport"`, `"distance"`, `"remote"`, `"arrival"`, `"get
+there"`, sourced from "Wikivoyage Get in") — but it reaches the generator under a
+name that reads as disability access, and on this prompt the generator used it
+that way.
 
-```bash
-python scripts/run_e2e_suite.py \
-  --base-url https://digitalnomadagent.vercel.app --label vercel-full
-python scripts/probe_llmod_account.py   # reconcile, read /user/info not /key/info
-```
+The system-level question is not wheelchairs: it is that **0.2 is a "catastrophe"
+floor being used as a "requirement met" bar** for anything the traveller declared
+non-negotiable, and that a stated constraint nothing measured is silently absent
+rather than reported unverified.
 
-This is the first time the ten prompts will have run against the *deployed* app.
-Every run in this repository so far went to a local `uvicorn`, which is exactly
-how D50 — a deployment that answered 404 to every request — survived unnoticed.
+#### D56 — the collapse disclosure is routed through the model, which drops it
 
-#### Step 3 — read the answers, do not trust the status
+P06 proposed **30** places, delivered a **one-row** table, and never told the
+reader. D47 added a deterministic `service_notices` entry, but it sits at
+*finalist selection*; P06's collapse happened later, at **hard-constraint
+elimination**. That path's wording — "This is a shorter list than usual — most of
+the places researched did not meet the requirements you set" — is passed as
+`caveats_to_pass_on` for the model to paraphrase, and the model dropped it.
 
-`10/10 ok` has twice concealed bad advice. The golden set checks structure; it
-does not check whether the recommendation is correct. Generate readable copies
-and read them as prose:
+This is exactly what D32 established must never happen: anything the reader must
+see cannot be routed through the model. `_degradation_disclosure`,
+`_conflict_disclosure` and `_coverage_disclosure` are appended deterministically
+after generation and all survived; the caveats did not.
 
-```bash
-# the 2026-08-06 set was produced this way; see validation_runs/20260806-answers/
-```
+Secondary: the caveat is computed at `VALIDATING`, *before*
+`_score_unresolved_criteria` can rescue eliminated candidates, so it can be wrong
+in both directions — **P02 received it while delivering seven candidates**.
 
-Three things to look for specifically, because they have never been confirmed
-against live data:
+#### Still unproven after three runs: D35 and D37
 
-1. **D54** — does any prompt still fall back to the deterministic template? P08
-   is the one to watch: eight candidates and ~59 sources overran the old
-   4000-token ceiling and lost its written answer. If it falls back again, the
-   8000 ceiling is still short.
-2. **D35 and D37** — Overpass was unreachable for the whole 2026-08-06 run, so
-   `counts_by_category` came back empty almost everywhere and neither the
-   nightlife-avoidance scoring nor the widened coworking selector had data to
-   act on. Both rest on unit tests alone. Check P04 (should measure nightlife
-   now that "big party destinations" is a deal-breaker) and P01/P09 (coworking
-   counts should no longer be 0 or 1 in cities with hundreds of cafés).
-3. **D47** — if a prompt still collapses to one or two finalists, the answer
-   should now say so ("Only N of the M places considered could be researched in
-   time"). P03 and P06 collapsed on 2026-08-06 with ~30 proposed and 1 through.
+Overpass returned **zero** sources across all ten prompts of the deployed run,
+the third run in a row with no amenity data, so nightlife-avoidance scoring and
+the widened coworking selector still rest on unit tests alone.
+
+D57 removed one measured cause (a dead mirror re-charging 22s per query). The
+remaining cause is a 429 standing against the caller's IP that **no client
+strategy recovers** — measured on an 8-city workload: 2/8 with the current policy
+in 30s, 2/8 with two retries and backoff in 172s, 0/8 at concurrency 1 in 517s.
+Note `overpass-api.de` itself is healthy and fast when it grants a slot (4–11s,
+Sofia `[290, 188]`, Gdańsk `[70, 49]`), and `/api/status` reports "Rate limit: 2,
+2 slots available now" even while returning 429s.
+
+Two things worth checking before spending more on this:
+
+1. **Re-measure from the deployment, not this machine**, which has been probing
+   Overpass all session and is not a clean vantage point.
+2. **The Vercel cache resets on every cold start** (`SQLITE_PATH=/tmp`, same
+   constraint as the budget ledger — see the D50 notes). `AmenitiesTool` caches
+   with a stale-fallback path, so on Vercel every run re-queries everything from
+   scratch. That multiplies Overpass load by exactly the factor the cache exists
+   to remove, and is the most likely reason the deployment earns a 429 standing
+   within a single ten-prompt suite.
+
+#### Confirmed working on the deployed run (2026-08-06)
+
+- **D54** — no prompt fell back to the template; P08 produced a full 12,964-char
+  answer with its conflict block intact. The 8000-token ceiling is enough.
+- **D31/D49** — `target_months` correct on every prompt that stated timing, and
+  **P08 now resolves "a month this winter" to `[12,1,2]`**, closing the open item
+  from the previous session.
+- **D38, D41, D42, D36** — conflict disclosures fire; zero internal scores and
+  zero pipeline identifiers across all ten; coverage blocks present in 9 of 10.
 
 #### Deliberately not fixed — decide only if you want them
 
@@ -1214,9 +1239,10 @@ python scripts/probe_llmod_account.py
 Superseded by **section 0**, which carries the current defect status and the handover for the next
 session. The items that were listed here — D8, D6/D7/D10, D17, D18 — have since been fixed and
 **verified against the real provider on 2026-08-04**; D8's residual (D8b) and D13 were fixed
-afterwards, and D20–D25 were found and fixed across the two 2026-08-05 runs. **Every defect on the
-ledger is now closed**, D27 included, and D19's original "no provider-side cap" finding was
-itself wrong — both corrections are in section 0.
+afterwards, and D20–D25 were found and fixed across the two 2026-08-05 runs. All of those are now
+closed, D27 included, and D19's original "no provider-side cap" finding was itself wrong — both
+corrections are in section 0. **Two defects are open — D55 and D56**, found on 2026-08-06 by
+reading the first run against the deployed app; section 0 has both.
 
 Also open, off the ledger: the **budget-refusal `steps` decision**, and enhancements **E4, E5,
 E7, E8**.
