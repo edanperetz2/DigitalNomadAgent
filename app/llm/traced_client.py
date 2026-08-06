@@ -130,11 +130,21 @@ async def traced_llm_call(
                     "response": {"error": "malformed_json", "raw": redact(raw.text[:500])},
                 }
             )
+            # The commonest cause is length, not syntax: the answer ran past the
+            # output ceiling and stopped mid-string. Asking only for "valid
+            # JSON" then produces the identical over-long answer and the
+            # identical truncation, which is how P08 burned both attempts and
+            # fell back to the template (D54). Ask for shorter as well.
             attempt_messages = messages + [
                 {"role": "assistant", "content": raw.text},
                 {
                     "role": "user",
-                    "content": "Your previous response was not valid JSON. Reply again with ONLY valid JSON.",
+                    "content": (
+                        "Your previous response was not valid JSON -- it was cut off before it "
+                        "finished. Reply again with ONLY valid JSON, and make it substantially "
+                        "shorter so it completes: keep every section and every place, but write "
+                        "them more briefly."
+                    ),
                 },
             ]
             continue

@@ -38,7 +38,14 @@ class Settings(BaseSettings):
     # for a full finalist set with rich evidence while still bounding a runaway
     # prompt at about $0.012.
     llm_max_input_tokens: int = 16000
-    llm_max_output_tokens: int = 4000
+    # 4000 was not enough for the Recommendation Generator's largest answers and
+    # the failure was silent: the model's JSON was cut off mid-string, the
+    # repair attempt hit the identical ceiling, and the response degraded to the
+    # deterministic template. P08 -- eight candidates, four evidence bullets
+    # each, 59 sources -- lost its written answer that way in the 2026-08-06
+    # run, and P01/P03/P05 needed a retry for the same reason the day before.
+    # Only the answers that need the room pay for it (D54).
+    llm_max_output_tokens: int = 8000
     llm_input_cost_per_1m: float = 0.0
     llm_output_cost_per_1m: float = 0.0
 
