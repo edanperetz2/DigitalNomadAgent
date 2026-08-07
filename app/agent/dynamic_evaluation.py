@@ -160,6 +160,26 @@ STUDENT_AMENITY_SATURATION = {"university": 3.0, "library": 8.0}
 AVOIDED_CATEGORY_SATURATION = 300.0
 _AVOIDED_CATEGORY_CRITERIA = {"nightlife": "nightlife"}
 HARD_CONSTRAINT_ELIMINATION_THRESHOLD = 0.2
+# Two different questions were being answered by one number. "Is this bad enough
+# to drop the place?" is a floor -- deliberately low, because a false
+# elimination is worse than a missed one. "Has the place been shown to *meet*
+# this non-negotiable?" is not the same question, and answering it with the
+# floor meant anything short of catastrophic was reported to the reader as met.
+#
+# P06's traveller uses a wheelchair and called flat terrain non-negotiable.
+# Valletta scores 0.6308 -- 49 m of spread, which this codebase labels "rolling"
+# -- and the evidence it was built from says the city is "steep in parts
+# (requiring walking up and down stairs)". It was recorded `met`. On the old
+# single threshold a place needed roughly 78 m of spread before flat terrain
+# failed (D55).
+#
+# So the middle band now says what it means: not disproved, not confirmed. The
+# tri-state already existed for constraints nothing measured, and everything
+# downstream handles it -- `constraint_tier` ranks it below verified places,
+# `unmet_constraint_note` tells the reader it could not be confirmed, and D51
+# keeps the verdict off "yes". 0.75 is the same value as the "widespread"
+# English band, the weakest reading worth calling satisfactory.
+HARD_CONSTRAINT_MET_THRESHOLD = 0.75
 # Subtracted from a total when *none* of the stated weight was measured. Scales
 # linearly with the share that was missed, so a candidate evidenced on
 # everything loses nothing and one evidenced on nothing loses this much (D36).
@@ -1080,9 +1100,20 @@ def _check_hard_constraints(
             # Madeira nothing and it ranked first anyway (D33).
             hard_results[criterion] = None
             continue
-        passes = criterion_scores[criterion] >= HARD_CONSTRAINT_ELIMINATION_THRESHOLD
+        score = criterion_scores[criterion]
+        # Three bands, not two: shown to meet it, not shown either way, shown to
+        # fail it. The middle band records None -- the same value used for a
+        # constraint nothing measured, because the honest statement is the same
+        # one: this was not confirmed (D55).
+        passes = (
+            True
+            if score >= HARD_CONSTRAINT_MET_THRESHOLD
+            else False
+            if score < HARD_CONSTRAINT_ELIMINATION_THRESHOLD
+            else None
+        )
         hard_results[criterion] = passes
-        if not passes and not eliminated:
+        if passes is False and not eliminated:
             eliminated = True
             # Says which way it fails. Removing the score in D41 left "the
             # evidence puts it below the minimum this request sets", which for
