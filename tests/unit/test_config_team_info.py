@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 from app.api.schemas import TeamInfoResponse
@@ -14,6 +15,19 @@ def test_team_info_file_exists():
 def test_team_info_file_is_valid_json():
     data = json.loads(TEAM_INFO_PATH.read_text(encoding="utf-8"))
     assert isinstance(data, dict)
+
+
+def test_group_batch_order_number_uses_the_format_the_brief_specifies():
+    """The brief specifies "{batch#}_{order#}" -- so "2_4", not "Batch 2 Order 4".
+
+    This endpoint is the one most likely to be read by a script rather than a
+    person, and the value shipped as prose for a while. Pinned because a
+    formatting slip here is invisible in every test that only checks the keys.
+    """
+    data = json.loads(TEAM_INFO_PATH.read_text(encoding="utf-8"))
+    assert re.fullmatch(r"\d+_\d+", data["group_batch_order_number"]), (
+        f"expected {{batch}}_{{order}} digits, got {data['group_batch_order_number']!r}"
+    )
 
 
 def test_team_info_matches_strict_schema():

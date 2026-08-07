@@ -128,11 +128,11 @@ Error response (same four fields, never FastAPI's default `{"detail": [...]}`):
 {"status": "error", "error": "The prompt cannot be empty.", "response": null, "steps": []}
 ```
 
-Every `/api/execute` request has a hard 285-second backend execution deadline. Under the default
-configuration, research stops at 225 seconds and retains every completed tool result, leaving 60
+Every `/api/execute` request has a hard 270-second backend execution deadline. Under the default
+configuration, research stops at 210 seconds and retains every completed tool result, leaving 60
 seconds to score the partial evidence and generate the response. Pending calls are cancelled and
 reported as missing evidence. If the recommendation-writing LLM is slow, a deterministic renderer
-sends the recommendation instead. The 285-second emergency cutoff also returns a disclosed,
+sends the recommendation instead. The 270-second emergency cutoff also returns a disclosed,
 best-effort recommendation whenever the request is sufficiently clear, leaving 15 seconds for API,
 transport, and UI overhead before the 300-second user-visible limit. If interpretation or candidate
 generation fails early because the LLM provider times out, deterministic parsing and curated
@@ -162,7 +162,7 @@ service) with a prompt field, example buttons for remote work/study/vacation, lo
 states, rendered recommendations, and an expandable "Execution steps" section showing every LLM
 call's module/prompt/response. It calls `POST /api/execute` only — no agent logic is duplicated in
 the frontend. The browser also aborts after 295 seconds as a final client-side guard; the backend's
-285-second deadline should normally return a structured error first. Real requests commonly take
+270-second deadline should normally return a structured error first. Real requests commonly take
 40-110+ seconds (serial geocoding plus external tool calls); the loading state shows a live elapsed
 timer plus a "still thinking" note after 15 seconds so this doesn't read as a hung page.
 
@@ -244,11 +244,11 @@ All variables are documented with safe defaults or empty placeholders in `.env.e
 | `MAX_BULK_CANDIDATES` | Stage-1 bulk candidate-recall size (still one LLM call); default `30` |
 | `MAX_FINALISTS` | Stage-3 finalist count that gets full research + scoring; default `8`, validated against real Overpass/Nominatim latency |
 | `MAX_FINAL_RECOMMENDATIONS` | Candidates actually presented in the response; default `8` |
-| `AGENT_EXECUTION_TIMEOUT_SECONDS` | Complete backend agent deadline; default and maximum `285` seconds |
+| `AGENT_EXECUTION_TIMEOUT_SECONDS` | Complete backend agent deadline; default and maximum `270` seconds |
 | `RECOMMENDATION_RESERVE_SECONDS` | Time reserved after research for scoring/rendering; default `60` seconds |
 | `TOOL_EXECUTION_TIMEOUT_SECONDS` | Complete budget for one tool/candidate invocation; default `50` seconds |
 | `MAX_CONCURRENT_TOOL_REQUESTS` | Independent tool/candidate jobs allowed at once; default `10` |
-| `UPSTREAM_REQUEST_TIMEOUT_SECONDS` | Optional declaration of the real proxy/platform timeout; must exceed `285` |
+| `UPSTREAM_REQUEST_TIMEOUT_SECONDS` | Optional declaration of the real proxy/platform timeout; must exceed `270` |
 | `SQLITE_PATH`, `APP_PORT`, `HTTP_TIMEOUT_SECONDS`, `CACHE_TTL_HOURS` | Infra configuration |
 
 **Never commit the real `.env` file** — it is already listed in `.gitignore`.
@@ -390,7 +390,7 @@ The course spec requires deploying on **Vercel** specifically (not a general hos
 - **`rewrites`** sends every path (`/`, `/static/*`, `/api/*`) to that one function, so FastAPI's
   own router still handles everything internally exactly as it does under Uvicorn.
 - **`functions.main.py.maxDuration = 300`** matches the spec's stated Vercel ceiling exactly — our
-  own `AGENT_EXECUTION_TIMEOUT_SECONDS=285` already fits under this with margin.
+  own `AGENT_EXECUTION_TIMEOUT_SECONDS=270` already fits under this with margin.
 - **`env`** sets the same safe non-secret defaults as the Dockerfile (`MOCK_LLM=true`, timeouts).
   `SQLITE_PATH=/tmp/digitalnomadagent.db` is set here specifically because **Vercel's filesystem is
   read-only except `/tmp`, and `/tmp` resets on every cold start** — the local cache/evidence/

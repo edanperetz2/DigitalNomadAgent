@@ -29,20 +29,32 @@ def _orchestrator(*, timeout_seconds: float) -> Orchestrator:
     )
 
 
+def test_the_backend_ceiling_leaves_real_margin_under_vercels_hard_kill():
+    """Vercel kills at 300s with a platform error, not our degraded answer.
+
+    The gap is not spare time -- it has to cover rendering the best-effort
+    result, serializing a response carrying the full step trace, and the network
+    hop. At 285 that was ~15 seconds. The slowest measured deployed run was P09
+    at 247.7s (2026-08-07), so the ceiling has never actually been hit; this
+    guards the case where it is.
+    """
+    assert 300.0 - MAX_AGENT_EXECUTION_TIMEOUT_SECONDS >= 30.0
+
+
 def test_execution_deadline_default_and_maximum_are_below_300_seconds():
     settings = Settings(_env_file=None)
 
     assert settings.agent_execution_timeout_seconds == MAX_AGENT_EXECUTION_TIMEOUT_SECONDS
-    assert MAX_AGENT_EXECUTION_TIMEOUT_SECONDS == 285.0
+    assert MAX_AGENT_EXECUTION_TIMEOUT_SECONDS == 270.0
     assert settings.recommendation_reserve_seconds == DEFAULT_RECOMMENDATION_RESERVE_SECONDS == 60.0
     assert settings.tool_execution_timeout_seconds == 50.0
     assert settings.max_concurrent_tool_requests == 10
 
     with pytest.raises(ValidationError):
-        Settings(_env_file=None, agent_execution_timeout_seconds=285.01)
+        Settings(_env_file=None, agent_execution_timeout_seconds=270.01)
 
     with pytest.raises(ValidationError, match="UPSTREAM_REQUEST_TIMEOUT_SECONDS"):
-        Settings(_env_file=None, upstream_request_timeout_seconds=285.0)
+        Settings(_env_file=None, upstream_request_timeout_seconds=270.0)
 
     aligned = Settings(_env_file=None, upstream_request_timeout_seconds=290.0)
     assert aligned.upstream_request_timeout_seconds == 290.0

@@ -9,7 +9,19 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MAX_AGENT_EXECUTION_TIMEOUT_SECONDS = 285.0
+# Vercel kills any function at 300 seconds, and it kills it *hard* -- a platform
+# error page, not this agent's graceful degraded answer. The backend budget has
+# to leave room for the whole tail after the deadline fires: rendering the
+# best-effort result, serializing a ~15 KB response with its full step trace, and
+# the network hop.
+#
+# 285 left roughly 15 seconds for all of that. The slowest run measured against
+# the deployment was P09 at 247.7s client-side (2026-08-07), so nothing has hit
+# the ceiling yet -- but a request that does would finish perilously close to the
+# platform kill. 270 buys 30 seconds of margin and costs 15 seconds of research
+# time (the shared research cutoff moves 225 -> 210), which is the cheap side of
+# that trade: a slightly thinner answer beats no answer at all.
+MAX_AGENT_EXECUTION_TIMEOUT_SECONDS = 270.0
 DEFAULT_RECOMMENDATION_RESERVE_SECONDS = 60.0
 
 
