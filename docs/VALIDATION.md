@@ -20,13 +20,13 @@ Last updated: **2026-08-06**.
 
 ### Where this stands, in one paragraph
 
-**D55 is the only open defect; D0–D54 and D56–D59 are closed.** D55, D56 and D58 were all
+**Every defect on the ledger is closed, D0 through D59.** D35 is the one item still unverified against the provider. D55, D56 and D58 were all
 found on 2026-08-06 by reading the ten answers of the first run against the *deployed* app. D31–D45 came from reading the ten
 answers of the 2026-08-05 full run as prose rather than as pass/fail — every one of them had
 passed the golden set, because that suite checks *structure* (the four modules ran, a table
 exists, no banned claim leaked) and nothing in it tests whether the recommendation is **correct**.
 That blind spot is the single most important finding in this document. The offline gate is green
-(**663 passed, 1 skipped**, `ruff` clean) and **$10.27 of the $13.00 budget remains**
+(**673 passed, 1 skipped**, `ruff` clean) and **$10.27 of the $13.00 budget remains**
 (account-authoritative — see the D19 note for why the account figure, not the key's, is the one
 that binds).
 
@@ -117,7 +117,7 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D52 | Monthly rent-inclusive living costs were used to judge a two-week holiday: P02 read "$1,063 per month" as "mid-range rather than luxury" | **Fixed** (2026-08-06) | `ac9c118` |
 | D54 | The generator's 4000-token output ceiling truncated the largest answers mid-JSON, and the repair attempt asked only for valid JSON so it truncated identically — P08 lost its written answer to the template, silently | **Fixed** (2026-08-06) | `14502f0` |
 | D53 | "I don't care about nightlife at all" was recorded as a deal-breaker *and* weighted 0.0. Harmless until D35 made deal-breakers score against a place; after that a city is marked down for something the traveller shrugged at | **Fixed** (2026-08-06) | `e492629` |
-| D55 | A stated non-negotiable is recorded as **met** at a 0.2 score floor, so P06's "reasonably flat terrain" passed for a city the same evaluation calls rolling and whose cited evidence says "steep in parts (requiring walking up and down stairs)". Two of the five stated hard constraints produced no entry at all | **Open** (2026-08-06) | — |
+| D55 | A stated non-negotiable was recorded **met** at the 0.2 *elimination* floor — one threshold answering two questions — so P06's "reasonably flat terrain" passed for a city the same evaluation labels rolling and whose cited evidence says "steep in parts (requiring walking up and down stairs)". Now three bands: met ≥ 0.75, unconfirmed between, fails below 0.2. Elimination is unchanged | **Fixed** (2026-08-07) | `5be55ee` |
 | D56 | The collapse disclosure is routed **through the model**, which dropped it: P06 proposed 30 places, delivered a one-row table, and never said so. D47's deterministic notice sits at finalist selection; this collapse happened later, at hard-constraint elimination. Also computed before `_score_unresolved_criteria` could rescue candidates, so it fired wrongly too — P02 carried it while delivering seven | **Fixed** (2026-08-06) | `bcd84c3` |
 | D57 | Overpass failover had no memory, so every query re-paid the full 22s timeout for a dead mirror — and round-robin tried it *first* on half of them, exhausting the 50s per-invocation cap before the working endpoint was reached | **Fixed** (2026-08-06) | `f9eabc1` |
 | D58 | Naming English as a preferred language was answered *worse* than leaving it implied: the named-language branch checked the country's official list only and returned 0.0 on no match, below the elimination floor. It never read `english_reach`, which the same tool computes on the same call. **This is why P06 collapsed** — 7 of its 8 researched places were eliminated for not speaking English, four of them Cypriot, while `app/languages.py` lists Cyprus as English-widespread | **Fixed** (2026-08-06) | `7c94942` |
@@ -591,7 +591,7 @@ Two things came out of the investigation itself, both fixed in `4cf8bc4`:
 
 ### Next session — pick up here
 
-**State: D55 is the only open defect. D37 is confirmed on live data; D35 needs a paid run.** The offline gate is green (**663 passed,
+**State: no open defects. D37 is confirmed on live data; D35 needs a paid run, and D55/D56/D58 want re-reading on the next one.** The offline gate is green (**673 passed,
 1 skipped**, `ruff` clean) and **$10.27 of the $13.00 budget remains**.
 
 P06's one-row answer took three defects to explain, and two are now closed:
@@ -610,28 +610,35 @@ Render any captured run as readable prose before judging it:
 python scripts/render_answers.py validation_runs/<run-dir>
 ```
 
-#### D55 — a stated non-negotiable passes on evidence that contradicts it
+#### D55 — CLOSED (`5be55ee`)
 
-P06's traveller uses a wheelchair and names five hard constraints. Two of them —
-"wheelchair accessibility" and "step-free access" — produce **no constraint entry
-at all**; they only keyword-match `terrain`. The one that is checked is recorded
-`met` because `HARD_CONSTRAINT_ELIMINATION_THRESHOLD` is **0.2**, and Valletta's
-49 m spread scores `0.6308` — so a city needs roughly 78 m of spread before it
-fails a flat-terrain non-negotiable. The same evaluation's own drawback calls the
-terrain rolling, and its cited Wikivoyage evidence says the city is "steep in
-parts (requiring walking up and down stairs)". Verdict returned: *"yes if you are
-comfortable with a compact, hilly historic center"*.
+One threshold was answering two questions. `HARD_CONSTRAINT_ELIMINATION_THRESHOLD`
+is **0.2** and is deliberately low, because a false elimination is worse than a
+missed one — but it was also the bar for reporting a non-negotiable as **met**, so
+anything short of catastrophic was reported as satisfied. P06's wheelchair user
+called flat terrain non-negotiable; Valletta scores `0.6308` (49 m of spread,
+which this codebase labels *rolling*, from evidence saying the city is "steep in
+parts, requiring walking up and down stairs") and was recorded `met`. A city
+needed roughly 78 m before flat terrain failed.
 
-Note also that the `accessibility` criterion in this codebase means **airport /
-arrival** access (`"airport"`, `"distance"`, `"remote"`, `"arrival"`, `"get
-there"`, sourced from "Wikivoyage Get in") — but it reaches the generator under a
-name that reads as disability access, and on this prompt the generator used it
-that way.
+Three bands now: **met ≥ 0.75**, **unconfirmed** between, **fails below 0.2**.
+The tri-state was already plumbed end to end for constraints nothing measured, so
+this added no machinery. **Elimination is unchanged** — only `< 0.2` eliminates,
+exactly as before — so the field cannot empty and nothing is dropped that was not
+dropped before. What changed is what the reader is told, and that a confirmed
+place now ranks above an unconfirmed one.
 
-The system-level question is not wheelchairs: it is that **0.2 is a "catastrophe"
-floor being used as a "requirement met" bar** for anything the traveller declared
-non-negotiable, and that a stated constraint nothing measured is silently absent
-rather than reported unverified.
+Correcting an earlier note here: it said two of P06's five constraints "produce
+no constraint entry at all". That was wrong. All five are covered; they collapse
+onto three measurable criteria — English → `language_spoken`, wheelchair /
+step-free / flat terrain → `terrain`, accessible transport → `transportation`.
+
+**Still worth a decision, and not fixed:** the `accessibility` criterion means
+**airport / arrival** access (`"airport"`, `"distance"`, `"remote"`, `"arrival"`,
+`"get there"`, sourced from "Wikivoyage Get in"), but reaches the generator under
+a name that reads as *disability* access — and on P06 the generator used it that
+way. Renaming it is a one-line change with a wide blast radius through payloads
+and prompts; it wants doing deliberately, not folded into D55.
 
 #### D56 — CLOSED (`bcd84c3`), and the rule it proves
 
@@ -1294,7 +1301,7 @@ session. The items that were listed here — D8, D6/D7/D10, D17, D18 — have si
 **verified against the real provider on 2026-08-04**; D8's residual (D8b) and D13 were fixed
 afterwards, and D20–D25 were found and fixed across the two 2026-08-05 runs. All of those are now
 closed, D27 included, and D19's original "no provider-side cap" finding was itself wrong — both
-corrections are in section 0. **One defect is open — D55**; section 0 has it.
+corrections are in section 0. **No defects are open**; section 0 carries what still wants verifying.
 
 Also open, off the ledger: the **budget-refusal `steps` decision**, and enhancements **E4, E5,
 E7, E8**.
