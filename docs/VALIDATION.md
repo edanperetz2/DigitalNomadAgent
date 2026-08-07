@@ -4,7 +4,7 @@ How DigitalNomadAgent has been validated, what the end-to-end runs found, and wh
 fixing. Two things are kept deliberately separate: **defects** (it does not work as intended) and
 **enhancements** (it works, but could be better). Correctness comes first.
 
-Last updated: **2026-08-06**.
+Last updated: **2026-08-07**.
 
 > **Reading order.** Section 0 is the current status, including the results of all three
 > real-provider runs — the post-fix verification run (2026-08-04), the subset re-validation and
@@ -20,8 +20,14 @@ Last updated: **2026-08-06**.
 
 ### Where this stands, in one paragraph
 
-**Every defect on the ledger is closed, D0 through D65.** D35 is also still unverified against the provider — Overpass has now been unreachable for four runs. D55, D56 and D58 were all
-found on 2026-08-06 by reading the ten answers of the first run against the *deployed* app. D31–D45 came from reading the ten
+**Every defect on the ledger is closed, D0 through D65.** What is *not* settled is verification:
+**D60 and D63 have never been seen against the provider**, and D35 has failed to be proven five
+times because Overpass was unreachable or empty on every attempt. The next run is the one that
+closes those — see the handover at the end of this section.
+
+D55, D56 and D58 were found on 2026-08-06, and D60–D65 on 2026-08-07, all by reading answers
+rather than statuses — two of them found by the user reading them, not by this process.
+D31–D45 came from reading the ten
 answers of the 2026-08-05 full run as prose rather than as pass/fail — every one of them had
 passed the golden set, because that suite checks *structure* (the four modules ran, a table
 exists, no banned claim leaked) and nothing in it tests whether the recommendation is **correct**.
@@ -597,24 +603,65 @@ Two things came out of the investigation itself, both fixed in `4cf8bc4`:
 
 ### Next session — pick up here
 
-**State: no open defects.** D64 and D65 are confirmed on live data (2026-08-07); D60 is fixed offline and wants a run, since it changes which place ranks first. D61/D62 were one root cause — substring keyword matching over stated hard constraints, failing in both directions — and are fixed in `dab56f1`. D55, D56 and D58 are confirmed on live data (2026-08-07); D35 needs a run that coincides with Overpass being up. The offline gate is green (**768 passed,
-1 skipped**, `ruff` clean) and **$8.50 of the $13.00 budget remains**.
+**State: every defect on the ledger is closed, D0 through D65.** The offline gate
+is green (**768 passed, 1 skipped**, `ruff` clean), everything is pushed to
+`main`, and **$8.50 of the $13.00 budget remains**. The deployment serves every
+required endpoint and runs on the real model.
 
-P06's one-row answer took three defects to explain, and two are now closed:
-**D58** was the cause (30 proposed, 8 researched, 7 eliminated by one language
-scoring bug), **D56** was why the reader was never told, and **D55** — still open
-— is the threshold that let a "met" verdict stand on top of it.
-
-None of the three has been re-run against the provider. The next paid run should
-re-read P06 first: the field should no longer collapse, and if it does, the
-answer should now say so in words. The Vercel key is fixed and the deployment runs on the real
-model — the ten prompts have now been run against the deployed URL, 10/10 `ok`.
-
-Render any captured run as readable prose before judging it:
+**The job is one run: the twenty prompts against the deployed app, then read
+them.** Six fixes landed on 2026-08-07 after the last full read, and four of them
+have never been seen against the provider.
 
 ```bash
-python scripts/render_answers.py validation_runs/<run-dir>
+python scripts/run_e2e_suite.py --base-url https://digitalnomadagent.vercel.app --label vercel-full20
+python scripts/render_answers.py validation_runs/<the-new-dir>          # readable prose
+python scripts/export_prompt_examples.py validation_runs/<the-new-dir>  # the brief's format
+python scripts/probe_llmod_account.py                                   # reconcile; read /user/info
 ```
+
+Cost is about **$0.75** for twenty (measured: $0.835 on 2026-08-07), leaving
+roughly $7.75. Budget/40 minutes. `10/10 ok` has three times concealed bad
+advice — the status line proves the pipeline ran, not that the answer is right.
+
+#### What landed on 2026-08-07 and what to check for each
+
+| Fix | What changed | What to look for |
+|---|---|---|
+| **D60** `5450492` | Ranking breaks ties within a constraint tier by how many stated requirements a place was *shown* to meet | **Not yet seen live, and it changes which place ranks first.** Check P06: a candidate with `terrain: met` should outrank one with it unverified, even on a lower score |
+| **D61/D62** `dab56f1`, `7309659` | Stated requirements matched per phrase on word boundaries; unmatched ones recorded and disclosed instead of dropped | Confirmed live. Check the wording reads naturally — "nothing in the evidence confirms decent internet" appeared in 9 of 10 |
+| **D63** `0cfab38` | A requirement unverified for *every* candidate is stated once at answer level, not as each one's "Main drawback" | **Not yet seen live.** Check P14: the eight rows should carry real, differing drawbacks, and the shared requirements should appear once under "Stated as non-negotiable, but nothing here could check it" |
+| **D64** `9dea7cb` | `max_flight_hours` / `min_timezone_overlap_hours` are real fields, the treatment `budget` already had | Confirmed live on P14 (`10.0`). Check P02 (5 h cap) and P05 (4 h overlap) populate too |
+| **D65** `fcd312f` | Generator output no longer discarded over its wrapper: extra keys ignored, code fences tolerated, repair matched to the actual error | Confirmed live on P13/P14. Check **no answer** ends "a deterministic fallback template" |
+
+#### The three things to read for, beyond the fixes
+
+1. **D35 — unproven after five attempts.** Overpass has been unreachable or
+   empty every time. If `counts_by_category` finally arrives, check P04 (should
+   measure nightlife, since "big party destinations" is a deal-breaker) and
+   P01/P19. If Overpass is empty again, say so and stop chasing it.
+2. **P14's request is close to self-contradictory** — "genuinely cool in January"
+   and "within ten hours of Melbourne" barely coexist, and on 2026-08-07 *every*
+   candidate failed the flight cap. That is correct (Melbourne→Taipei is 10.3 h)
+   but it is disclosed per row rather than led with, where D38 leads with
+   contradictions it detects. Worth a decision.
+3. **Read them as prose.** D61–D65 all came from reading answers, not from
+   statuses. Two came from the user reading them, not me.
+
+#### Submission state (verified against the live URL, not locally)
+
+All four required endpoints return the right shape and content type,
+`group_batch_order_number` is `"2_4"` per the brief, the GUI has a textarea, a
+submit button, the response and the full steps trace with no auth guard, module
+names match across diagram/steps/descriptions, and the backend deadline is 270 s
+against Vercel's 300 s kill.
+
+Left undone, deliberately: **Supabase/Pinecone** (the brief names them; this runs
+on SQLite, and under Vercel that lives in `/tmp` and resets every cold start, so
+the cache and budget ledger genuinely do not work in production — the largest
+remaining gap), the **"Run Agent" button label**, and the **diagram still saying
+"PlaceMatch"** where the app says DigitalNomadAgent. Submit
+`https://github.com/edanperetz2/DigitalNomadAgent` — the repo was renamed, and
+pushes to the old URL still work but print a redirect notice.
 
 #### The 2026-08-07 post-fix run — 10/10 `ok`, $0.405, $9.86 left
 
