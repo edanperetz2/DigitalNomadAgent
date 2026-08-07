@@ -100,7 +100,12 @@ verdict, not a replacement for it."""
 
 
 class _RecommendationOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # Deliberately NOT extra="forbid". Only `markdown` is used, and a key the
+    # model volunteers alongside it -- "notes", "sources", "confidence" -- is
+    # harmless. Forbidding them threw the whole answer away and fell back to the
+    # template over a field nothing reads: P13 produced valid JSON containing a
+    # complete answer on 2026-08-07 and it was discarded for that reason.
+    model_config = ConfigDict(extra="ignore")
 
     markdown: str
 

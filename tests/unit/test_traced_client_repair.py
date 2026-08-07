@@ -67,8 +67,10 @@ async def test_the_repair_asks_for_a_shorter_answer_not_just_valid_json():
 
     assert result == {"markdown": "short"}
     instruction = client.repair_instructions[0]
-    assert "cut off" in instruction
+    # The wording may change; asking for a shorter answer when the response was
+    # cut off is the behaviour D54 exists to protect.
     assert "shorter" in instruction
+    assert "stopped before it finished" in instruction or "cut off" in instruction
 
 
 @pytest.mark.asyncio
