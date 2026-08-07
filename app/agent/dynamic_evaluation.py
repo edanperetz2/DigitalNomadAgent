@@ -402,7 +402,14 @@ _CONSTRAINT_LABELS: dict[str, str] = {
 _TIMEZONE_CONSTRAINT_KEYWORDS = ("overlap", "time zone", "timezone", "working hours")
 # Same reasoning for flight time: "anything over five hours" is a claim about
 # hours, so only FlightTimeTool's measured hours can settle it (D33).
-_FLIGHT_CONSTRAINT_KEYWORDS = ("flight time", "flight duration", "flying time", "flight", "flying")
+_FLIGHT_CONSTRAINT_KEYWORDS = (
+    "flight time",
+    "flight duration",
+    "flying time",
+    "flight",
+    "flying",
+    "in the air",  # "five hours in the air" -- the offline parser already reads this
+)
 _NUMBER_WORDS: dict[str, float] = {
     "one": 1.0, "two": 2.0, "three": 3.0, "four": 4.0, "five": 5.0, "six": 6.0,
     "seven": 7.0, "eight": 8.0, "nine": 9.0, "ten": 10.0, "eleven": 11.0, "twelve": 12.0,
@@ -1030,7 +1037,14 @@ def _stated_overlap_hours(profile: PlaceRequestProfile) -> float | None:
     an unrelated "no more than 5 hours flight" cannot supply the number. A
     phrase that names the requirement without a figure falls back to
     REQUIRED_TIMEZONE_OVERLAP_HOURS, the same bar the scoring normalizer uses.
+
+    The interpreter is asked for this as a number now, so the prose parsing
+    below is a fallback for when it does not supply one -- not the only path
+    (D64).
     """
+    if profile.min_timezone_overlap_hours is not None:
+        return profile.min_timezone_overlap_hours
+
     for phrase in list(profile.hard_constraints) + list(profile.deal_breakers):
         lowered = phrase.casefold()
         if not any(keyword in lowered for keyword in _TIMEZONE_CONSTRAINT_KEYWORDS):
@@ -1061,7 +1075,16 @@ def _stated_flight_hours(profile: PlaceRequestProfile) -> float | None:
     over five hours and the younger one falls apart" is a claim about hours, and
     only an hours-to-hours comparison can enforce it. Parsed per phrase so a
     timezone-overlap figure elsewhere cannot supply the number.
+
+    Prefers the interpreter's own number. Re-deriving it from prose works only
+    while the phrasing happens to suit the parser: P14 capped flying at ten
+    hours, the interpreter wrote `travel_time_under_10_hours`, the keyword gate
+    below saw no "flight" or "flying" and returned None -- so no ceiling was
+    applied and a 24-hour flight ranked first (D64).
     """
+    if profile.max_flight_hours is not None:
+        return profile.max_flight_hours
+
     for phrase in list(profile.hard_constraints) + list(profile.deal_breakers):
         lowered = phrase.casefold()
         if not any(keyword in lowered for keyword in _FLIGHT_CONSTRAINT_KEYWORDS):

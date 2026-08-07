@@ -259,6 +259,30 @@ def _month_span(start: int, count: int) -> list[int]:
     return [(start - 1 + offset) % 12 + 1 for offset in range(count)]
 
 
+_FLIGHT_HOURS_PATTERN = re.compile(
+    # P02 writes the cap a clause away from the word that identifies it --
+    # "Flight time is the big constraint: anything over five hours" -- so the
+    # window has to span a clause, but stays within one sentence.
+    r"(?:flight|flying|fly|in the air)[^.]{0,60}?(\d+(?:\.\d+)?|\w+)\s*hours?"
+    r"|(\d+(?:\.\d+)?|\w+)\s*hours?[^.]{0,24}?(?:flight|flying|in the air)",
+    re.IGNORECASE,
+)
+_OVERLAP_HOURS_PATTERN = re.compile(r"(\d+(?:\.\d+)?|\w+)\s*hours?\s+of\s+overlap", re.IGNORECASE)
+
+
+def _hours_from_match(match: re.Match[str] | None) -> float | None:
+    if match is None:
+        return None
+    raw = next((g for g in match.groups() if g), "").lower()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        value = _NUMBER_WORDS.get(raw)
+        return float(value) if value else None
+
+
 def _stated_month_count(text: str) -> int | None:
     match = _MONTH_COUNT_PATTERN.search(text)
     if not match:
@@ -584,6 +608,11 @@ def interpret_prompt(prompt: str) -> dict:
     # hard requirement, and TimezoneFitTool reads the named timezone from it.
     for m in re.finditer(r"\b(?:\w+[ -])?hours? of overlap with\b[^.]{0,60}", lowered):
         hard_constraints.append(m.group(0).strip())
+    # The same two numbers the real interpreter is now asked for directly, so
+    # the offline path produces the same shape of profile (D64).
+    max_flight_hours = _hours_from_match(_FLIGHT_HOURS_PATTERN.search(lowered))
+    min_timezone_overlap_hours = _hours_from_match(_OVERLAP_HOURS_PATTERN.search(lowered))
+
     deal_breakers = []
     for m in re.finditer(r"\b(avoid|never)\b[^.]{0,60}", lowered):
         deal_breakers.append(m.group(0).strip())
@@ -656,6 +685,8 @@ def interpret_prompt(prompt: str) -> dict:
         "activity_preferences": activity_preferences,
         "amenity_preferences": amenity_preferences,
         "budget": budget_info,
+        "max_flight_hours": max_flight_hours,
+        "min_timezone_overlap_hours": min_timezone_overlap_hours,
         "hard_constraints": hard_constraints,
         "soft_preferences": soft_preferences,
         "deal_breakers": deal_breakers,

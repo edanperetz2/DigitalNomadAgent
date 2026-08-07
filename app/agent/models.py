@@ -45,6 +45,21 @@ class PlaceRequestProfile(BaseModel):
     activity_preferences: list[str] = Field(default_factory=list)
     amenity_preferences: list[str] = Field(default_factory=list)
     budget: Budget = Field(default_factory=Budget)
+    # Numeric limits, asked for as numbers -- the same treatment `budget` gets.
+    #
+    # These were previously left inside `hard_constraints` as free text and
+    # re-parsed downstream by keyword and regex, which works only while the
+    # interpreter happens to phrase them the way the parser expects. P14 stated
+    # a ten-hour flight ceiling and the interpreter wrote it as
+    # `travel_time_under_10_hours`; the parser looks for "flight"/"flying",
+    # matched nothing, and applied no limit at all -- so Lisbon, roughly 24
+    # hours from Melbourne, ranked first having paid nothing for it (D64).
+    #
+    # Free text is right for requirements that have no number ("step-free
+    # access", "English widely spoken"). It is the wrong home for a figure the
+    # system actually measures against.
+    max_flight_hours: float | None = Field(default=None, gt=0)
+    min_timezone_overlap_hours: float | None = Field(default=None, ge=0)
     hard_constraints: list[str] = Field(default_factory=list)
     soft_preferences: list[str] = Field(default_factory=list)
     deal_breakers: list[str] = Field(default_factory=list)
