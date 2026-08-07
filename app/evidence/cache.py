@@ -12,7 +12,21 @@ from datetime import UTC, datetime, timedelta
 
 from app.evidence.database import Database
 
-CACHE_CONTRACT_VERSION = 2
+# Bump this whenever a change alters what a cached tool result *contains* --
+# the shape of `normalized_data`, a source name or URL, an evidence item. The
+# key is derived from it, so bumping retires every existing row at once.
+#
+# It exists because a cached result outlives the code that produced it. D44
+# replaced the Overpass source URL (the API's documentation page was being cited
+# as the source of its counts) and this constant was not bumped, so 73 rows kept
+# serving the old citation under a 14-day TTL. A run on 2026-08-07 reported it
+# and it read exactly like a regression in a fix that was, in fact, correct.
+#
+# Two costs, both real: deployed readers keep pre-fix content until the TTL
+# expires, and a validation run can show a fixed defect as still broken -- or
+# hide a live one. `test_cache_contract_version.py` pins the source identities
+# below so this cannot be forgotten silently again (D59).
+CACHE_CONTRACT_VERSION = 3
 
 # Per-tool TTL in hours. Distinguishes short-lived forecasts from long-lived
 # climate normals / geocoding results per spec caching guidance (section 17).
