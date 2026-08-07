@@ -1335,6 +1335,28 @@ def constraint_tier(hard_constraint_results: dict[str, bool | None]) -> int:
     return 0
 
 
+def confirmed_constraint_count(hard_constraint_results: dict[str, bool | None]) -> int:
+    """How many stated requirements this place was actually shown to meet.
+
+    The tier above is deliberately coarse -- one unverified requirement puts a
+    candidate in tier 1 whether the other four were confirmed or not. When some
+    requirement is unverified for the whole field, which is common, every
+    candidate lands in the same tier and the ordering falls through to raw
+    score, so being *verified* on what the traveller called non-negotiable stops
+    counting for anything.
+
+    P06 is the case: Seville had `terrain: met` -- confirmed flat, the wheelchair
+    user's stated non-negotiable -- and Lisbon had it unverified, with the answer
+    itself calling Lisbon hilly. Both carried an unverified `transportation`, so
+    both sat in tier 1 and Lisbon won on score (D60).
+
+    Used after the tier, never instead of it: a failed constraint still sorts
+    last, and this only breaks ties within a tier. Counts are comparable because
+    every candidate is checked against the same profile.
+    """
+    return sum(1 for passed in hard_constraint_results.values() if passed is True)
+
+
 def universally_unmeasured_priorities(
     profile: PlaceRequestProfile, evaluations: list[CandidateEvaluation]
 ) -> list[str]:
@@ -1835,7 +1857,12 @@ def apply_llm_scores(
     updated = _relax_unmeetable_constraint(updated)
     updated = apply_unmet_constraint_notes(updated)
     updated.sort(
-        key=lambda e: (e.eliminated, constraint_tier(e.hard_constraint_results), -e.total_score)
+        key=lambda e: (
+            e.eliminated,
+            constraint_tier(e.hard_constraint_results),
+            -confirmed_constraint_count(e.hard_constraint_results),
+            -e.total_score,
+        )
     )
     return updated
 
@@ -1907,6 +1934,11 @@ def evaluate_candidates(
     # dropped, so when no candidate clears its constraints the tier is uniform
     # and this degrades to the previous score ordering.
     evaluations.sort(
-        key=lambda e: (e.eliminated, constraint_tier(e.hard_constraint_results), -e.total_score)
+        key=lambda e: (
+            e.eliminated,
+            constraint_tier(e.hard_constraint_results),
+            -confirmed_constraint_count(e.hard_constraint_results),
+            -e.total_score,
+        )
     )
     return evaluations
