@@ -26,7 +26,7 @@ answers of the 2026-08-05 full run as prose rather than as pass/fail — every o
 passed the golden set, because that suite checks *structure* (the four modules ran, a table
 exists, no banned claim leaked) and nothing in it tests whether the recommendation is **correct**.
 That blind spot is the single most important finding in this document. The offline gate is green
-(**758 passed, 1 skipped**, `ruff` clean) and **$8.59 of the $13.00 budget remains**
+(**758 passed, 1 skipped**, `ruff` clean) and **$8.50 of the $13.00 budget remains**
 (account-authoritative — see the D19 note for why the account figure, not the key's, is the one
 that binds).
 
@@ -597,8 +597,8 @@ Two things came out of the investigation itself, both fixed in `4cf8bc4`:
 
 ### Next session — pick up here
 
-**State: D60 is the only open defect.** D64 and D65 are fixed but not yet confirmed against the provider. D61/D62 were one root cause — substring keyword matching over stated hard constraints, failing in both directions — and are fixed in `dab56f1`. D55, D56 and D58 are confirmed on live data (2026-08-07); D35 needs a run that coincides with Overpass being up. The offline gate is green (**758 passed,
-1 skipped**, `ruff` clean) and **$8.59 of the $13.00 budget remains**.
+**State: D60 is the only open defect.** D64 and D65 are confirmed on live data (2026-08-07). D61/D62 were one root cause — substring keyword matching over stated hard constraints, failing in both directions — and are fixed in `dab56f1`. D55, D56 and D58 are confirmed on live data (2026-08-07); D35 needs a run that coincides with Overpass being up. The offline gate is green (**758 passed,
+1 skipped**, `ruff` clean) and **$8.50 of the $13.00 budget remains**.
 
 P06's one-row answer took three defects to explain, and two are now closed:
 **D58** was the cause (30 proposed, 8 researched, 7 eliminated by one language
@@ -710,6 +710,39 @@ pick. D62 is D46 recurring, which narrowed these exact triggers.
   clean city-level daily figure — and declining to compare a monthly
   country-level estimate against a daily holiday budget is arguably D52 working.
   Worth a decision rather than an assumption either way.
+
+#### D64 and D65 — confirmed against the provider (2026-08-07, `20260807T194828Z-vercel-p13-p14-confirm`)
+
+P13 and P14, $0.168. Both fixes hold, and P14's recommendations changed
+materially.
+
+**D65.** Both prompts: **one** generator call, no repair, no fallback — "a real
+LLM provider (LLMod.ai)". Previously both burned two calls and fell back to the
+template.
+
+**D64.** P14's real interpreter returned **`max_flight_hours: 10.0`** in the new
+field. P13 correctly returned `None` — it states no flight cap.
+
+**And the cap now binds.** Lisbon, ~24 h from Melbourne and previously ranked
+first, is gone. Every remaining candidate is marked `flight_duration: not met`,
+which is factually correct — Melbourne is remote enough that nothing cool in
+January is within ten hours:
+
+| | great-circle | flight |
+|---|---|---|
+| Melbourne → Taipei | 7,403 km | 10.3 h |
+| Melbourne → Busan | 8,280 km | 11.5 h |
+| Melbourne → Santiago | 11,276 km | 15.4 h |
+
+The answer states the ceiling in its assumptions and names the overrun in every
+row's drawback ("The flight estimate is just over your ceiling"). The candidate
+set is also better on its own terms — Patagonia and Korea rather than Lisbon and
+Tokyo, i.e. places that are genuinely cool in January.
+
+**Worth a decision, not filed as a defect:** when *every* candidate fails a
+stated hard constraint, that is a conflict in the request — cool in January and
+within ten hours of Melbourne are close to incompatible. It is disclosed per row
+rather than led with, where D38 leads with contradictions it detects.
 
 #### D55 — CLOSED (`5be55ee`)
 
