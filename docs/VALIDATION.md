@@ -20,13 +20,13 @@ Last updated: **2026-08-06**.
 
 ### Where this stands, in one paragraph
 
-**Every defect on the ledger is closed, D0 through D59.** D35 is the one item still unverified against the provider. D55, D56 and D58 were all
+**D60 is open; D0–D59 are closed.** D35 is also still unverified against the provider — Overpass has now been unreachable for four runs. D55, D56 and D58 were all
 found on 2026-08-06 by reading the ten answers of the first run against the *deployed* app. D31–D45 came from reading the ten
 answers of the 2026-08-05 full run as prose rather than as pass/fail — every one of them had
 passed the golden set, because that suite checks *structure* (the four modules ran, a table
 exists, no banned claim leaked) and nothing in it tests whether the recommendation is **correct**.
 That blind spot is the single most important finding in this document. The offline gate is green
-(**673 passed, 1 skipped**, `ruff` clean) and **$10.27 of the $13.00 budget remains**
+(**673 passed, 1 skipped**, `ruff` clean) and **$9.86 of the $13.00 budget remains**
 (account-authoritative — see the D19 note for why the account figure, not the key's, is the one
 that binds).
 
@@ -121,6 +121,7 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D56 | The collapse disclosure is routed **through the model**, which dropped it: P06 proposed 30 places, delivered a one-row table, and never said so. D47's deterministic notice sits at finalist selection; this collapse happened later, at hard-constraint elimination. Also computed before `_score_unresolved_criteria` could rescue candidates, so it fired wrongly too — P02 carried it while delivering seven | **Fixed** (2026-08-06) | `bcd84c3` |
 | D57 | Overpass failover had no memory, so every query re-paid the full 22s timeout for a dead mirror — and round-robin tried it *first* on half of them, exhausting the 50s per-invocation cap before the working endpoint was reached | **Fixed** (2026-08-06) | `f9eabc1` |
 | D58 | Naming English as a preferred language was answered *worse* than leaving it implied: the named-language branch checked the country's official list only and returned 0.0 on no match, below the elimination floor. It never read `english_reach`, which the same tool computes on the same call. **This is why P06 collapsed** — 7 of its 8 researched places were eliminated for not speaking English, four of them Cypriot, while `app/languages.py` lists Cyprus as English-widespread | **Fixed** (2026-08-06) | `7c94942` |
+| D60 | `constraint_tier` is a coarse min/max: any single unconfirmed constraint drops a candidate to tier 1, so one confirmed on 2 of 3 ranks identically to one confirmed on 0 of 3. In P06 `transportation` was unconfirmed for **every** candidate, flattening the tier to 1 across the board — so Seville, with `terrain: met` (the wheelchair user's stated non-negotiable, confirmed flat), ranked *below* Lisbon, whose terrain is unconfirmed and which the answer itself calls hilly. Ordering fell back entirely to `total_score` | **Open** (2026-08-07) | — |
 | D59 | A cached tool result outlives the code that produced it. `CACHE_CONTRACT_VERSION` is in the key, so the lever to retire every row existed — but nothing obliged anyone to pull it, and D44 did not, so 73 rows kept citing the Overpass documentation page under a 14-day TTL. Deployed readers keep pre-fix content for up to two weeks, and a validation run can report a fixed defect as still broken | **Fixed** (2026-08-07) | `a569185` |
 
 ### Reading the answers a second time (2026-08-06)
@@ -308,8 +309,8 @@ evidence-mapping gap rather than an Overpass one.
 - **Provider pricing is $0.75 / $4.50 per 1M** (input/output), from `/model/info` and confirmed
   against a billed call — *not* the $0.1438 / $5.7205 in the course handout. `.env` deliberately
   carries the higher of each figure so the pre-call guard cannot under-estimate.
-- **Spend so far: $2.73 of $13.00** (account-authoritative, after the 2026-08-06 verification run,
-  the Vercel probes, and the first full suite against the deployment), leaving **$10.27** — about
+- **Spend so far: $3.14 of $13.00** (account-authoritative, after the 2026-08-06 verification run,
+  the Vercel probes, and two full suites against the deployment), leaving **$9.86** — about
   25 more full suite runs. Read this from `/user/info`, not `/key/info`: this key alone shows
   $2.60, and the difference is account spend not attributable to it.
 - **The ledger has a pre-existing baseline** of 62 mock rows at $0.00, plus 214 fake evidence rows
@@ -591,8 +592,8 @@ Two things came out of the investigation itself, both fixed in `4cf8bc4`:
 
 ### Next session — pick up here
 
-**State: no open defects. D37 is confirmed on live data; D35 needs a paid run, and D55/D56/D58 want re-reading on the next one.** The offline gate is green (**673 passed,
-1 skipped**, `ruff` clean) and **$10.27 of the $13.00 budget remains**.
+**State: D60 is the only open defect.** D55, D56 and D58 are confirmed on live data (2026-08-07); D35 needs a run that coincides with Overpass being up. The offline gate is green (**673 passed,
+1 skipped**, `ruff` clean) and **$9.86 of the $13.00 budget remains**.
 
 P06's one-row answer took three defects to explain, and two are now closed:
 **D58** was the cause (30 proposed, 8 researched, 7 eliminated by one language
@@ -609,6 +610,51 @@ Render any captured run as readable prose before judging it:
 ```bash
 python scripts/render_answers.py validation_runs/<run-dir>
 ```
+
+#### The 2026-08-07 post-fix run — 10/10 `ok`, $0.405, $9.86 left
+
+`20260807T073611Z-vercel-p06-discriminator` (P06) plus
+`20260807T073929Z-vercel-full-postfix` (the other nine), both against the
+**deployed** app. P06 was run first on purpose: it exercises D55, D56 and D58 at
+once, so it doubles as proof the deployment actually carries the new code before
+committing the rest of the money.
+
+**D58 — confirmed.** P06 returned **5 candidates, not 1**, and they include
+Lisbon, Seville, Palma de Mallorca and Barcelona — Portuguese and Spanish cities
+that scored 0.0 and were eliminated the day before for "not speaking English".
+The fix's own wording reaches the reader: *"English is not official, but it is
+widely usable in the city."*
+
+**D55 — confirmed.** Lisbon's drawback is now *"Hillier terrain and no direct
+proof of step-free access"* and the verdict says *"the evidence does not confirm
+barrier-free movement"*. The day before, the same city was recorded `terrain:
+met` and answered *"yes if you are comfortable with a compact, hilly historic
+center"*. Unconfirmed-constraint phrasing appears in 9 of 10 answers.
+
+**D56 — correctly silent.** No prompt collapsed (5–8 candidates from 25–31
+proposed), so the block should not fire, and does not. Still covered by unit
+tests for the case that matters.
+
+Also holding across all ten: **D54** (P08 complete, conflict block intact, not
+truncated), **D41/D42** (zero internal scores, zero pipeline vocabulary in any
+answer), **D38** (P08 names both contradictions), **D30** (P09 leads with Lisbon;
+P10 leads with Bali and gives it a verdict), **D32** (P10's interpreter still
+hits Azure's content filter, the fallback extracts Bali, the reduced-capability
+notice reaches the reader).
+
+**Checked and cleared, not a defect:** Melbourne ranks 2nd in P06 with "winter-sun
+fit is weak" for a November–April trip, which looks like a hemisphere error. It
+is not — the tool used real 2021–2025 climatology for months 11–4 and judged
+Melbourne's ~25 °C summer a weak match for "mild winters, not tropical heat".
+
+#### D35 — unproven for a fourth run
+
+Overpass returned **zero** sources across all ten. The deployment hit the same
+504s this machine saw at 09:00, so `counts_by_category` was empty everywhere and
+the nightlife scoring had nothing to act on. Nothing to do with the code: D57
+removed the dead-mirror waste and the path is wired correctly end to end (the
+alias `"big party destinations"` → `nightlife` → `nwr["amenity"~"^(nightclub|bar|pub)$"]`
+was traced by hand). It needs a run that coincides with Overpass being up.
 
 #### D55 — CLOSED (`5be55ee`)
 
@@ -1301,7 +1347,7 @@ session. The items that were listed here — D8, D6/D7/D10, D17, D18 — have si
 **verified against the real provider on 2026-08-04**; D8's residual (D8b) and D13 were fixed
 afterwards, and D20–D25 were found and fixed across the two 2026-08-05 runs. All of those are now
 closed, D27 included, and D19's original "no provider-side cap" finding was itself wrong — both
-corrections are in section 0. **No defects are open**; section 0 carries what still wants verifying.
+corrections are in section 0. **One defect is open — D60**; section 0 has it.
 
 Also open, off the ledger: the **budget-refusal `steps` decision**, and enhancements **E4, E5,
 E7, E8**.
