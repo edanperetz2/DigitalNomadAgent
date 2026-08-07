@@ -20,13 +20,13 @@ Last updated: **2026-08-06**.
 
 ### Where this stands, in one paragraph
 
-**D60 is open; D0–D59 are closed.** D35 is also still unverified against the provider — Overpass has now been unreachable for four runs. D55, D56 and D58 were all
+**D60, D61 and D62 are open; D0–D59 are closed.** D35 is also still unverified against the provider — Overpass has now been unreachable for four runs. D55, D56 and D58 were all
 found on 2026-08-06 by reading the ten answers of the first run against the *deployed* app. D31–D45 came from reading the ten
 answers of the 2026-08-05 full run as prose rather than as pass/fail — every one of them had
 passed the golden set, because that suite checks *structure* (the four modules ran, a table
 exists, no banned claim leaked) and nothing in it tests whether the recommendation is **correct**.
 That blind spot is the single most important finding in this document. The offline gate is green
-(**673 passed, 1 skipped**, `ruff` clean) and **$9.86 of the $13.00 budget remains**
+(**698 passed, 1 skipped**, `ruff` clean) and **$9.50 of the $13.00 budget remains**
 (account-authoritative — see the D19 note for why the account figure, not the key's, is the one
 that binds).
 
@@ -121,6 +121,8 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D56 | The collapse disclosure is routed **through the model**, which dropped it: P06 proposed 30 places, delivered a one-row table, and never said so. D47's deterministic notice sits at finalist selection; this collapse happened later, at hard-constraint elimination. Also computed before `_score_unresolved_criteria` could rescue candidates, so it fired wrongly too — P02 carried it while delivering seven | **Fixed** (2026-08-06) | `bcd84c3` |
 | D57 | Overpass failover had no memory, so every query re-paid the full 22s timeout for a dead mirror — and round-robin tried it *first* on half of them, exhausting the 50s per-invocation cap before the working endpoint was reached | **Fixed** (2026-08-06) | `f9eabc1` |
 | D58 | Naming English as a preferred language was answered *worse* than leaving it implied: the named-language branch checked the country's official list only and returned 0.0 on no match, below the elimination floor. It never read `english_reach`, which the same tool computes on the same call. **This is why P06 collapsed** — 7 of its 8 researched places were eliminated for not speaking English, four of them Cypriot, while `app/languages.py` lists Cyprus as English-widespread | **Fixed** (2026-08-06) | `7c94942` |
+| D61 | A stated hard constraint whose wording matches no keyword is **silently dropped** — not recorded as unverified, simply absent. `_HARD_CONSTRAINT_KEYWORDS` is matched by literal substring, so "must be liveable without a car" registers and "no car required" does not. P11, P15 and P18 recorded `{}` for every stated non-negotiable; P17 recorded one of five. The reader is never told the requirement went unchecked | **Open** (2026-08-07) | — |
+| D62 | The same substring matching fires **falsely**: `"one-bedroom flat"` matches the `terrain` keyword `"flat"`, and `"remote work"` matches the `accessibility` keyword `"remote"` (which means *airport/arrival* access). P12 never mentions terrain, yet its top pick's headline drawback is "the evidence does not establish the non-negotiable checks: flat terrain" — a requirement the traveller never stated. **This is D46 recurring**, which narrowed these very triggers | **Open** (2026-08-07) | — |
 | D60 | `constraint_tier` is a coarse min/max: any single unconfirmed constraint drops a candidate to tier 1, so one confirmed on 2 of 3 ranks identically to one confirmed on 0 of 3. In P06 `transportation` was unconfirmed for **every** candidate, flattening the tier to 1 across the board — so Seville, with `terrain: met` (the wheelchair user's stated non-negotiable, confirmed flat), ranked *below* Lisbon, whose terrain is unconfirmed and which the answer itself calls hilly. Ordering fell back entirely to `total_score` | **Open** (2026-08-07) | — |
 | D59 | A cached tool result outlives the code that produced it. `CACHE_CONTRACT_VERSION` is in the key, so the lever to retire every row existed — but nothing obliged anyone to pull it, and D44 did not, so 73 rows kept citing the Overpass documentation page under a 14-day TTL. Deployed readers keep pre-fix content for up to two weeks, and a validation run can report a fixed defect as still broken | **Fixed** (2026-08-07) | `a569185` |
 
@@ -592,8 +594,8 @@ Two things came out of the investigation itself, both fixed in `4cf8bc4`:
 
 ### Next session — pick up here
 
-**State: D60 is the only open defect.** D55, D56 and D58 are confirmed on live data (2026-08-07); D35 needs a run that coincides with Overpass being up. The offline gate is green (**673 passed,
-1 skipped**, `ruff` clean) and **$9.86 of the $13.00 budget remains**.
+**State: D60, D61 and D62 are open.** D61/D62 are one root cause — substring keyword matching over stated hard constraints, failing in both directions. D55, D56 and D58 are confirmed on live data (2026-08-07); D35 needs a run that coincides with Overpass being up. The offline gate is green (**698 passed,
+1 skipped**, `ruff` clean) and **$9.50 of the $13.00 budget remains**.
 
 P06's one-row answer took three defects to explain, and two are now closed:
 **D58** was the cause (30 proposed, 8 researched, 7 eliminated by one language
@@ -655,6 +657,56 @@ the nightlife scoring had nothing to act on. Nothing to do with the code: D57
 removed the dead-mirror waste and the path is wired correctly end to end (the
 alias `"big party destinations"` → `nightlife` → `nwr["amenity"~"^(nightclub|bar|pub)$"]`
 was traced by hand). It needs a run that coincides with Overpass being up.
+
+#### P11-P20, the extended set — first run (2026-08-07, `20260807T085224Z-vercel-p11-p20`)
+
+Ten prompts added to cover paths the original set never touched, run against the
+deployment. **10/10 `ok`, $0.358, $9.50 left.**
+
+**What held up:**
+
+- **P12** — all three named destinations (Porto, Valencia, Split) reach the
+  finalists and the answer addresses each by name with what you give up.
+- **P14** — the southern-hemisphere case works: January resolved to `[1]`, and
+  costs are quoted **in AUD** against the stated AUD budget (3000 vs 4190).
+- **P15** — the excluded region is honoured where it matters most, at generation:
+  of 30 proposed candidates, **zero** are in Southeast Asia. Nothing is said
+  about it in the answer, which is correct — nothing had to be given up (D26).
+- **P18** — air quality, which no tool measures, is named and disclosed as not
+  established rather than quietly answered around on climate and cost.
+- **P20** — one line in, `target_months: [2]` out, assumptions disclosed.
+- **P17** — both purposes survive; the answer holds fieldwork and remote work
+  together rather than collapsing to one.
+
+**What it found — D61 and D62, one root cause.** `_HARD_CONSTRAINT_KEYWORDS` is
+matched by literal substring against the traveller's own wording, and it fails
+both ways at once:
+
+| Stated non-negotiable | Criterion matched |
+|---|---|
+| "must be liveable without a car" (P01) | `transportation` ✓ |
+| "no car required" (P17) | **nothing** |
+| "must be within about two hours of UK time" (P11) | **nothing** |
+| "reachable from Madrid with at most one connecting flight" (P15) | **nothing** |
+| "quick access to a hospital" (P18) | **nothing** |
+| "budget … including a one-bedroom **flat**" (P12) | `cost` ✓ **and `terrain`** ✗ |
+| "**remote** work stay" (P12) | **`accessibility`** ✗ (means *airport access*) |
+
+So P11, P15 and P18 recorded `{}` for every stated non-negotiable, and P12 was
+given two it never stated — one of which became the headline drawback of its top
+pick. D62 is D46 recurring, which narrowed these exact triggers.
+
+**Two smaller things, not filed as defects:**
+
+- **P11's purpose came back `remote_work`, not `relocation`.** "Leaving the UK
+  for good", "settle somewhere for years", schooling and healthcare — the answer
+  did cover schools and healthcare, so little was lost, but the one prompt
+  written to exercise the `relocation` purpose did not trigger it.
+- **P13 and P16 quote no cost figure at all** despite stated budgets ($1,500/mo
+  and £90/day), where P14/P15/P17/P18/P19 all quote several. P16 says why — no
+  clean city-level daily figure — and declining to compare a monthly
+  country-level estimate against a daily holiday budget is arguably D52 working.
+  Worth a decision rather than an assumption either way.
 
 #### D55 — CLOSED (`5be55ee`)
 
@@ -1347,7 +1399,7 @@ session. The items that were listed here — D8, D6/D7/D10, D17, D18 — have si
 **verified against the real provider on 2026-08-04**; D8's residual (D8b) and D13 were fixed
 afterwards, and D20–D25 were found and fixed across the two 2026-08-05 runs. All of those are now
 closed, D27 included, and D19's original "no provider-side cap" finding was itself wrong — both
-corrections are in section 0. **One defect is open — D60**; section 0 has it.
+corrections are in section 0. **Three defects are open — D60, D61, D62**; section 0 has them.
 
 Also open, off the ledger: the **budget-refusal `steps` decision**, and enhancements **E4, E5,
 E7, E8**.
