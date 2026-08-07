@@ -20,13 +20,13 @@ Last updated: **2026-08-06**.
 
 ### Where this stands, in one paragraph
 
-**D55 and D59 are open; D0–D54 and D56–D58 are closed.** D55, D56 and D58 were all
+**D55 is the only open defect; D0–D54 and D56–D59 are closed.** D55, D56 and D58 were all
 found on 2026-08-06 by reading the ten answers of the first run against the *deployed* app. D31–D45 came from reading the ten
 answers of the 2026-08-05 full run as prose rather than as pass/fail — every one of them had
 passed the golden set, because that suite checks *structure* (the four modules ran, a table
 exists, no banned claim leaked) and nothing in it tests whether the recommendation is **correct**.
 That blind spot is the single most important finding in this document. The offline gate is green
-(**659 passed, 1 skipped**, `ruff` clean) and **$10.27 of the $13.00 budget remains**
+(**663 passed, 1 skipped**, `ruff` clean) and **$10.27 of the $13.00 budget remains**
 (account-authoritative — see the D19 note for why the account figure, not the key's, is the one
 that binds).
 
@@ -121,7 +121,7 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D56 | The collapse disclosure is routed **through the model**, which dropped it: P06 proposed 30 places, delivered a one-row table, and never said so. D47's deterministic notice sits at finalist selection; this collapse happened later, at hard-constraint elimination. Also computed before `_score_unresolved_criteria` could rescue candidates, so it fired wrongly too — P02 carried it while delivering seven | **Fixed** (2026-08-06) | `bcd84c3` |
 | D57 | Overpass failover had no memory, so every query re-paid the full 22s timeout for a dead mirror — and round-robin tried it *first* on half of them, exhausting the 50s per-invocation cap before the working endpoint was reached | **Fixed** (2026-08-06) | `f9eabc1` |
 | D58 | Naming English as a preferred language was answered *worse* than leaving it implied: the named-language branch checked the country's official list only and returned 0.0 on no match, below the elimination floor. It never read `english_reach`, which the same tool computes on the same call. **This is why P06 collapsed** — 7 of its 8 researched places were eliminated for not speaking English, four of them Cypriot, while `app/languages.py` lists Cyprus as English-widespread | **Fixed** (2026-08-06) | `7c94942` |
-| D59 | The tool cache key is `(tool_name, place, params)` with no code-version component, so a fix that changes a tool's *output* is not served until the 14-day TTL expires. Found via D44: a run on 2026-08-07 cited the Overpass documentation page D44 had removed, from 73 rows cached before the fix. Two consequences — deployed users keep getting pre-fix content for up to two weeks, and a validation run can show a fixed defect as still broken (or mask a regression) | **Open** (2026-08-07) | — |
+| D59 | A cached tool result outlives the code that produced it. `CACHE_CONTRACT_VERSION` is in the key, so the lever to retire every row existed — but nothing obliged anyone to pull it, and D44 did not, so 73 rows kept citing the Overpass documentation page under a 14-day TTL. Deployed readers keep pre-fix content for up to two weeks, and a validation run can report a fixed defect as still broken | **Fixed** (2026-08-07) | `a569185` |
 
 ### Reading the answers a second time (2026-08-06)
 
@@ -591,7 +591,7 @@ Two things came out of the investigation itself, both fixed in `4cf8bc4`:
 
 ### Next session — pick up here
 
-**State: D55 and D59 are open. D37 is confirmed on live data; D35 needs a paid run.** The offline gate is green (**659 passed,
+**State: D55 is the only open defect. D37 is confirmed on live data; D35 needs a paid run.** The offline gate is green (**663 passed,
 1 skipped**, `ruff` clean) and **$10.27 of the $13.00 budget remains**.
 
 P06's one-row answer took three defects to explain, and two are now closed:
@@ -693,7 +693,8 @@ it.
 The same run cited Overpass as `wiki.openstreetmap.org/wiki/Overpass_API`, the
 documentation page D44 replaced. The production code is clean; the old value
 survives only in `app/tools/fakes.py`. It came from **73 cached rows** written
-before D44 landed. See D59.
+before D44 landed — D59, now fixed: the contract version was bumped, which makes
+every one of them unreachable.
 
 Overpass returned **zero** sources across all ten prompts of the deployed run,
 the third run in a row with no amenity data, so nightlife-avoidance scoring and
@@ -1293,7 +1294,7 @@ session. The items that were listed here — D8, D6/D7/D10, D17, D18 — have si
 **verified against the real provider on 2026-08-04**; D8's residual (D8b) and D13 were fixed
 afterwards, and D20–D25 were found and fixed across the two 2026-08-05 runs. All of those are now
 closed, D27 included, and D19's original "no provider-side cap" finding was itself wrong — both
-corrections are in section 0. **Two defects are open — D55 and D59**; section 0 has both.
+corrections are in section 0. **One defect is open — D55**; section 0 has it.
 
 Also open, off the ledger: the **budget-refusal `steps` decision**, and enhancements **E4, E5,
 E7, E8**.
