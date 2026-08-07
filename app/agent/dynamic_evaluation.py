@@ -241,16 +241,127 @@ def _criterion_sources(results: list[ToolResult], criterion_scores: dict[str, fl
             attributed.setdefault(criterion, set()).update(names)
     return {criterion: sorted(names) for criterion, names in attributed.items()}
 
+# Phrases that indicate a stated requirement is *about* a criterion this system
+# actually measures. Deliberately conservative: mapping a requirement onto a
+# criterion that measures something adjacent is worse than not matching it at
+# all, because a wrong match is reported as checked while a non-match is now
+# reported as unchecked (D61). "at most one connecting flight" is a good example
+# of one left out on purpose -- `accessibility` scores airport proximity, which
+# is not the same question.
+#
+# Matched on word boundaries, and no entry may be a bare word that is common in
+# another sense. "flat" used to be here and matched "a one-bedroom flat", giving
+# a remote-work request a terrain non-negotiable it never stated; "remote"
+# matched "remote work" and gave nearly every prompt an airport-access one (D62,
+# which is D46 recurring). Multi-word phrases are safe; single words need to be
+# unambiguous on their own.
 _HARD_CONSTRAINT_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "cost": ("budget", "cost", "afford"),
-    "transportation": ("car-free", "car free", "without a car", "public transport"),
-    "accessibility": ("airport", "distance", "remote", "arrival", "get there"),
-    "activities": ("activit", "hiking", "beach", "culture", "nightlife"),
-    "safety": ("safety", "safe", "crime", "danger", "security"),
+    "cost": ("budget", "cost", "costs", "afford", "affordable"),
+    "transportation": (
+        "car-free",
+        "car free",
+        "without a car",
+        "no car",
+        "no driving",
+        "don't drive",
+        "do not drive",
+        "without driving",
+        "on foot",
+        "walkable",
+        "public transport",
+        "public transportation",
+    ),
+    "accessibility": ("airport", "airports", "easy to reach", "easy to get to", "get there"),
+    "activities": ("activities", "activity", "hiking", "beach", "beaches", "culture", "nightlife"),
+    "safety": ("safety", "safe", "crime", "danger", "dangerous", "security"),
     "flight_duration": ("flight time", "flight duration", "flying time", "hours of flying", "hour flight"),
-    "language_spoken": ("english", "language", "speak"),
-    "terrain": ("flat terrain", "step free", "step-free", "wheelchair", "hilly", "flat"),
+    "language_spoken": ("english", "language", "languages", "speak", "spoken"),
+    "terrain": (
+        "flat terrain",
+        "flat ground",
+        "level ground",
+        "step free",
+        "step-free",
+        "wheelchair",
+        "hilly",
+        "steep",
+    ),
 }
+_HARD_CONSTRAINT_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
+    criterion: tuple(re.compile(rf"\b{re.escape(k)}\b") for k in keywords)
+    for criterion, keywords in _HARD_CONSTRAINT_KEYWORDS.items()
+}
+
+# An unmatched requirement is recorded under its own words, so the reader is told
+# it went unchecked instead of it vanishing. Bounded so a verbose interpreter
+# cannot flood the answer.
+MAX_UNMATCHED_CONSTRAINTS = 4
+MAX_UNMATCHED_CONSTRAINT_CHARS = 90
+
+
+def criteria_for_constraint(phrase: str) -> list[str]:
+    """Which measured criteria, if any, a stated requirement is about."""
+    text = phrase.casefold()
+    return sorted(
+        criterion
+        for criterion, patterns in _HARD_CONSTRAINT_PATTERNS.items()
+        if any(pattern.search(text) for pattern in patterns)
+    )
+
+
+# Things the interpreter files under hard_constraints that are not properties a
+# *place* can satisfy or fail: how long the trip is, when it happens, who is
+# going. They belong to the request, are already carried by `duration`,
+# `target_months` and `purpose`, and are recorded here only because the
+# interpreter had nowhere better to put them. Reporting "nothing in the evidence
+# confirms ten days in October" would read as a broken system, not a careful one.
+_TRIP_SHAPE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\b\d+[\s-]*(?:day|days|night|nights|week|weeks|month|months|year|years)\b"),
+    re.compile(r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten|twelve)[\s-]*"
+               r"(?:day|days|night|nights|week|weeks|month|months|year|years)\b"),
+    re.compile(r"\b(?:stay|trip|duration|visit)\b.*\b(?:day|days|week|weeks|month|months|year|years)\b"),
+    re.compile(r"\bstarting in\b"),
+    re.compile(r"\b(?:travel|traveling|travelling)\s+alone\b|\bsolo\b"),
+    re.compile(r"\b(?:family|group|party)\s+of\s+\w+\b"),
+    # A bare restatement of the purpose, which `purpose` already carries.
+    # "nothing in the evidence confirms remote work stay" is not a sentence
+    # worth showing anyone.
+    re.compile(
+        r"^(?:a |an |the )?(?:remote[\s-]?work|work|study|vacation|holiday|relocation|city break)"
+        r"(?:\s+(?:stay|trip|base|period))?$"
+    ),
+)
+
+
+def _is_about_the_trip_not_the_place(phrase: str) -> bool:
+    text = phrase.casefold()
+    return any(pattern.search(text) for pattern in _TRIP_SHAPE_PATTERNS)
+
+
+_DEDICATED_CHECK_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
+    "timezone": (re.compile(r"\boverlap\b"), re.compile(r"\btime[\s-]?zone\b")),
+    "flight_duration": (re.compile(r"\bflight\b"), re.compile(r"\bflying\b"), re.compile(r"\bflights\b")),
+}
+
+
+def _already_answered_by_a_dedicated_check(phrase: str, hard_results: dict[str, bool | None]) -> bool:
+    text = phrase.casefold()
+    return any(
+        criterion in hard_results and any(pattern.search(text) for pattern in patterns)
+        for criterion, patterns in _DEDICATED_CHECK_PATTERNS.items()
+    )
+
+
+def _is_about_a_region(phrase: str, profile: PlaceRequestProfile) -> bool:
+    """Whether a requirement names a region the profile already filters on.
+
+    `check_geocoded_constraints` answers these, so they must not also be reported
+    as unconfirmed -- "nothing in the evidence confirms not in Southeast Asia" is
+    plainly false when every candidate was kept out of it.
+    """
+    text = phrase.casefold()
+    regions = [r.strip().casefold() for r in profile.preferred_regions + profile.excluded_regions]
+    return any(region and region in text for region in regions)
 
 # What to call each criterion when telling the reader a stated requirement went
 # unmeasured. The criterion keys are internal; these are not.
@@ -1053,12 +1164,11 @@ def _check_hard_constraints(
     if region_eliminated and not was_named:
         return True, region_reason, {}
 
-    hard_results: dict[str, bool] = {}
+    hard_results: dict[str, bool | None] = {}
     eliminated = False
     reason: str | None = None
 
-    hard_text = " ".join(profile.hard_constraints + profile.deal_breakers).casefold()
-    if not hard_text:
+    if not (profile.hard_constraints or profile.deal_breakers):
         return eliminated, reason, hard_results
 
     required_overlap = _stated_overlap_hours(profile)
@@ -1091,8 +1201,38 @@ def _check_hard_constraints(
                     f"the {required_flight_hours:g}h ceiling the request sets."
                 )
 
-    for criterion, keywords in _HARD_CONSTRAINT_KEYWORDS.items():
-        if criterion in hard_results or not any(keyword in hard_text for keyword in keywords):
+    # Per phrase, not over one joined blob, so a requirement that matches nothing
+    # can be told apart from one that matched and was then checked (D61).
+    matched_criteria: set[str] = set()
+    unmatched: list[str] = []
+    for phrase in profile.hard_constraints:
+        cleaned = " ".join(phrase.split())
+        if not cleaned:
+            continue
+        criteria = criteria_for_constraint(cleaned)
+        if criteria:
+            matched_criteria.update(criteria)
+        elif _is_about_a_region(cleaned, profile):
+            # Region wording is already answered, above, by
+            # check_geocoded_constraints -- reporting "nothing confirms not in
+            # Southeast Asia" would be false when the field was filtered on it.
+            continue
+        elif _is_about_the_trip_not_the_place(cleaned):
+            continue
+        elif _already_answered_by_a_dedicated_check(cleaned, hard_results):
+            # Timezone overlap and flight duration have their own measured
+            # checks above; saying the same requirement is unconfirmed would
+            # contradict the entry that already answers it.
+            continue
+        elif cleaned not in unmatched:
+            unmatched.append(cleaned)
+    # Deal-breakers are matched too, but only ever to pull a criterion in -- an
+    # unmatched one is not a requirement the place failed to satisfy.
+    for phrase in profile.deal_breakers:
+        matched_criteria.update(criteria_for_constraint(phrase))
+
+    for criterion in sorted(matched_criteria):
+        if criterion in hard_results:
             continue
         if criterion not in criterion_scores:
             # Stated, and nothing measured it. Recorded rather than skipped: a
@@ -1124,6 +1264,16 @@ def _check_hard_constraints(
                 f"{candidate.place_name} does not meet {requirement}, which this request "
                 "treats as non-negotiable, on the evidence gathered."
             )
+
+    # Requirements nothing here can speak to are recorded under the traveller's
+    # own words rather than dropped. They can never eliminate -- None is "not
+    # confirmed", not "failed" -- but they rank a candidate below one whose
+    # constraints were all verified, and `unmet_constraint_note` says which ones
+    # went unchecked. Before this, "quick access to a hospital" and "at most one
+    # connecting flight" left no trace at all (D61).
+    for phrase in unmatched[:MAX_UNMATCHED_CONSTRAINTS]:
+        if len(phrase) <= MAX_UNMATCHED_CONSTRAINT_CHARS:
+            hard_results.setdefault(phrase, None)
 
     return eliminated, reason, hard_results
 
