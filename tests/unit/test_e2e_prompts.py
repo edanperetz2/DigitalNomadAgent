@@ -16,21 +16,42 @@ def test_prompt_ids_are_unique():
 
 
 def test_prompt_ids_are_stable_and_sequential():
-    """Results are keyed by ID across four configurations -- renumbering breaks comparison."""
-    assert [p.id for p in E2E_PROMPTS] == [f"P{n:02d}" for n in range(1, 11)]
+    """Results are keyed by ID across four configurations -- renumbering breaks comparison.
+
+    P01-P10 are the original set and must keep their numbers; P11-P20 were added
+    on 2026-08-07 and extend it rather than renumbering it.
+    """
+    assert [p.id for p in E2E_PROMPTS] == [f"P{n:02d}" for n in range(1, len(E2E_PROMPTS) + 1)]
+    assert len(E2E_PROMPTS) >= 10
 
 
 def test_set_keeps_its_agreed_composition():
+    """Mostly ordinary requests, with a minority probing awkward shapes.
+
+    The edge cases are deliberately the smaller share: a set weighted towards
+    them measures how the system copes with trouble, not how it does the job it
+    exists for.
+    """
     counts = {"mainstream": 0, "edge": 0}
     for prompt in E2E_PROMPTS:
         counts[prompt.category] += 1
-    assert counts == {"mainstream": 6, "edge": 4}
+    assert counts["mainstream"] + counts["edge"] == len(E2E_PROMPTS)
+    assert counts["edge"] >= 4, "keep the awkward shapes represented"
+    assert counts["edge"] < counts["mainstream"], "edge cases must stay the minority"
+
+
+# P20 is one line on purpose -- brevity is the property under test, so it is the
+# single documented exception to the paragraph-length rule rather than a reason
+# to lower the bar for the whole set.
+DELIBERATELY_TERSE = {"P20"}
 
 
 @pytest.mark.parametrize("prompt", E2E_PROMPTS, ids=lambda p: p.id)
 def test_every_prompt_is_realistically_detailed(prompt):
     """These are deliberately paragraph-length, not one-line specs."""
-    assert len(prompt.prompt) > 200, f"{prompt.id} is too terse to be representative"
+    if prompt.id not in DELIBERATELY_TERSE:
+        assert len(prompt.prompt) > 200, f"{prompt.id} is too terse to be representative"
+    assert prompt.prompt.strip(), f"{prompt.id} must have a prompt"
     assert prompt.focus, f"{prompt.id} must record why it is in the set"
     assert prompt.title
 

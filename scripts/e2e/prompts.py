@@ -1,9 +1,18 @@
 """The agreed end-to-end evaluation prompt set.
 
-Ten prompts chosen for behavioral diversity -- each targets a distinct pipeline
-path, tool subset, or failure mode. They are written at realistic length,
-the way someone actually describes their situation, rather than as tidy
+Twenty prompts chosen for behavioral diversity -- each targets a distinct
+pipeline path, tool subset, or failure mode. They are written at realistic
+length, the way someone actually describes their situation, rather than as tidy
 one-line specs, because prompt shape is itself part of what is being tested.
+
+P01-P10 are the original set. P11-P20 were added on 2026-08-07 to cover paths
+the first ten never touched: relocation as a purpose, several named destinations
+compared against each other, a preferred language that is not English, southern-
+hemisphere seasons, an excluded region, a daily budget in a third currency, a
+mixed purpose, a constraint nothing in the tool set can measure, nightlife as a
+thing someone *wants*, and a one-line request. Every one is an ordinary
+place-recommendation request -- the edge cases here are in the shape of the ask,
+not in asking for something the agent is not for.
 
 Unlike scripts/golden_set/cases.py, these carry NO expected values. The golden
 set is an automated structural regression net; this set exists to be read and
@@ -211,9 +220,186 @@ E2E_PROMPTS: list[E2EPrompt] = [
             "correct refusal that echoes the phrase."
         ),
     ),
+    E2EPrompt(
+        id="P11",
+        title="Relocation, indefinite, school-age children",
+        category="mainstream",
+        prompt=(
+            "My partner and I are seriously considering leaving the UK for good and taking our "
+            "two kids with us — they're 7 and 11. This isn't a long holiday, we'd be looking to "
+            "settle somewhere for years, so what matters is different: decent state or affordable "
+            "international schooling, healthcare we'd actually trust, and somewhere our kids could "
+            "make friends and not feel like permanent outsiders. We both work remotely for UK "
+            "companies so we need to stay within about two hours of UK time. Somewhere warmer than "
+            "here, but we're not chasing a beach."
+        ),
+        focus=(
+            "The `relocation` purpose, which the original ten never exercise -- everything else "
+            "is a trip with an end date. Tests whether the answer shifts register for a permanent "
+            "move (schooling, healthcare, integration) rather than reusing vacation criteria, and "
+            "whether it declines visa/residency questions it cannot answer without being asked to."
+        ),
+    ),
+    E2EPrompt(
+        id="P12",
+        title="Three named destinations, compared",
+        category="mainstream",
+        prompt=(
+            "I've narrowed it down to Porto, Valencia and Split for a four-month remote work stay "
+            "starting in March, and I genuinely can't choose. Budget is around €1,600 a month "
+            "including a one-bedroom flat. I want to be able to swim in the sea by late spring, I "
+            "work European hours so time zone isn't an issue, and I'd like somewhere I could pick "
+            "up the language a bit rather than living entirely in English. Which of the three, and "
+            "what am I giving up by not picking the other two?"
+        ),
+        focus=(
+            "Three `named_destinations` rather than P09's one, and the question is explicitly "
+            "comparative -- 'what am I giving up' asks for the trade-off, not just a winner. Do "
+            "all three survive to the finalists, and does the answer address each by name?"
+        ),
+    ),
+    E2EPrompt(
+        id="P13",
+        title="Preferred language that is not English",
+        category="mainstream",
+        prompt=(
+            "I've been learning Spanish for two years and I've hit the wall you hit when you only "
+            "ever practise in a classroom. I want to spend three months somewhere I'd be forced to "
+            "use it every day — so somewhere Spanish is genuinely the working language, not a "
+            "tourist bubble where everyone switches to English the moment I hesitate. I'm a "
+            "freelance designer so I can work anywhere with good internet. Around $1,500 a month, "
+            "and I'd prefer a city with some cultural life over a resort town."
+        ),
+        focus=(
+            "`preferred_languages: ['Spanish']` -- the D58 fallback is deliberately English-only, "
+            "so this is the boundary case. A country whose official list includes Spanish should "
+            "score 1.0; the interesting question is whether a country where Spanish is widespread "
+            "but not official is handled honestly rather than silently. Also inverts the usual "
+            "assumption: widespread English is a DRAWBACK here."
+        ),
+    ),
+    E2EPrompt(
+        id="P14",
+        title="Southern-hemisphere seasons",
+        category="mainstream",
+        prompt=(
+            "I'm in Melbourne and I want to get out of the city for all of January — our summer "
+            "here is getting unbearable and I don't cope well with heat. I'm after somewhere "
+            "genuinely cool, ideally somewhere I can walk or hike properly without melting. I can "
+            "work remotely so I need reliable internet, and I'd rather not fly more than about ten "
+            "hours. Budget's around AUD 3,000 for the month."
+        ),
+        focus=(
+            "Seasonal inversion: January is summer at the origin and winter in the northern "
+            "hemisphere, so 'cool' means opposite things depending on where you look. Climate "
+            "scoring is against target_months [1] with a stated dislike of heat. Also a non-"
+            "European origin for TransportAccessTool and an AUD budget."
+        ),
+    ),
+    E2EPrompt(
+        id="P15",
+        title="Excluded region, stated negatively",
+        category="mainstream",
+        prompt=(
+            "I want somewhere to spend two months over the winter working remotely, but please "
+            "not Southeast Asia — I spent a year there and I'm a bit done with it. Same goes for "
+            "anywhere I'd need more than one connecting flight from Madrid. Warm enough to be "
+            "outside comfortably, cheap enough that €1,300 a month goes a long way, and I'd like "
+            "to be near the sea. Decent internet is essential, everything else is negotiable."
+        ),
+        focus=(
+            "`excluded_regions` populated from a negative statement -- the field exists and D16/"
+            "D27 dealt with *preferred* regions, but nothing in the original ten states a region "
+            "to avoid. Does the exclusion actually filter, and is it disclosed if it cannot be "
+            "resolved to countries?"
+        ),
+    ),
+    E2EPrompt(
+        id="P16",
+        title="Daily budget in a third currency",
+        category="mainstream",
+        prompt=(
+            "Looking for a fortnight away in late September, somewhere I can keep to about £90 a "
+            "day all in — that's accommodation, food, the lot. Flying from Manchester. I like "
+            "walkable old towns, good coffee, and being able to get to a hill or a coastline "
+            "without a car. Not fussed about nightlife or shopping."
+        ),
+        focus=(
+            "Budget stated per DAY in GBP, where every other prompt is monthly in EUR/USD -- "
+            "exercises the period parsing behind D12 and the currency normalisation behind D40 "
+            "together. A fortnight is also a short stay, so D52's holiday-vs-monthly-cost "
+            "distinction applies."
+        ),
+    ),
+    E2EPrompt(
+        id="P17",
+        title="Mixed purpose: fieldwork plus remote income",
+        category="mainstream",
+        prompt=(
+            "I'm a PhD student in marine biology and I need to be somewhere coastal for five "
+            "months of fieldwork starting in February, but I also do freelance data work to pay "
+            "for it, so I need internet good enough for that and a time zone that isn't hostile to "
+            "European clients. University or research-station access nearby would be a huge plus. "
+            "I'm on a student income — call it €1,100 a month — and I don't drive."
+        ),
+        focus=(
+            "Two purposes at once (study/research + remote work) with `secondary_purposes`, and "
+            "they pull in different directions: fieldwork wants a specific coastline, remote work "
+            "wants connectivity and time zone. Does the answer hold both, or collapse to one?"
+        ),
+    ),
+    E2EPrompt(
+        id="P18",
+        title="A constraint nothing in the tool set can measure",
+        category="edge",
+        prompt=(
+            "I have severe asthma and air quality is the thing that decides this for me — I've had "
+            "trips ruined by smog and by heavy pollen seasons. I'm looking for somewhere to spend "
+            "March and April working remotely, ideally coastal or high enough up that the air is "
+            "clean. Budget about €1,500 a month, and I'd want a hospital nearby that I could "
+            "actually get to quickly if I needed to. Europe or North Africa preferred."
+        ),
+        focus=(
+            "A genuine, clearly-stated hard constraint that NO tool measures: there is no air "
+            "quality or pollen source in the registry. D55's middle band and D33's 'stated and "
+            "nothing measured it' path should both fire. The failure mode to watch for is the "
+            "system quietly answering on climate and cost as though it had addressed the question."
+        ),
+    ),
+    E2EPrompt(
+        id="P19",
+        title="Group trip, nightlife as a positive want",
+        category="mainstream",
+        prompt=(
+            "Six of us, late twenties, want a long weekend in early June — four nights. We want "
+            "proper nightlife, bars and clubs we can walk between rather than one big club in the "
+            "middle of nowhere, but a couple of the group want to actually see something during "
+            "the day too, so somewhere with a bit of history or a decent gallery would keep the "
+            "peace. Flying from Dublin, and we're trying to keep it under €600 each for the whole "
+            "trip including flights."
+        ),
+        focus=(
+            "Nightlife as something WANTED. P04 states it negatively and D35 built avoidance "
+            "scoring on that -- this is the same machinery in the opposite direction, and the "
+            "only prompt where a high bar/club count should be an advantage. Also a per-person "
+            "trip-total budget rather than a monthly rate, and a very short stay."
+        ),
+    ),
+    E2EPrompt(
+        id="P20",
+        title="One line",
+        category="edge",
+        prompt="Cheap warm city for a month in February, decent wifi, not too touristy.",
+        focus=(
+            "The opposite of P07: minimal input rather than lengthy under-specification, and "
+            "closer to how people actually type into a search box. Everything is stated but "
+            "nothing is qualified -- 'cheap' has no figure, 'warm' no threshold, 'not too "
+            "touristy' no measure. Tests whether assumptions are disclosed rather than invented."
+        ),
+    ),
 ]
 
-# Protocol-level checks, not part of the evaluated ten. Every one must come back
+# Protocol-level checks, not part of the evaluated set. Every one must come back
 # as the strict four-field envelope with no leaked FastAPI `detail` key.
 CONTRACT_CHECKS: list[tuple[str, str, object]] = [
     ("C01", "empty prompt", ""),
