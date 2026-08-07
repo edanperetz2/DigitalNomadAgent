@@ -265,6 +265,8 @@ _HARD_CONSTRAINT_KEYWORDS: dict[str, tuple[str, ...]] = {
         "no driving",
         "don't drive",
         "do not drive",
+        "does not drive",
+        "doesn't drive",
         "without driving",
         "on foot",
         "walkable",
@@ -287,8 +289,23 @@ _HARD_CONSTRAINT_KEYWORDS: dict[str, tuple[str, ...]] = {
         "steep",
     ),
 }
+# A few requirements are recognisable by shape rather than vocabulary. A budget
+# is very often stated as a bare amount -- "must not exceed $400 per month
+# including accommodation" (P08) says nothing this list would match, yet cost is
+# measured, and disclosing it as unconfirmed contradicts the budget figures the
+# same answer goes on to quote.
+_HARD_CONSTRAINT_EXTRA_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
+    "cost": (
+        re.compile(r"[€£$₪]\s?\d"),
+        re.compile(r"\b\d[\d,.]*\s?(?:usd|eur|gbp|aud|ils|dollars?|euros?|pounds?)\b"),
+        re.compile(r"\b(?:usd|eur|gbp|aud|ils)\s?\d"),  # "AUD 3,000", code first
+        re.compile(r"\b(?:per|a)\s+(?:day|week|month)\b.*\b\d"),
+        re.compile(r"\b\d[\d,.]*\s*(?:per|a)\s+(?:day|week|month)\b"),
+    ),
+}
 _HARD_CONSTRAINT_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
     criterion: tuple(re.compile(rf"\b{re.escape(k)}\b") for k in keywords)
+    + _HARD_CONSTRAINT_EXTRA_PATTERNS.get(criterion, ())
     for criterion, keywords in _HARD_CONSTRAINT_KEYWORDS.items()
 }
 
