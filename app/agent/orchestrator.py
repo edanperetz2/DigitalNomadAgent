@@ -22,6 +22,7 @@ from app.agent.dynamic_evaluation import (
     evaluate_candidates,
     score_unresolved_criteria,
     universally_unmeasured_priorities,
+    universally_unverified_constraints,
 )
 from app.agent.models import CandidateEvaluation, CandidatePlace, PlaceRequestProfile, ValidationResult
 from app.agent.recommendation_generator import generate_recommendation, render_recommendation_fallback
@@ -857,6 +858,7 @@ class Orchestrator:
                         checkpoint.validation = validation
                     sources = self._collect_sources(evidence_by_place)
                     unmeasured = universally_unmeasured_priorities(profile, evaluations)
+                    unverifiable = universally_unverified_constraints(evaluations)
                     remaining_hard_time = hard_deadline - asyncio.get_running_loop().time()
                     if remaining_hard_time <= 1.0:
                         response_text = render_recommendation_fallback(
@@ -870,6 +872,7 @@ class Orchestrator:
                             unmeasured_priorities=unmeasured,
                             conflicts=checkpoint.conflicts,
                             candidates_proposed=proposed_count,
+                            unverifiable_requirements=unverifiable,
                         )
                     else:
                         response_text = await generate_recommendation(
@@ -889,6 +892,7 @@ class Orchestrator:
                             unmeasured_priorities=unmeasured,
                             conflicts=checkpoint.conflicts,
                             candidates_proposed=proposed_count,
+                            unverifiable_requirements=unverifiable,
                         )
                     state = AgentState.COMPLETED
 

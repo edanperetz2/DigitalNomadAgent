@@ -1351,13 +1351,56 @@ def universally_unmeasured_priorities(
     return spoken
 
 
-def unmet_constraint_note(hard_constraint_results: dict[str, bool | None]) -> str | None:
-    """Say which stated requirement could not be confirmed, in the reader's terms."""
-    unverified = [
-        _CONSTRAINT_LABELS.get(criterion, criterion.replace("_", " "))
+def _constraint_label(criterion: str) -> str:
+    """The requirement in the reader's words.
+
+    The interpreter's wording varies between runs -- one produced
+    `travel_time_under_10_hours` where another wrote it as prose -- and an
+    identifier with underscores in it must never reach the answer (D42).
+    """
+    return _CONSTRAINT_LABELS.get(criterion, criterion.replace("_", " ").strip())
+
+
+def unverified_constraints(hard_constraint_results: dict[str, bool | None]) -> list[str]:
+    return [
+        _constraint_label(criterion)
         for criterion, passed in sorted(hard_constraint_results.items())
         if passed is None
     ]
+
+
+def universally_unverified_constraints(evaluations: list[CandidateEvaluation]) -> list[str]:
+    """Requirements no candidate could be checked against.
+
+    Same rule as `universally_unmeasured_priorities`, applied to hard
+    constraints: a gap on one candidate is a drawback for that candidate, a gap
+    on every candidate is a fact about the ranking and belongs at answer level.
+
+    P14 is the case that forced it. All three stated requirements were phrased
+    so nothing matched them, so every one of the eight candidates carried all
+    three as unverified -- and the note went in at `drawbacks[0]`, which is the
+    "Main drawback" column. Eight rows of identical boilerplate, in the one
+    column meant to tell them apart, saying they were "ranked below places that
+    could be checked" when no such place existed.
+    """
+    viable = [e for e in evaluations if not e.eliminated]
+    if len(viable) < 2:
+        return []
+    per_candidate = [set(unverified_constraints(e.hard_constraint_results)) for e in viable]
+    return sorted(set.intersection(*per_candidate)) if per_candidate else []
+
+
+def unmet_constraint_note(
+    hard_constraint_results: dict[str, bool | None],
+    *,
+    exclude: set[str] | frozenset[str] = frozenset(),
+) -> str | None:
+    """Say which stated requirement could not be confirmed *for this place*.
+
+    Anything in `exclude` is unverified for every candidate, so it says nothing
+    about this one and is disclosed once at answer level instead.
+    """
+    unverified = [c for c in unverified_constraints(hard_constraint_results) if c not in exclude]
     if not unverified:
         return None
     return (
@@ -1365,6 +1408,25 @@ def unmet_constraint_note(hard_constraint_results: dict[str, bool | None]) -> st
         + ", ".join(unverified)
         + ", which the request treats as non-negotiable."
     )
+
+
+def apply_unmet_constraint_notes(
+    evaluations: list[CandidateEvaluation],
+) -> list[CandidateEvaluation]:
+    """Attach per-candidate notes, once the whole field is known.
+
+    Has to run after the loop rather than inside it: whether a requirement
+    discriminates between candidates is not knowable while scoring one.
+    """
+    shared = set(universally_unverified_constraints(evaluations))
+    updated: list[CandidateEvaluation] = []
+    for evaluation in evaluations:
+        note = unmet_constraint_note(evaluation.hard_constraint_results, exclude=shared)
+        if not note:
+            updated.append(evaluation)
+            continue
+        updated.append(evaluation.model_copy(update={"drawbacks": [note, *evaluation.drawbacks]}))
+    return updated
 
 
 def _score_totals(
@@ -1724,9 +1786,8 @@ def apply_llm_scores(
             eliminated, elimination_reason, hard_constraint_results = False, None, {}
 
         missing_evidence = unevidenced_criteria(profile.relevant_criteria, criterion_scores)
-        unmet_note = unmet_constraint_note(hard_constraint_results)
-        if unmet_note:
-            drawbacks.insert(0, unmet_note)
+        # The unmet-constraint note is attached in a post-pass: whether a
+        # requirement tells two candidates apart is not knowable here (D63).
 
         updated.append(
             evaluation.model_copy(
@@ -1749,6 +1810,7 @@ def apply_llm_scores(
         )
 
     updated = _relax_unmeetable_constraint(updated)
+    updated = apply_unmet_constraint_notes(updated)
     updated.sort(
         key=lambda e: (e.eliminated, constraint_tier(e.hard_constraint_results), -e.total_score)
     )
@@ -1790,10 +1852,6 @@ def evaluate_candidates(
             criterion_scores, profile.inferred_weights, confidence_factors
         )
 
-        unmet_note = unmet_constraint_note(hard_constraint_results)
-        if unmet_note:
-            drawbacks.insert(0, unmet_note)
-
         if not criterion_scores and not eliminated:
             drawbacks.append("No scored evidence was available; this candidate is provisional.")
         elif not drawbacks and not eliminated:
@@ -1820,6 +1878,7 @@ def evaluate_candidates(
         )
 
     evaluations = _relax_unmeetable_constraint(evaluations)
+    evaluations = apply_unmet_constraint_notes(evaluations)
     # Constraint tier outranks score: a place that cannot be shown to meet a
     # stated non-negotiable never sits above one that can (D33). Nothing is
     # dropped, so when no candidate clears its constraints the tier is uniform

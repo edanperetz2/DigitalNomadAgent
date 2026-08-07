@@ -262,6 +262,25 @@ def _collapse_disclosure(researched: int, viable: int, proposed: int) -> str:
     return "\n\n" + "\n\n".join(lines)
 
 
+def _unverifiable_requirements_disclosure(requirements: list[str]) -> str:
+    """State once, up front, which requirements nothing could be checked against.
+
+    A requirement no candidate could be checked against is a fact about the
+    ranking, not a drawback of any place in it -- the same rule D36 applies to
+    unmeasured priorities. Said per candidate it becomes eight identical rows in
+    the column meant to tell them apart, claiming each was "ranked below places
+    that could be checked" when no such place existed (D63).
+    """
+    if not requirements:
+        return ""
+    lines = "\n".join(f"- {item}" for item in dict.fromkeys(requirements))
+    return (
+        "\n\n**Stated as non-negotiable, but nothing here could check it:**\n"
+        f"{lines}\n\nEvery place below is equally unverified on this, so it did not "
+        "affect the order — you would need to confirm it yourself."
+    )
+
+
 def _out_of_scope_disclosure(asks: list[str]) -> str:
     """Name what was asked for and could not be answered.
 
@@ -324,6 +343,7 @@ def render_recommendation_fallback(
     unmeasured_priorities: list[str] | None = None,
     conflicts: list[str] | None = None,
     candidates_proposed: int = 0,
+    unverifiable_requirements: list[str] | None = None,
 ) -> str:
     """Render a recommendation without another network or LLM call."""
     payload = _build_payload(profile, evaluations, validation, sources, max_final_recommendations)
@@ -332,6 +352,7 @@ def render_recommendation_fallback(
         markdown
         + _conflict_disclosure(conflicts or [])
         + _coverage_disclosure(unmeasured_priorities or [])
+        + _unverifiable_requirements_disclosure(unverifiable_requirements or [])
         + _collapse_disclosure(
             len(evaluations),
             sum(1 for e in evaluations if not e.eliminated),
@@ -362,6 +383,7 @@ async def generate_recommendation(
     unmeasured_priorities: list[str] | None = None,
     conflicts: list[str] | None = None,
     candidates_proposed: int = 0,
+    unverifiable_requirements: list[str] | None = None,
 ) -> str:
     notices = service_notices or []
     stated_conflicts = conflicts or []
@@ -401,6 +423,7 @@ async def generate_recommendation(
             response["markdown"]
             + _conflict_disclosure(stated_conflicts)
             + _coverage_disclosure(unmeasured)
+            + _unverifiable_requirements_disclosure(unverifiable_requirements or [])
             + collapse
             + _out_of_scope_disclosure(declined)
             + _degradation_disclosure(notices)
@@ -418,6 +441,7 @@ async def generate_recommendation(
             unmeasured_priorities=unmeasured,
             conflicts=stated_conflicts,
             candidates_proposed=candidates_proposed,
+            unverifiable_requirements=unverifiable_requirements,
         )
         return (
             fallback
