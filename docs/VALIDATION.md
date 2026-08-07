@@ -20,13 +20,13 @@ Last updated: **2026-08-06**.
 
 ### Where this stands, in one paragraph
 
-**D60 is the only open defect; D0–D59 and D61–D65 are closed.** D35 is also still unverified against the provider — Overpass has now been unreachable for four runs. D55, D56 and D58 were all
+**Every defect on the ledger is closed, D0 through D65.** D35 is also still unverified against the provider — Overpass has now been unreachable for four runs. D55, D56 and D58 were all
 found on 2026-08-06 by reading the ten answers of the first run against the *deployed* app. D31–D45 came from reading the ten
 answers of the 2026-08-05 full run as prose rather than as pass/fail — every one of them had
 passed the golden set, because that suite checks *structure* (the four modules ran, a table
 exists, no banned claim leaked) and nothing in it tests whether the recommendation is **correct**.
 That blind spot is the single most important finding in this document. The offline gate is green
-(**758 passed, 1 skipped**, `ruff` clean) and **$8.50 of the $13.00 budget remains**
+(**768 passed, 1 skipped**, `ruff` clean) and **$8.50 of the $13.00 budget remains**
 (account-authoritative — see the D19 note for why the account figure, not the key's, is the one
 that binds).
 
@@ -126,7 +126,7 @@ Every defect found is listed here with its state. Commits are on `main`.
 | D65 | A complete, usable answer was discarded over its wrapper. `_RecommendationOutput` was `extra="forbid"` over a single field, so a key the model volunteered alongside `markdown` threw the whole response away — P13 produced valid JSON containing a full answer and got the fallback template. Compounded by a repair that assumed length on every parse failure ("it was cut off… make it substantially shorter") when P13/P14 ran at 3,234–3,542 tokens against an 8,000 ceiling, and by strict `json.loads` being the only path, so a ```json fence was fatal | **Fixed** (2026-08-07) | `fcd312f` |
 | D63 | A requirement unverified for **every** candidate was still written as each one's *first* drawback — the "Main drawback" column. P14's eight candidates all read "Ranked below places that could be checked: nothing in the evidence confirms `avoid_hot_weather`, `must_have_reliable_internet`, `travel_time_under_10_hours`". False (nothing ranked below anything), uninformative (eight identical rows in the column meant to separate them), and it printed interpreter identifiers at the reader (D42). Now lifted to answer level, the rule `universally_unmeasured_priorities` already followed for D36 | **Fixed** (2026-08-07) | `0cfab38` |
 | D64 | The interpreter's constraint wording varies between runs. P14 emitted `travel_time_under_10_hours`, and `_stated_flight_hours` returns `None` for it — so a stated 10-hour cap was never applied and **Lisbon, ~24h from Melbourne, ranked #1**. The same requirement as "no more than ten hours of flying" parses to `10.0`. Downstream matching assumes prose; nothing guarantees it. Now first-class fields `max_flight_hours` / `min_timezone_overlap_hours`, the treatment `budget` already had; the prose parsers stay as fallbacks | **Fixed** (2026-08-07) | `9dea7cb` |
-| D60 | `constraint_tier` is a coarse min/max: any single unconfirmed constraint drops a candidate to tier 1, so one confirmed on 2 of 3 ranks identically to one confirmed on 0 of 3. In P06 `transportation` was unconfirmed for **every** candidate, flattening the tier to 1 across the board — so Seville, with `terrain: met` (the wheelchair user's stated non-negotiable, confirmed flat), ranked *below* Lisbon, whose terrain is unconfirmed and which the answer itself calls hilly. Ordering fell back entirely to `total_score` | **Open** (2026-08-07) | — |
+| D60 | `constraint_tier` is a coarse min/max: any single unconfirmed constraint drops a candidate to tier 1, so one confirmed on 2 of 3 ranks identically to one confirmed on 0 of 3. In P06 `transportation` was unconfirmed for **every** candidate, flattening the tier to 1 across the board — so Seville, with `terrain: met` (the wheelchair user's stated non-negotiable, confirmed flat), ranked *below* Lisbon, whose terrain is unconfirmed and which the answer itself calls hilly. Ordering fell back entirely to `total_score`. The sort now breaks ties within a tier by how many stated requirements a place was **shown** to meet; the tier still comes first, so a failed constraint still sorts last | **Fixed** (2026-08-07) | `5450492` |
 | D59 | A cached tool result outlives the code that produced it. `CACHE_CONTRACT_VERSION` is in the key, so the lever to retire every row existed — but nothing obliged anyone to pull it, and D44 did not, so 73 rows kept citing the Overpass documentation page under a 14-day TTL. Deployed readers keep pre-fix content for up to two weeks, and a validation run can report a fixed defect as still broken | **Fixed** (2026-08-07) | `a569185` |
 
 ### Reading the answers a second time (2026-08-06)
@@ -597,7 +597,7 @@ Two things came out of the investigation itself, both fixed in `4cf8bc4`:
 
 ### Next session — pick up here
 
-**State: D60 is the only open defect.** D64 and D65 are confirmed on live data (2026-08-07). D61/D62 were one root cause — substring keyword matching over stated hard constraints, failing in both directions — and are fixed in `dab56f1`. D55, D56 and D58 are confirmed on live data (2026-08-07); D35 needs a run that coincides with Overpass being up. The offline gate is green (**758 passed,
+**State: no open defects.** D64 and D65 are confirmed on live data (2026-08-07); D60 is fixed offline and wants a run, since it changes which place ranks first. D61/D62 were one root cause — substring keyword matching over stated hard constraints, failing in both directions — and are fixed in `dab56f1`. D55, D56 and D58 are confirmed on live data (2026-08-07); D35 needs a run that coincides with Overpass being up. The offline gate is green (**768 passed,
 1 skipped**, `ruff` clean) and **$8.50 of the $13.00 budget remains**.
 
 P06's one-row answer took three defects to explain, and two are now closed:
@@ -1435,7 +1435,7 @@ session. The items that were listed here — D8, D6/D7/D10, D17, D18 — have si
 **verified against the real provider on 2026-08-04**; D8's residual (D8b) and D13 were fixed
 afterwards, and D20–D25 were found and fixed across the two 2026-08-05 runs. All of those are now
 closed, D27 included, and D19's original "no provider-side cap" finding was itself wrong — both
-corrections are in section 0. **One defect is open — D60**; section 0 has it.
+corrections are in section 0. **No defects are open**; section 0 carries what still wants verifying.
 
 Also open, off the ledger: the **budget-refusal `steps` decision**, and enhancements **E4, E5,
 E7, E8**.
