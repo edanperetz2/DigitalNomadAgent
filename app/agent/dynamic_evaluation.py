@@ -353,9 +353,22 @@ MAX_UNMATCHED_CONSTRAINT_CHARS = 90
 _REPORTED_BUT_NEVER_ELIMINATING: frozenset[str] = frozenset({"climate"})
 
 
+def _as_words(phrase: str) -> str:
+    """The requirement as words, whatever shape the interpreter sent it in.
+
+    It does not reliably send prose. One run stated "budget no more than €1,800
+    per month all-in"; the next sent `budget_max_1800_eur_month_all_in`. Every
+    keyword here is matched on word boundaries and `\\w` includes the underscore,
+    so `\\bbudget\\b` cannot match inside that -- which failed *every* lookup at
+    once and reported both of P01's hard limits as things nothing could check,
+    in an answer that then ranked the places by budget fit.
+    """
+    return " ".join(phrase.replace("_", " ").split())
+
+
 def criteria_for_constraint(phrase: str) -> list[str]:
     """Which measured criteria, if any, a stated requirement is about."""
-    text = phrase.casefold()
+    text = _as_words(phrase).casefold()
     return sorted(
         criterion
         for criterion, patterns in _HARD_CONSTRAINT_PATTERNS.items()
@@ -1304,7 +1317,7 @@ def _check_hard_constraints(
     matched_criteria: set[str] = set()
     unmatched: list[str] = []
     for phrase in profile.hard_constraints:
-        cleaned = " ".join(phrase.split())
+        cleaned = _as_words(phrase)
         if not cleaned:
             continue
         criteria = criteria_for_constraint(cleaned)
@@ -1332,7 +1345,7 @@ def _check_hard_constraints(
     # it. An unmatched deal-breaker still cannot eliminate anything: it is
     # recorded as unconfirmed, never as failed.
     for phrase in profile.deal_breakers:
-        cleaned = " ".join(phrase.split())
+        cleaned = _as_words(phrase)
         if not cleaned:
             continue
         criteria = criteria_for_constraint(cleaned)
