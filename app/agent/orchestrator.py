@@ -893,6 +893,7 @@ class Orchestrator:
                             conflicts=checkpoint.conflicts,
                             candidates_proposed=proposed_count,
                             unverifiable_requirements=unverifiable,
+                            request_text=prompt,
                         )
                     state = AgentState.COMPLETED
 
