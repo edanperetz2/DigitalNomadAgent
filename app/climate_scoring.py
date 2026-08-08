@@ -13,6 +13,21 @@ CLIMATE_TARGETS: dict[str, tuple[float, float]] = {
 }
 
 
+# The temperature a traveller rules out is stated far more often as an
+# avoidance than as a target -- "avoid cold", "not tropical heat", "escaping the
+# winter" -- so both directions are read off the same phrases rather than from a
+# fixed list of the exact wordings someone might use to decline one.
+_HEAT_PHRASES: tuple[str, ...] = (
+    "extremely hot",
+    "extreme heat",
+    "tropical heat",
+    "too hot",
+    "hot",
+    "heat",
+)
+_COLD_PHRASES: tuple[str, ...] = ("freezing", "too cold", "cold")
+
+
 def clamp(value: float) -> float:
     return max(0.0, min(1.0, value))
 
@@ -28,16 +43,15 @@ def climate_preference_directions(climate_preferences: list[str]) -> dict[str, s
         return {}
 
     directions: dict[str, str] = {}
-    avoids_extreme_heat = any(
-        phrase in preferences for phrase in ("not extremely hot", "avoid extreme heat", "not too hot")
-    )
-    avoids_freezing = any(phrase in preferences for phrase in ("avoid freezing", "no freezing", "not cold"))
+    avoids_extreme_heat = any(_negatively_requested(preferences, phrase) for phrase in _HEAT_PHRASES)
+    avoids_freezing = any(_negatively_requested(preferences, phrase) for phrase in _COLD_PHRASES)
+    # `_positively_requested`, not a bare substring test: "avoid cold" contains
+    # "cold", and reading that as a request for cold weather sent a retired
+    # couple escaping the winter to London, Amsterdam and Dublin while the one
+    # mild-winter city in the set ranked last. A label only sets the target when
+    # it is asked for, never when it is ruled out.
     for label in CLIMATE_TARGETS:
-        if label == "hot" and avoids_extreme_heat:
-            continue
-        if label == "cold" and avoids_freezing:
-            continue
-        if label in preferences:
+        if _positively_requested(preferences, label):
             directions["temperature"] = label
             break
     if avoids_extreme_heat:
@@ -107,17 +121,40 @@ _IRRECONCILABLE_REQUESTS: tuple[tuple[tuple[str, ...], tuple[str, ...], str, str
 
 # "no snow", "rather than snow", "avoid swimming outdoors" -- a thing ruled out
 # cannot contradict anything, so a negated phrase never counts as a request.
-_NEGATION_MARKERS = ("no ", "not ", "never ", "avoid", "without", "rather than", "don't", "dont")
+# "escape"/"escaping" belong here for the same reason: someone escaping the
+# winter is naming what they are leaving, not what they want to arrive in.
+_NEGATION_MARKERS = (
+    "no ",
+    "not ",
+    "never ",
+    "avoid",
+    "without",
+    "rather than",
+    "don't",
+    "dont",
+    "escape",
+    "escaping",
+    "away from",
+)
 
 
 def _positively_requested(text: str, phrase: str) -> bool:
     index = text.find(phrase)
     while index != -1:
-        window = text[max(0, index - 24) : index]
+        # A negation reaches only the statement it belongs to. Preferences
+        # arrive as separate statements joined by "|", and in "no snow | mild"
+        # the "no" governs the snow, not the mild -- without the cut, stating
+        # one thing to avoid silently swallowed the next thing asked for.
+        window = text[max(0, index - 24) : index].rpartition("|")[2]
         if not any(marker in window for marker in _NEGATION_MARKERS):
             return True
         index = text.find(phrase, index + 1)
     return False
+
+
+def _negatively_requested(text: str, phrase: str) -> bool:
+    """Whether the phrase appears, and every appearance of it is ruled out."""
+    return phrase in text and not _positively_requested(text, phrase)
 
 
 def contradictory_climate_requests(*texts: list[str] | str) -> list[str]:
