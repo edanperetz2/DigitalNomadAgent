@@ -1266,10 +1266,30 @@ def _check_hard_constraints(
             continue
         elif cleaned not in unmatched:
             unmatched.append(cleaned)
-    # Deal-breakers are matched too, but only ever to pull a criterion in -- an
-    # unmatched one is not a requirement the place failed to satisfy.
+    # Deal-breakers pull a criterion in the same way -- and one that matches
+    # nothing has to leave the same trace, for the same reason. P04 said "I'd
+    # rather skip the big party destinations"; the keyword table has no "party",
+    # so it was neither scored nor disclosed and simply vanished. That is the
+    # silent drop D61 closed for hard constraints, still open on this side of
+    # it. An unmatched deal-breaker still cannot eliminate anything: it is
+    # recorded as unconfirmed, never as failed.
     for phrase in profile.deal_breakers:
-        matched_criteria.update(criteria_for_constraint(phrase))
+        cleaned = " ".join(phrase.split())
+        if not cleaned:
+            continue
+        criteria = criteria_for_constraint(cleaned)
+        if criteria:
+            matched_criteria.update(criteria)
+        elif _is_about_a_region(cleaned, profile) or _is_about_the_trip_not_the_place(cleaned):
+            continue
+        elif _already_answered_by_a_dedicated_check(cleaned, hard_results):
+            continue
+        else:
+            # Said as what it is, so the line reads as the avoidance it was
+            # rather than as a requirement the traveller never phrased that way.
+            avoided = f"avoiding {cleaned}"
+            if avoided not in unmatched:
+                unmatched.append(avoided)
 
     for criterion in sorted(matched_criteria):
         if criterion in hard_results:

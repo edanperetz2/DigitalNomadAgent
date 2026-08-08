@@ -353,7 +353,7 @@ def _unverifiable_requirements_disclosure(requirements: list[str]) -> str:
         return ""
     lines = "\n".join(f"- {item}" for item in dict.fromkeys(requirements))
     return (
-        "\n\n**Stated as non-negotiable, but nothing here could check it:**\n"
+        "\n\n**Stated as a requirement, but nothing here could check it:**\n"
         f"{lines}\n\nEvery place below is equally unverified on this, so it did not "
         "affect the order — you would need to confirm it yourself."
     )
