@@ -338,6 +338,13 @@ _TRIP_SHAPE_PATTERNS: tuple[re.Pattern[str], ...] = (
                r"(?:day|days|night|nights|week|weeks|month|months|year|years)\b"),
     re.compile(r"\b(?:stay|trip|duration|visit)\b.*\b(?:day|days|week|weeks|month|months|year|years)\b"),
     re.compile(r"\bstarting in\b"),
+    # When the trip is, said as a season rather than a length. `target_months`
+    # already carries it -- P08 resolved "this winter" to [12, 1, 2] and scored
+    # against it, then told the reader it was a requirement nothing could check.
+    re.compile(
+        r"\b(?:this|next|late|early|mid)[\s-]*"
+        r"(?:winter|spring|summer|autumn|fall|season|year|month)\b"
+    ),
     re.compile(r"\b(?:travel|traveling|travelling)\s+alone\b|\bsolo\b"),
     re.compile(r"\b(?:family|group|party)\s+of\s+\w+\b"),
     # A bare restatement of the purpose, which `purpose` already carries.

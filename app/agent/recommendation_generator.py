@@ -288,6 +288,24 @@ def _llm_payload(payload: dict) -> dict:
     return presented
 
 
+def _distinct(items: list[str]) -> list[str]:
+    """De-duplicate on what the reader sees, not on the exact characters.
+
+    `dict.fromkeys` removes only identical repeats, so P07 printed "ease for
+    first-time travellers" and "ease for first time travellers" as two separate
+    gaps -- the interpreter's wording and the humanised criterion name, one
+    hyphen apart. The first spelling is the one kept.
+    """
+    seen: set[str] = set()
+    kept: list[str] = []
+    for item in items:
+        fingerprint = "".join(ch for ch in item.casefold() if ch.isalnum())
+        if fingerprint and fingerprint not in seen:
+            seen.add(fingerprint)
+            kept.append(item)
+    return kept
+
+
 def _mode_disclosure_line(client: BaseLLMClient) -> str:
     mode = (
         "mock deterministic mode (MOCK_LLM=true)"
@@ -309,7 +327,7 @@ def _degradation_disclosure(notices: list[str]) -> str:
     """
     if not notices:
         return ""
-    lines = "\n".join(f"- {notice}" for notice in dict.fromkeys(notices))
+    lines = "\n".join(f"- {notice}" for notice in _distinct(notices))
     return f"\n\n**Reduced-capability run:**\n{lines}"
 
 
@@ -351,7 +369,7 @@ def _unverifiable_requirements_disclosure(requirements: list[str]) -> str:
     """
     if not requirements:
         return ""
-    lines = "\n".join(f"- {item}" for item in dict.fromkeys(requirements))
+    lines = "\n".join(f"- {item}" for item in _distinct(requirements))
     return (
         "\n\n**Stated as a requirement, but nothing here could check it:**\n"
         f"{lines}\n\nEvery place below is equally unverified on this, so it did not "
@@ -369,7 +387,7 @@ def _out_of_scope_disclosure(asks: list[str]) -> str:
     """
     if not asks:
         return ""
-    lines = "\n".join(f"- {ask}" for ask in dict.fromkeys(asks))
+    lines = "\n".join(f"- {ask}" for ask in _distinct(asks))
     return (
         "\n\n**Asked for, but outside what this agent can answer:**\n"
         f"{lines}\n\nThese need a live booking or an official government source. "
@@ -387,7 +405,7 @@ def _conflict_disclosure(conflicts: list[str]) -> str:
     """
     if not conflicts:
         return ""
-    lines = "\n".join(f"- {conflict}" for conflict in dict.fromkeys(conflicts))
+    lines = "\n".join(f"- {conflict}" for conflict in _distinct(conflicts))
     return f"\n\n**These cannot both be satisfied:**\n{lines}"
 
 
@@ -402,7 +420,7 @@ def _coverage_disclosure(unmeasured: list[str]) -> str:
     """
     if not unmeasured:
         return ""
-    lines = "\n".join(f"- {item}" for item in dict.fromkeys(unmeasured))
+    lines = "\n".join(f"- {item}" for item in _distinct(unmeasured))
     return (
         "\n\n**Not used in this ranking:** no evidence was found for these on any candidate, "
         f"so the order below does not reflect them at all.\n{lines}"
