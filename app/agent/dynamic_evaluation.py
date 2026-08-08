@@ -1387,8 +1387,15 @@ def universally_unmeasured_priorities(
     answer rather than in a per-place footnote: P04 ranked five cities without
     ever measuring food scene, street food, market culture or party level, and
     disclosed it only in the limitations section at the bottom (D36).
+
+    Judged over the candidates the reader is actually given, as
+    `universally_unverified_constraints` already does. Counting eliminated ones
+    let a criterion measured only on a dropped candidate pass as measured: P03
+    stated student life first and weighted it highest, no delivered place had
+    any evidence for it, and the block stayed silent.
     """
-    if not evaluations:
+    delivered = [e for e in evaluations if not e.eliminated]
+    if not delivered:
         return []
 
     weights = canonicalize_criterion_weights(profile.inferred_weights)
@@ -1397,7 +1404,7 @@ def universally_unmeasured_priorities(
     unmeasured = {
         criterion
         for criterion in headline
-        if all(criterion not in e.criterion_scores for e in evaluations)
+        if all(criterion not in e.criterion_scores for e in delivered)
     }
     if not unmeasured:
         return []
