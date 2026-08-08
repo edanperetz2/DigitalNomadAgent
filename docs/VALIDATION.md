@@ -20,10 +20,17 @@ Last updated: **2026-08-07**.
 
 ### Where this stands, in one paragraph
 
-**Every defect on the ledger is closed, D0 through D65.** What is *not* settled is verification:
-**D60 and D63 have never been seen against the provider**, and D35 has failed to be proven five
-times because Overpass was unreachable or empty on every attempt. The next run is the one that
-closes those — see the handover at the end of this section.
+**Read the handover at the end of this section first (updated 2026-08-08).** The ledger now runs
+to D80; D66–D80 landed on 2026-08-08 and are all pushed to `main`. The live-critical fact: **the
+deployment is running code that has not been verified against the provider** — D78, D79 and D80
+landed after the last live run, so the first job next session is one confirmation run, not more
+fixing. The paragraph below is retained as the original framing; the D0–D65 status it describes is
+superseded by the handover.
+
+**(Historical, pre-2026-08-08:)** Every defect D0 through D65 was closed. What was *not* settled
+was verification:
+**D60 and D63 had never been seen against the provider**, and D35 failed to be proven five
+times because Overpass was unreachable or empty on every attempt.
 
 D55, D56 and D58 were found on 2026-08-06, and D60–D65 on 2026-08-07, all by reading answers
 rather than statuses — two of them found by the user reading them, not by this process.
@@ -601,27 +608,98 @@ Two things came out of the investigation itself, both fixed in `4cf8bc4`:
   assumed to need. P01 now filters on "Europe" for the first time: every finalist is European and
   the relaxation disclosure is gone, because nothing had to be given up.
 
-### Next session — pick up here
+### Next session — pick up here (updated 2026-08-08)
 
-**State: every defect on the ledger is closed, D0 through D65.** The offline gate
-is green (**768 passed, 1 skipped**, `ruff` clean), everything is pushed to
-`main`, and **$8.50 of the $13.00 budget remains**. The deployment serves every
-required endpoint and runs on the real model.
+**The deployment is running unverified code. Confirm it before anything else.**
+`origin/main` is at `1a4c623` (D80) and Vercel auto-deploys from it, but D78,
+D79 and D80 have **never been seen live** — they landed after the last live run
+(the 7-prompt gate on 2026-08-08, which ran against `7ed194e`). The offline gate
+is green (**862 passed, 1 skipped**, `ruff` clean) and **~$7.31 of $13.00
+remains** (probe after the gate; no paid calls since).
 
-**The job is one run: the twenty prompts against the deployed app, then read
-them.** Six fixes landed on 2026-08-07 after the last full read, and four of them
-have never been seen against the provider.
+**First job: one confirmation run, then read the answers as prose.** Prove the
+three pushed-but-unverified commits on the real provider, with weight on the two
+risk areas: the interpreter's *generalized* date/number few-shot examples (D80)
+must still extract `target_months` and the numeric caps correctly — check P02
+(5h flight), P05 (4h overlap), P06 (Nov–Apr wrap), P08 (winter season); and the
+constraint-matching fixes (D78/D79) must hold — check P01 (budget/car), P02
+(travel-time cap not double-reported).
 
 ```bash
-python scripts/run_e2e_suite.py --base-url https://digitalnomadagent.vercel.app --label vercel-full20
-python scripts/render_answers.py validation_runs/<the-new-dir>          # readable prose
-python scripts/export_prompt_examples.py validation_runs/<the-new-dir>  # the brief's format
+python scripts/run_e2e_suite.py --base-url https://digitalnomadagent.vercel.app --label vercel-confirm-d78-d80 --only P01,P02,P04,P05,P06,P08
+python scripts/render_answers.py validation_runs/<the-new-dir>
 python scripts/probe_llmod_account.py                                   # reconcile; read /user/info
 ```
 
-Cost is about **$0.75** for twenty (measured: $0.835 on 2026-08-07), leaving
-roughly $7.75. Budget/40 minutes. `10/10 ok` has three times concealed bad
-advice — the status line proves the pipeline ran, not that the answer is right.
+~$0.30. Read the prose — a keyword miss in D80's generalized examples would show
+as wrong months, not as a non-`ok` status.
+
+**Then decide the submission path.** Current state is genuinely better than this
+session's start (the P06 winter-climate inversion is fixed, the generator now
+addresses the actual traveller, citations resolve exactly, injection holds) and
+the 7-prompt gate passed clean (0 dead citations, 0 leaked identifiers). It is
+submittable once the confirmation run is clean.
+
+**The one big thing left undone, deliberately: the keyword→interpreter
+redesign.** Every remaining false-disclosure defect (D61/D62/D70/D75/D78/D79 and
+future phrasings) shares one root cause — a downstream substring matcher
+re-deriving, worse, the requirement→criterion classification the interpreter LLM
+already computed. The correct fix is to have the interpreter tag each stated
+requirement with its criterion (or `null` = unmeasurable) in a new
+`stated_requirements` field, keyword matcher demoted to fallback. **The full plan
+is in the 2026-08-08 session transcript.** It was deferred, not rejected: it
+carries an interpreter-prompt-perturbation risk that cannot be verified offline,
+and four days from the 23/8 deadline that risk was judged not worth taking. Do it
+after submission, or before only with a paid before/after comparison run gated on
+"revert if any other interpreter field moves."
+
+**Residual known issues (cosmetic — the advice is sound, a disclosure line
+overclaims):**
+- Requirements that miss the keyword table are reported as "nothing here could
+  check it" when the criterion was in fact measured — P04 "unsafe at night"
+  (`\bsafe\b` ≠ "unsafe") and "walking back at 10pm". An allow-list of genuinely
+  unmeasurable concepts was tried and **reverted as overfit** (it enumerated the
+  concepts in the eval set). Root fix is the redesign above.
+- P03 reports "the stated budget" as uncheckable beneath a block that quantifies
+  the budget shortfall — a D55 middle-band `None` (measured-but-inconclusive)
+  rendered with D63's "nothing could check it" wording. Needs a tristate to
+  separate "inconclusive" from "unmeasured".
+- P06 ranks London / English seaside towns above warmer options for a
+  winter-escape couple. Not a bug — climate now scores correctly and is
+  outweighed by language (0.95) and accessibility/transport (1.0), which the
+  traveller also called non-negotiable. A weighting **decision**, not a patch.
+
+**Unproven, not broken:** D66 (climate-negation inversion) is correct offline and
+pinned by tests, but the real interpreter has not produced the triggering
+phrasing ("avoid cold") in three runs, so it has never fired live.
+
+**Spec gaps (pre-existing, not code defects):** Supabase/Pinecone are named in
+the brief; this runs on SQLite, which under Vercel lives in `/tmp` and resets on
+every cold start (cache and budget ledger do not persist in production). The
+architecture diagram is still titled "PlaceMatch" while the app is
+"DigitalNomadAgent". Submit `https://github.com/edanperetz2/DigitalNomadAgent`.
+
+#### What this session added to the ledger (D66–D80, 2026-08-08)
+
+All committed and pushed. Full rationale in each commit message.
+
+| ID | Fix | Verified |
+|---|---|---|
+| D66 | Climate stated as an avoidance ("avoid cold") no longer inverts to a cold target | offline; **not seen live** |
+| D67 | Recommendation Generator is given the actual request (`what_the_traveller_asked_for`), not just a purpose label | live (gate + postfix) |
+| D68 | Deterministic disclosures lead the answer instead of trailing below the sources | live |
+| D69 | Sources numbered in the payload — superseded by D74 | — |
+| D70 | Unmatched deal-breakers recorded rather than silently dropped (+ region-guard follow-up) | live; softened by residual issue above |
+| D71 | Coverage disclosure judged over delivered candidates, not eliminated ones | live |
+| D72 | Season words ("this winter") no longer reported as unchecked requirements; near-dup disclosures de-duped | live |
+| D73 | GUI submit button labelled "Run Agent" per the brief (visible pill, not a hidden label) | live |
+| D74 | Bibliography built deterministically from cited numbers, not written by the model — 63 dead citations → 0. **Shipped broken once (dropped the whole list); caught by canary, fixed.** | live |
+| D75 | Keyword-table gaps closed (no `climate` row existed; bare "car") so measured requirements stop being reported uncheckable | live |
+| D76 | Budget shortfall stated in one currency (was dividing USD estimate by EUR budget) | live |
+| D77 | Priorities reported as words, not `snake_case` identifiers | live |
+| D78 | Requirements matched whatever shape the interpreter sends (folds underscores; `budget_max_…` now matches) | offline; **not seen live** |
+| D79 | A travel-time cap not reported twice (once met via the numeric check, once "uncheckable") | offline; **not seen live** |
+| D80 | Shipped prompts generalized off the evaluation scenarios (grader reads them in the steps trace) | offline; **not seen live** |
 
 #### What landed on 2026-08-07 and what to check for each
 
