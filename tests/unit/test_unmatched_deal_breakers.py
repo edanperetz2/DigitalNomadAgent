@@ -64,3 +64,29 @@ def test_a_deal_breaker_about_a_region_is_left_to_the_geocoded_check():
     )
 
     assert not any(key.startswith("avoiding") for key in _results(profile))
+
+
+def test_a_bogus_region_does_not_swallow_the_requirement():
+    """P04's real interpreter filed "party destinations" under excluded_regions.
+    Geography cannot exclude that -- it resolves to no countries, so nothing was
+    filtered -- and treating it as already-answered dropped the deal-breaker a
+    second way, after the keyword table had already missed it."""
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        excluded_regions=["party destinations"],
+        deal_breakers=["big party destinations"],
+    )
+
+    assert "avoiding big party destinations" in _results(profile)
+
+
+def test_a_country_named_as_a_region_is_still_left_to_the_geocoded_check():
+    """resolve_region returns None for a bare country name too, but the
+    geocoded check matches those directly."""
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        preferred_regions=["Portugal"],
+        deal_breakers=["Portugal"],
+    )
+
+    assert not any(key.startswith("avoiding") for key in _results(profile))

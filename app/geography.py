@@ -158,6 +158,14 @@ _PHRASE_LOOKUP_ORDER = tuple(
     sorted((key for key in REGION_COUNTRIES if len(key) > 3), key=len, reverse=True)
 )
 
+# Every country any region here contains. `resolve_region` returns None for a
+# bare country name as much as for a phrase that names no place at all, and
+# callers sometimes need to tell those two apart: a country is something the
+# geocoded check can filter on, "party destinations" is not.
+KNOWN_COUNTRIES: frozenset[str] = frozenset(
+    country for countries in REGION_COUNTRIES.values() for country in countries
+)
+
 
 def resolve_region(region: str) -> frozenset[str] | None:
     """Member countries of a named region, or None if the name is not one.

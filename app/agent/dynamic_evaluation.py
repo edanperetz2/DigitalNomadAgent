@@ -18,7 +18,7 @@ from app.agent.models import CandidateEvaluation, CandidatePlace, PlaceRequestPr
 from app.climate_scoring import clamp, requested_climate_dimensions, weather_component_scores
 from app.core.module_names import DYNAMIC_EVALUATION
 from app.evidence.models import ToolResult
-from app.geography import resolve_region
+from app.geography import KNOWN_COUNTRIES, resolve_region
 from app.llm.base import BaseLLMClient
 from app.llm.budget import BudgetManager
 from app.llm.traced_client import traced_llm_call
@@ -377,15 +377,29 @@ def _already_answered_by_a_dedicated_check(phrase: str, hard_results: dict[str, 
 
 
 def _is_about_a_region(phrase: str, profile: PlaceRequestProfile) -> bool:
-    """Whether a requirement names a region the profile already filters on.
+    """Whether a requirement names a region the profile can actually filter on.
 
     `check_geocoded_constraints` answers these, so they must not also be reported
     as unconfirmed -- "nothing in the evidence confirms not in Southeast Asia" is
     plainly false when every candidate was kept out of it.
+
+    But only where that check can really act. The interpreter files whatever it
+    likes under regions, and P04's "big party destinations" arrived as an
+    *excluded region* -- so this returned True, the deal-breaker was skipped as
+    already-answered, and the one thing the traveller asked to avoid went
+    unrecorded a second way. Geography cannot exclude "party destinations": the
+    name resolves to no countries, so nothing was filtered and the requirement
+    is genuinely unchecked. A bare country name resolves to no region either,
+    yet is matched directly by the geocoded check, so it still counts.
     """
     text = phrase.casefold()
-    regions = [r.strip().casefold() for r in profile.preferred_regions + profile.excluded_regions]
-    return any(region and region in text for region in regions)
+    for raw in profile.preferred_regions + profile.excluded_regions:
+        region = " ".join(raw.replace("-", " ").casefold().split())
+        if not region or region not in text:
+            continue
+        if resolve_region(region) is not None or region in KNOWN_COUNTRIES:
+            return True
+    return False
 
 # What to call each criterion when telling the reader a stated requirement went
 # unmeasured. The criterion keys are internal; these are not.
