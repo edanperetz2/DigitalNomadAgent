@@ -414,7 +414,19 @@ def _is_about_the_trip_not_the_place(phrase: str) -> bool:
 
 _DEDICATED_CHECK_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
     "timezone": (re.compile(r"\boverlap\b"), re.compile(r"\btime[\s-]?zone\b")),
-    "flight_duration": (re.compile(r"\bflight\b"), re.compile(r"\bflying\b"), re.compile(r"\bflights\b")),
+    "flight_duration": (
+        re.compile(r"\bflight\b"),
+        re.compile(r"\bflying\b"),
+        re.compile(r"\bflights\b"),
+        # A cap the traveller stated without the word "flight". P02 said "travel
+        # time should not exceed 5 hours", the cap was read into
+        # max_flight_hours and applied -- every candidate came back
+        # `flight_duration: met` -- and the same requirement was reported
+        # alongside it as one nothing could check.
+        re.compile(r"\btravel\s+time\b"),
+        re.compile(r"\btravel\s+duration\b"),
+        re.compile(r"\bjourney\s+time\b"),
+    ),
 }
 
 

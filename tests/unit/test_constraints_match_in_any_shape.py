@@ -66,3 +66,35 @@ def test_the_recorded_wording_carries_no_identifiers():
     _, _, results = _check_hard_constraints(profile, {}, CANDIDATE, [])
 
     assert not any("_" in key for key in results)
+
+
+def test_a_travel_time_cap_is_not_reported_twice():
+    """P02 said "travel time should not exceed 5 hours". The cap was read into
+    max_flight_hours and applied -- every candidate came back
+    `flight_duration: met` -- and the same requirement was listed beside it as
+    one nothing could check. The dedicated check only recognised the word
+    "flight"."""
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        max_flight_hours=5.0,
+        origin="Tel Aviv",
+        hard_constraints=["travel time should not exceed 5 hours"],
+    )
+
+    _, _, results = _check_hard_constraints(
+        profile, {"flight_duration": 0.9}, CANDIDATE, []
+    )
+
+    assert "flight_duration" in results
+    assert "travel time should not exceed 5 hours" not in results
+
+
+def test_a_travel_time_cap_with_no_measurement_is_still_recorded():
+    """Suppression is only correct where the dedicated check actually answered."""
+    profile = PlaceRequestProfile(
+        purpose="vacation", hard_constraints=["travel time should not exceed 5 hours"]
+    )
+
+    _, _, results = _check_hard_constraints(profile, {"cost": 0.8}, CANDIDATE, [])
+
+    assert results.get("travel time should not exceed 5 hours") is None
