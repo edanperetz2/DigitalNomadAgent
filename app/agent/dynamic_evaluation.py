@@ -1470,14 +1470,17 @@ def universally_unmeasured_priorities(
         return []
 
     # Report the traveller's own wording where they gave any, so the sentence
-    # reads back to them rather than in the scoring vocabulary.
+    # reads back to them rather than in the scoring vocabulary. Underscores are
+    # stripped because the interpreter does not reliably give prose: one run
+    # wrote "food scene", the next `food_scene`, and D68 moved this block to the
+    # top of the answer, so an identifier here is the first thing read (D42).
     spoken: list[str] = []
     seen: set[str] = set()
     for raw in profile.relevant_criteria:
         canonical = canonical_criterion_name(raw)
         if canonical in unmeasured and canonical not in seen:
             seen.add(canonical)
-            spoken.append(raw)
+            spoken.append(raw.replace("_", " ").strip())
     for criterion in sorted(unmeasured - seen):
         spoken.append(_CONSTRAINT_LABELS.get(criterion, criterion.replace("_", " ")))
     return spoken
