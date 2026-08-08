@@ -99,3 +99,45 @@ def test_stripping_matches_the_headings_models_actually_use():
     for heading in ("## Sources", "### Sources used", "## References", "#### sources"):
         body = f"Answer text.\n\n{heading}\n\n1. An entry"
         assert _strip_model_sources(body) == "Answer text.", heading
+
+
+def test_the_assembled_answer_actually_carries_the_bibliography():
+    """The gap that shipped: `_assemble` took a `bibliography` argument and
+    dropped it on the floor. `_bibliography` was tested in isolation and passed,
+    the model was told to stop writing a sources list and obeyed, and the served
+    answers came back with no sources at all -- worse than the dead citations
+    the change was meant to fix. Assert on the composed answer, not the helper.
+    """
+    from app.agent.recommendation_generator import _assemble
+
+    answer = _assemble(
+        "The answer, citing [2].",
+        disclosures=["\n\n**Not used in this ranking:** something"],
+        bibliography=_bibliography("The answer, citing [2].", SOURCES),
+        footer="**Generated using:** a real LLM provider.",
+    )
+
+    assert "## Sources" in answer
+    assert "2. WhereNext City Price Dataset — London" in answer
+
+
+def test_the_bibliography_sits_between_the_answer_and_the_footer():
+    from app.agent.recommendation_generator import _assemble
+
+    answer = _assemble(
+        "Body text citing [1].",
+        disclosures=[],
+        bibliography=_bibliography("Body text citing [1].", SOURCES),
+        footer="**Generated using:** a real LLM provider.",
+    )
+
+    assert answer.index("Body text") < answer.index("## Sources") < answer.index("Generated using")
+
+
+def test_an_answer_with_no_sources_assembles_without_an_empty_heading():
+    from app.agent.recommendation_generator import _assemble
+
+    answer = _assemble("Body text.", disclosures=[], bibliography="", footer="Footer.")
+
+    assert "## Sources" not in answer
+    assert answer == "Body text.\n\nFooter."

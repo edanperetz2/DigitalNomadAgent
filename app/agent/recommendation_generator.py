@@ -496,9 +496,17 @@ def _assemble(
 
     Ordered hardest first: what cannot be satisfied, what cannot be answered,
     what ran degraded, then what the comparison and the evidence could not cover.
+    The bibliography sits between the answer and the provenance footer, where a
+    bibliography belongs -- it is the one block the reader looks up rather than
+    has to be shown.
     """
     preamble = "\n\n".join(block.strip("\n") for block in disclosures if block.strip())
-    sections = (preamble, body.strip("\n"), footer.strip("\n"))
+    sections = (
+        preamble,
+        body.strip("\n"),
+        bibliography.strip("\n"),
+        footer.strip("\n"),
+    )
     return "\n\n".join(section for section in sections if section)
 
 
