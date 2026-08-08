@@ -398,6 +398,25 @@ def _coverage_disclosure(unmeasured: list[str]) -> str:
     )
 
 
+def _assemble(body: str, *, disclosures: list[str], footer: str = "") -> str:
+    """Put the deterministic disclosures above the answer rather than below it.
+
+    They are still built on this side of the LLM call, because routed through
+    the model they get dropped (D32, D56). But appending them filed every one
+    under the bibliography, at 98-99% of the way down: "the order below does not
+    reflect them at all" described nothing at all, "Every place below is equally
+    unverified" had no places below it, and on P10 the refusal of the three
+    things the traveller actually asked for sat beneath 35 sources -- on the one
+    prompt where the refusal *is* the answer.
+
+    Ordered hardest first: what cannot be satisfied, what cannot be answered,
+    what ran degraded, then what the comparison and the evidence could not cover.
+    """
+    preamble = "\n\n".join(block.strip("\n") for block in disclosures if block.strip())
+    sections = (preamble, body.strip("\n"), footer.strip("\n"))
+    return "\n\n".join(section for section in sections if section)
+
+
 def render_recommendation_fallback(
     profile: PlaceRequestProfile,
     evaluations: list[CandidateEvaluation],
@@ -415,20 +434,24 @@ def render_recommendation_fallback(
     """Render a recommendation without another network or LLM call."""
     payload = _build_payload(profile, evaluations, validation, sources, max_final_recommendations)
     markdown = render_recommendation_markdown(payload)
-    return (
-        markdown
-        + _conflict_disclosure(conflicts or [])
-        + _coverage_disclosure(unmeasured_priorities or [])
-        + _unverifiable_requirements_disclosure(unverifiable_requirements or [])
-        + _collapse_disclosure(
-            len(evaluations),
-            sum(1 for e in evaluations if not e.eliminated),
-            candidates_proposed or len(evaluations),
-        )
-        + _out_of_scope_disclosure(out_of_scope or [])
-        + _degradation_disclosure(service_notices or [])
-        + "\n\n**Generated using:** a deterministic fallback template "
-        "(no recommendation-writing model was used for this response)."
+    return _assemble(
+        markdown,
+        disclosures=[
+            _conflict_disclosure(conflicts or []),
+            _out_of_scope_disclosure(out_of_scope or []),
+            _degradation_disclosure(service_notices or []),
+            _collapse_disclosure(
+                len(evaluations),
+                sum(1 for e in evaluations if not e.eliminated),
+                candidates_proposed or len(evaluations),
+            ),
+            _unverifiable_requirements_disclosure(unverifiable_requirements or []),
+            _coverage_disclosure(unmeasured_priorities or []),
+        ],
+        footer=(
+            "**Generated using:** a deterministic fallback template "
+            "(no recommendation-writing model was used for this response)."
+        ),
     )
 
 
@@ -489,15 +512,17 @@ async def generate_recommendation(
             response_model=_RecommendationOutput,
         )
         response = await asyncio.wait_for(call, timeout=llm_timeout_seconds) if llm_timeout_seconds else await call
-        return (
-            response["markdown"]
-            + _conflict_disclosure(stated_conflicts)
-            + _coverage_disclosure(unmeasured)
-            + _unverifiable_requirements_disclosure(unverifiable_requirements or [])
-            + collapse
-            + _out_of_scope_disclosure(declined)
-            + _degradation_disclosure(notices)
-            + _mode_disclosure_line(client)
+        return _assemble(
+            response["markdown"],
+            disclosures=[
+                _conflict_disclosure(stated_conflicts),
+                _out_of_scope_disclosure(declined),
+                _degradation_disclosure(notices),
+                collapse,
+                _unverifiable_requirements_disclosure(unverifiable_requirements or []),
+                _coverage_disclosure(unmeasured),
+            ],
+            footer=_mode_disclosure_line(client),
         )
     except (BudgetExceededError, LLMOutputError, TimeoutError):
         fallback = render_recommendation_fallback(
