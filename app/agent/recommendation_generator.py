@@ -51,8 +51,10 @@ and do not dwell.
 
 Present the ranking once. The comparison table and the per-place sections are one pass through \
 the list, not two summaries of it plus a third -- and every place in the table gets a section, or \
-it should not be in the table. Cite by pointing into the numbered sources; give a source list \
-entry only for something actually used.
+it should not be in the table. Every source arrives with a `number`: cite that number, and use \
+the same number for it in your sources list. Never renumber them and never cite a number you \
+were not given. List only the sources you actually used, so your list will skip numbers -- that \
+is correct, and a citation must always be checkable against the source that carries that number.
 
 A verdict has to distinguish. Say yes, say no, or say "yes if X" where X is a specific condition \
 the traveller can check -- a budget they would have to raise, a neighbourhood they would have to \
@@ -267,6 +269,15 @@ def _llm_payload(payload: dict) -> dict:
     presented = {
         renamed.get(key, key): value for key, value in payload.items() if key != "candidates"
     }
+    # Sources arrive numbered. Unnumbered, the model assigns its own numbers to
+    # as many as 70 entries and drifts: P03 cited Sofia's transport to a travel
+    # advisory and its language note to another city's geocoder record, every
+    # citation after the second shifted by one against its own bibliography.
+    # These are the same numbers the deterministic renderer uses.
+    presented["sources"] = [
+        {"number": number, **source}
+        for number, source in enumerate(presented.get("sources") or [], start=1)
+    ]
     # "candidates" keeps its name: the deterministic renderer reads this same
     # payload, and the word itself never reached a reader -- what did was the
     # phrase "candidate set", which the prompt now forbids.

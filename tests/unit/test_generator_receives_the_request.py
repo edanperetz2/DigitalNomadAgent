@@ -122,3 +122,31 @@ def test_a_profile_with_nothing_stated_adds_nothing():
     bare = PlaceRequestProfile(purpose="vacation")
 
     assert "stated_request" not in _build_payload(bare, [], ValidationResult(approved=True), [], 3, "")
+
+
+def test_sources_reach_the_model_already_numbered():
+    """Unnumbered, the model assigns its own numbers to as many as 70 entries
+    and drifts: P03 cited Sofia's transport to a travel advisory and its
+    language note to another city's geocoder record."""
+    payload = _build_payload(
+        P02_PROFILE,
+        [],
+        ValidationResult(approved=True),
+        [{"source_name": "Wikivoyage Get around"}, {"source_name": "UK FCDO"}],
+        3,
+        "",
+    )
+
+    assert [s["number"] for s in _llm_payload(payload)["sources"]] == [1, 2]
+
+
+def test_the_numbering_matches_the_deterministic_renderer():
+    """Both paths number the same list, so a citation means the same thing
+    whichever wrote the answer."""
+    sources = [{"source_name": f"source {i}"} for i in range(5)]
+    payload = _build_payload(P02_PROFILE, [], ValidationResult(approved=True), sources, 3, "")
+
+    presented = _llm_payload(payload)["sources"]
+
+    assert [s["number"] for s in presented] == list(range(1, len(sources) + 1))
+    assert [s["source_name"] for s in presented] == [s["source_name"] for s in payload["sources"]]
