@@ -624,7 +624,9 @@ svg {
 textarea {
   width: 100%;
   height: 254px;
-  padding: 30px 72px 36px 30px;
+  /* Right padding clears the Run Agent button, which is a labelled pill rather
+     than an icon, so long lines cannot run underneath it. */
+  padding: 30px 184px 36px 30px;
   border: 0;
   outline: none;
   resize: vertical;
@@ -669,25 +671,33 @@ textarea::placeholder {
   color: var(--blue);
 }
 
+/* The label is visible, not screen-reader-only: the brief asks for a "Run
+   Agent" button, and an unlabelled circle is not one. */
 #submit-btn {
   position: absolute;
   right: 20px;
   bottom: 17px;
-  display: grid;
-  place-items: center;
-  width: 50px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
   height: 50px;
+  padding: 0 22px;
   border: 0;
-  border-radius: 50%;
+  border-radius: 25px;
   color: #ffffff;
   background: linear-gradient(180deg, #4496ff 0%, var(--blue) 100%);
   box-shadow: 0 12px 25px rgba(17, 104, 245, 0.34);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
 }
 
 #submit-btn svg {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
+  flex: none;
 }
 
 #submit-btn:disabled {
@@ -695,17 +705,6 @@ textarea::placeholder {
   cursor: not-allowed;
 }
 
-.submit-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
 
 .loading {
   align-items: center;
@@ -1855,13 +1854,15 @@ textarea::placeholder {
   }
 
   textarea {
-    padding: 23px 64px 34px 22px;
+    padding: 23px 22px 78px 22px;
     font-size: 16px;
   }
 
   #submit-btn {
-    width: 46px;
     height: 46px;
+    padding: 0 18px;
+    border-radius: 23px;
+    font-size: 15px;
     right: 14px;
     bottom: 14px;
   }

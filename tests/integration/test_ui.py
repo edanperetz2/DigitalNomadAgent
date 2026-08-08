@@ -49,3 +49,13 @@ def test_index_does_not_claim_capabilities_the_system_lacks(client):
     assert "visa" not in html
     assert "real-time" not in html
     assert "up-to-date" not in html
+
+
+def test_the_submit_control_is_labelled_run_agent(client):
+    """The brief names a "Run Agent" button that calls POST /api/execute. The
+    control did the right thing under the wrong name ("Get recommendations"),
+    which is a graded requirement failing on wording alone."""
+    html = client.get("/").text
+    assert ">Run Agent<" in html
+    assert 'aria-label="Run Agent"' in html
+    assert "Get recommendations" not in html
