@@ -281,13 +281,25 @@ def _unmeetable_budget_conflict(
     if len(comparisons) < 2 or any(remaining >= 0 for _, _, remaining, _ in comparisons):
         return None
 
-    place, monthly_total, _, estimate_currency = min(comparisons, key=lambda row: row[1])
+    place, monthly_total, remaining, estimate_currency = min(comparisons, key=lambda row: row[1])
     stated_currency = profile.budget.currency or "USD"
-    multiple = monthly_total / profile.budget.amount
+    currency = estimate_currency or stated_currency
+    # The estimate is not always in the currency the budget was stated in, and
+    # dividing one by the other compared 1,031 USD against a 700 EUR budget and
+    # called it "roughly 1.5x" (P03). BudgetFitTool has already done the
+    # conversion: `remaining` is the budget minus the estimate, both in the
+    # estimate's currency, so the converted budget is exactly their sum.
+    converted_budget = monthly_total + remaining
+    stated = f"Your budget is {profile.budget.amount:g} {stated_currency} a month"
+    if currency != stated_currency:
+        stated += f", about {converted_budget:,.0f} {currency}"
+    multiple = monthly_total / converted_budget if converted_budget > 0 else None
+    overrun = (
+        f" -- roughly {multiple:.1f}x that" if multiple and multiple >= 1.05 else " -- over that"
+    )
     return (
-        f"Your budget is {profile.budget.amount:g} {stated_currency} a month. The cheapest place "
-        f"researched, {place}, comes to about {monthly_total:,.0f} "
-        f"{estimate_currency or stated_currency} -- roughly {multiple:.1f}x that. The ranking "
+        f"{stated}. The cheapest place researched, {place}, comes to about "
+        f"{monthly_total:,.0f} {currency}{overrun}. The ranking "
         "below is the best of what was researched, not a list of places you can afford."
     )
 
