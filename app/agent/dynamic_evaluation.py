@@ -272,8 +272,31 @@ _HARD_CONSTRAINT_KEYWORDS: dict[str, tuple[str, ...]] = {
         "walkable",
         "public transport",
         "public transportation",
+        # Bare "car" catches the phrasings the list above misses -- "requires a
+        # car", "renting a car", "a car is needed" -- which otherwise left P04
+        # reporting one requirement both met and unchecked in the same answer.
+        # Word-bounded, so it does not fire inside "carnival" or "care".
+        "car",
     ),
     "accessibility": ("airport", "airports", "easy to reach", "easy to get to", "get there"),
+    # `climate` is scored on every request that states months, and had no row
+    # here at all -- so a stated climate requirement matched nothing. Harmless
+    # while unmatched requirements were dropped; once they are disclosed (D70),
+    # it tells a couple ranking cities by winter warmth that nothing could check
+    # "cold that leaves them housebound".
+    "climate": (
+        "climate",
+        "weather",
+        "cold",
+        "warm",
+        "hot",
+        "mild",
+        "sunny",
+        "snow",
+        "rain",
+        "humid",
+        "temperature",
+    ),
     "activities": ("activities", "activity", "hiking", "beach", "beaches", "culture", "nightlife"),
     "safety": ("safety", "safe", "crime", "danger", "dangerous", "security"),
     "flight_duration": ("flight time", "flight duration", "flying time", "hours of flying", "hour flight"),
@@ -287,6 +310,12 @@ _HARD_CONSTRAINT_KEYWORDS: dict[str, tuple[str, ...]] = {
         "wheelchair",
         "hilly",
         "steep",
+        # The noun, not bare "accessible": P06 stated "lack of accessibility" as
+        # a deal-breaker and it matched nothing, so an answer measuring terrain
+        # for every candidate reported it as uncheckable. Kept to the specific
+        # word because bare "accessible" among these triggers is what made
+        # elevation the headline of a prompt about snow and cafes (D46).
+        "accessibility",
     ),
 }
 # A few requirements are recognisable by shape rather than vocabulary. A budget
@@ -314,6 +343,14 @@ _HARD_CONSTRAINT_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
 # cannot flood the answer.
 MAX_UNMATCHED_CONSTRAINTS = 4
 MAX_UNMATCHED_CONSTRAINT_CHARS = 90
+
+
+# Judged and reported like any other stated requirement, but never a reason to
+# drop a place. Climate joined the keyword table so a stated climate need stops
+# being reported as uncheckable -- turning it into a filter at the 0.2 floor is
+# a much larger change, and one D24 and D28 already showed can empty the field.
+# The traveller's climate preference carries weight in the ranking either way.
+_REPORTED_BUT_NEVER_ELIMINATING: frozenset[str] = frozenset({"climate"})
 
 
 def criteria_for_constraint(phrase: str) -> list[str]:
@@ -1334,6 +1371,8 @@ def _check_hard_constraints(
             else None
         )
         hard_results[criterion] = passes
+        if passes is False and criterion in _REPORTED_BUT_NEVER_ELIMINATING:
+            continue
         if passes is False and not eliminated:
             eliminated = True
             # Says which way it fails. Removing the score in D41 left "the
