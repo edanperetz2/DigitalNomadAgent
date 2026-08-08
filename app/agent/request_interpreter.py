@@ -37,26 +37,26 @@ missing_information (list), assumptions (list), clarification_required (bool), \
 clarification_question (string or null).
 
 target_months must list every calendar month the stay actually covers, worked out from \
-dates_or_season together with duration: "ten days in October" -> [10]; "three months starting in \
-April" -> [4, 5, 6]; "roughly November through April" -> [11, 12, 1, 2, 3, 4]; "next spring" -> \
-[3, 4, 5]. A bare season is usable timing and must be filled in: "a month this winter" -> \
-[12, 1, 2], "escaping the winter" -> [12, 1, 2], "next summer" -> [6, 7, 8]. Read bare season \
+dates_or_season together with duration: "five days in March" -> [3]; "three months from \
+June" -> [6, 7, 8]; "October through February" -> [10, 11, 12, 1, 2]; "next spring" -> \
+[3, 4, 5]. A bare season is usable timing and must be filled in: "a winter month" -> \
+[12, 1, 2], "over the summer" -> [6, 7, 8]. Read bare season \
 words as northern-hemisphere months and record that in assumptions. Leave the list EMPTY only \
 when the request gives no timing at all, not even a season -- climate is simply not scored \
 without it, so an empty list is correct there and a guessed month is not.
 
 max_flight_hours and min_timezone_overlap_hours are numbers, not sentences. If the traveller \
-caps how long they will fly ("nothing over five hours", "I'd rather not fly more than about ten \
-hours"), put that figure in max_flight_hours. If they require working-hours overlap with a place \
-or zone ("at least four hours of overlap with US Eastern"), put that figure in \
-min_timezone_overlap_hours. Use null when they say nothing about it. State the requirement in \
+caps how long they will fly ("no more than six hours in the air", "I'd rather not fly more than \
+about eight hours"), put that figure in max_flight_hours. If they require working-hours overlap \
+with a place or zone ("at least three hours of overlap with a client's time zone"), put that \
+figure in min_timezone_overlap_hours. Use null when they say nothing about it. State the requirement in \
 hard_constraints as well if it is non-negotiable, but the number belongs in these fields -- it is \
 compared against measured hours, and a figure buried in a sentence cannot be.
 
 preferred_regions must contain ONLY geographic areas -- continents, sub-regions or countries \
 ("Europe", "Southeast Asia", "Spain"). Never put a city, a city size, or any non-geographic \
 phrase there. If the user names a specific place they are considering and wants it judged \
-("I've settled on Lisbon -- is it a good fit?"), put that place in named_destinations instead, \
+(e.g. "is <city> a good fit for me?"), put that place in named_destinations instead, \
 and still propose alternatives.
 
 Interpret "must"/"required"/"non-negotiable" as hard constraints, "most important" as a very \
