@@ -1463,9 +1463,20 @@ textarea::placeholder {
   font-weight: 850;
 }
 
-.detail-extra {
+/* "Relevant evidence", "Budget fit", "Verdict" and anything else the writer
+   labelled: full width under the why/drawback/confidence row. */
+.detail-group-wide {
   grid-column: 1 / -1;
   padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.detail-group-wide .markdown-body p {
+  margin: 0 0 6px;
+}
+
+.detail-group-wide .markdown-body p:last-child {
+  margin-bottom: 0;
 }
 
 .info-grid {
@@ -1508,6 +1519,63 @@ textarea::placeholder {
 .info-assumptions {
   color: var(--purple);
   background: var(--purple-soft);
+}
+
+.info-disclosure {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+/* The deterministic disclosures. Deliberately the first thing on the page and
+   deliberately louder than a normal panel: on an out-of-scope request this
+   block is the answer, not a footnote to it. */
+.disclosures-panel {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  margin-bottom: 14px;
+  padding: 20px;
+  border: 1px solid var(--red-soft);
+  border-left: 4px solid var(--red);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+  box-shadow: var(--shadow-soft);
+}
+
+.disclosures-panel .markdown-body > :first-child {
+  margin-top: 0;
+}
+
+.disclosures-panel .markdown-body > :last-child {
+  margin-bottom: 0;
+}
+
+.interpretation-panel,
+.extra-panel {
+  margin-bottom: 14px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+  box-shadow: var(--shadow-soft);
+}
+
+.interpretation-panel h3,
+.extra-panel h3 {
+  margin: 0 0 8px;
+  color: var(--text-strong);
+  font-size: 17px;
+  font-weight: 850;
+}
+
+.interpretation-panel .markdown-body > :last-child,
+.extra-panel > :last-child {
+  margin-bottom: 0;
+}
+
+.extra-panel {
+  margin-top: 10px;
 }
 
 .markdown-body h2,

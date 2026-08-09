@@ -289,31 +289,39 @@
     return normalizeTitle(header).replace(/\s+/g, "_");
   }
 
+  // Everything above the first heading becomes a level-0 section rather than
+  // being dropped. That text is not a stray preamble: _assemble() in
+  // app/agent/recommendation_generator.py deliberately puts every
+  // deterministic disclosure *above* the model's body -- what cannot be
+  // satisfied, what the agent cannot answer, what ran degraded, what the
+  // ranking could not measure. On a request that is mostly out of scope those
+  // blocks are the answer, and the UI used to show none of them.
   function splitSections(markdown) {
     const sections = [];
-    let current = null;
+    let current = { level: 0, title: "", lines: [] };
 
     for (const line of String(markdown || "").split(/\r?\n/)) {
       const heading = /^(#{2,4})\s+(.+?)\s*$/.exec(line);
       if (heading) {
-        if (current) sections.push(current);
+        sections.push(current);
         current = {
           level: heading[1].length,
           title: heading[2].trim(),
           lines: [],
         };
-      } else if (current) {
+      } else {
         current.lines.push(line);
       }
     }
 
-    if (current) sections.push(current);
-    return sections;
+    sections.push(current);
+    return sections.filter(
+      (section) => section.title || section.lines.some((line) => line.trim())
+    );
   }
 
-  function findSection(sections, acceptedTitles) {
-    const accepted = new Set(acceptedTitles);
-    return sections.find((section) => accepted.has(normalizeTitle(section.title))) || null;
+  function sectionBody(section) {
+    return section.lines.join("\n").trim();
   }
 
   function parseMarkdownTable(lines) {
@@ -338,83 +346,232 @@
     return rows;
   }
 
+  // A place heading arrives in every shape the writer felt like using:
+  // "### 1. Lisbon, Portugal", "### 1) Dubai -- **yes**", plain "## Sofia".
+  // The rank prefix takes a dot or a bracket, and an em/en-dash tail is a
+  // verdict clause, not part of the name -- matched before the comma split so
+  // "Dubai -- **yes**" does not become a place called "Dubai -- **yes**".
   function parsePlaceTitle(title) {
-    const match = /^(\d+)\.\s+(.+)$/.exec(title.trim());
+    const match = /^(\d+)[.)]\s+(.+)$/.exec(title.trim());
     const rank = match ? match[1] : "";
     const label = match ? match[2].trim() : title.trim();
-    const parts = label.split(",");
-    const place = (parts.shift() || label).trim();
+    const [head, ...tail] = label.split(/\s+[—–]\s+/);
+    const verdict = tail.join(" — ").trim();
+    const parts = head.split(",");
+    const place = (parts.shift() || head).trim();
     const country = parts.join(",").trim();
-    return { rank, place, country, label };
+    return { rank, place, country, label, verdict };
   }
 
-  function parsePlaceSection(section) {
-    const parsedTitle = parsePlaceTitle(section.title);
+  const PLACE_FIELD_SLOTS = {
+    "why it fits": "why",
+    "main drawback": "drawbacks",
+    "evidence limitations": "limitations",
+    "evidence limitation": "limitations",
+    confidence: "confidence",
+  };
+
+  // Bullets are the one place a colon usually is not a label: "- Monthly
+  // estimate well below your cap: EUR 638" is a sentence, and treating its
+  // first clause as a field name would shred the evidence list under a
+  // "**Relevant evidence**" sub-heading. So a bullet only opens a field when
+  // it names one this answer format actually uses -- which keeps the
+  // deterministic renderer's "- Why it fits: ..." bullets working.
+  const KNOWN_PLACE_LABELS = new Set([
+    ...Object.keys(PLACE_FIELD_SLOTS),
+    "evidence trail",
+    "relevant evidence",
+    "budget fit",
+    "main trade off",
+    "verdict",
+  ]);
+
+  // Label/value pairs arrive three ways and all three have to be read. The
+  // deterministic renderer writes "- Why it fits: ...", the model writes
+  // "**Relevant evidence:** ..." as a bold-led paragraph, and sometimes it
+  // promotes each label to its own "### Budget fit" sub-heading. Only the
+  // first was understood, so on a real answer every "Relevant evidence",
+  // "Budget fit", "Main trade-off" and "Verdict" landed in an unlabelled blob.
+  function parsePlaceSection(section, subSections) {
     const detail = {
-      ...parsedTitle,
+      ...parsePlaceTitle(section.title),
       why: [],
       drawbacks: [],
       limitations: [],
       confidence: "",
-      other: [],
+      fields: [],
+    };
+
+    const assign = (label, value) => {
+      const text = String(value || "").trim();
+      const slot = PLACE_FIELD_SLOTS[normalizeTitle(label)];
+      if (slot === "confidence") {
+        if (text) detail.confidence = text;
+      } else if (slot) {
+        if (text) detail[slot].push(text);
+      } else if (label || text) {
+        detail.fields.push({ label: String(label || "").trim(), value: text });
+      }
+    };
+
+    // A label does not have to carry its value on the same line. "**Relevant
+    // evidence**" is a bold sub-heading whose bullets follow underneath, and a
+    // value can run to several paragraphs -- so an open label collects the
+    // lines after it until the next label closes it. Requiring the value
+    // inline dropped both shapes outright.
+    let open = null;
+    const flush = () => {
+      if (!open) return;
+      assign(open.label, open.lines.join("\n"));
+      open = null;
     };
 
     section.lines.forEach((line) => {
       const trimmed = line.trim();
-      if (!trimmed) return;
-
-      const bullet = /^[-*]\s+(.+)$/.exec(trimmed);
-      const text = bullet ? bullet[1].trim() : trimmed;
-      const pair = /^([^:]+):\s*(.*)$/.exec(text);
-      if (!pair) {
-        detail.other.push(text);
+      if (!trimmed) {
+        if (open) open.lines.push("");
         return;
       }
 
-      const key = normalizeTitle(pair[1]);
-      const value = pair[2].trim();
-      if (key === "why it fits") {
-        detail.why.push(value);
-      } else if (key === "main drawback") {
-        detail.drawbacks.push(value);
-      } else if (key === "evidence limitations" || key === "evidence limitation") {
-        detail.limitations.push(value);
-      } else if (key === "confidence") {
-        detail.confidence = value;
-      } else {
-        detail.other.push(text);
+      const bullet = /^[-*]\s+(.+)$/.exec(trimmed);
+      const text = bullet ? bullet[1].trim() : trimmed;
+      // "**Label:** value" first -- a bold label may itself contain a colon
+      // ("**Main trade-off:**"), which the plain pattern would split wrongly.
+      const bolded = /^\*\*([^*]+?):?\*\*:?\s*(.*)$/.exec(text);
+      const colon = /^([^:]{1,40}):\s*(.*)$/.exec(text);
+      const labelled = bullet
+        ? colon && KNOWN_PLACE_LABELS.has(normalizeTitle(colon[1]))
+          ? colon
+          : null
+        : colon;
+      const pair = bolded || labelled;
+      if (!pair) {
+        if (!open) open = { label: "", lines: [] };
+        open.lines.push(bullet ? `- ${text}` : text);
+        return;
       }
+
+      let label = pair[1].trim();
+      let value = pair[2].trim();
+      // "**Verdict: yes.**" bolds the whole statement rather than just the
+      // label, leaving nothing after the closing asterisks.
+      if (!value && label.includes(":")) {
+        const cut = label.indexOf(":");
+        value = label.slice(cut + 1).trim();
+        label = label.slice(0, cut).trim();
+      }
+
+      flush();
+      open = { label, lines: value ? [value] : [] };
     });
+    flush();
+
+    // "### 1) Dubai -- **yes**" and a "**Verdict:** yes." line in the body are
+    // the same statement written twice; only promote the heading's tail when
+    // the body did not already say it.
+    const statedVerdict = detail.fields.some((field) => normalizeTitle(field.label) === "verdict");
+    if (detail.verdict && !statedVerdict) {
+      detail.fields.unshift({ label: "Verdict", value: detail.verdict });
+    }
+    (subSections || []).forEach((sub) => assign(sub.title, sectionBody(sub)));
 
     return detail;
+  }
+
+  // One role per section, and "other" is a real destination rather than a
+  // synonym for discarded. The previous parser matched five exact titles and
+  // silently dropped everything else, which on real answers meant "Brief
+  // interpretation", "Assumptions", "Trade-offs discussion" and every
+  // unnumbered place section never reached the page at all.
+  function classifySection(section, placeNames) {
+    if (section.level === 0) return "preamble";
+
+    const title = normalizeTitle(section.title);
+    if (title.includes("best match")) return "bestMatches";
+    if (title.includes("trade off")) return "tradeoffs";
+    if (title.includes("assumption") || title.includes("limitation")) return "assumptions";
+    if (title.includes("source") || title.includes("reference") || title.includes("bibliograph")) {
+      return "sources";
+    }
+    if (title.includes("interpretation") || title.includes("brief read")) return "interpretation";
+
+    if (/^\d+[.)]\s+/.test(section.title.trim())) return "place";
+    const parsed = parsePlaceTitle(section.title);
+    if (placeNames.has(normalizeTitle(parsed.place))) return "place";
+
+    return "other";
   }
 
   function parseRecommendationMarkdown(markdown) {
     const sections = splitSections(markdown);
     if (!sections.length) return null;
 
-    const interpretation = findSection(sections, ["interpretation"]);
-    const bestMatchesSection = findSection(sections, ["best matches"]);
-    const tradeoffs = findSection(sections, ["trade offs", "tradeoffs"]);
-    const assumptions = findSection(sections, ["assumptions and limitations", "assumptions limitations"]);
-    const sources = findSection(sections, ["sources"]);
+    const bestMatchesSection = sections.find((section) =>
+      normalizeTitle(section.title).includes("best match")
+    );
     const bestMatches = bestMatchesSection ? parseMarkdownTable(bestMatchesSection.lines) : [];
-    const details = sections
-      .filter((section) => section.level >= 3 && /^\d+\.\s+/.test(section.title))
-      .map(parsePlaceSection);
+    const placeNames = new Set(bestMatches.map((row) => normalizeTitle(row.place)));
 
-    if (!interpretation && !bestMatches.length && !details.length && !tradeoffs && !assumptions) {
-      return null;
+    const parsed = {
+      preamble: [],
+      interpretation: [],
+      details: [],
+      tradeoffs: [],
+      assumptions: [],
+      sources: [],
+      other: [],
+      bestMatches,
+      detailsHeading: "",
+    };
+
+    for (let i = 0; i < sections.length; i += 1) {
+      const section = sections[i];
+      const role = classifySection(section, placeNames);
+
+      // "## Recommended places" / "## Recommendations" is an empty wrapper
+      // around the per-place sections. Rendering it as its own block would
+      // put a bordered panel containing nothing but a heading above the
+      // cards, so it names the cards instead -- kept, not dropped.
+      const nextIsPlace =
+        i + 1 < sections.length && classifySection(sections[i + 1], placeNames) === "place";
+      if (role === "other" && !sectionBody(section) && nextIsPlace) {
+        parsed.detailsHeading = section.title;
+        continue;
+      }
+
+      if (role === "place") {
+        // A place owns every deeper heading that follows it, up to the next
+        // heading at its own level or shallower. Without this the "### Main
+        // trade-off" sub-heading under "## Dublin" would be read as the
+        // document's trade-offs section.
+        const subSections = [];
+        while (i + 1 < sections.length && sections[i + 1].level > section.level) {
+          subSections.push(sections[i + 1]);
+          i += 1;
+        }
+        parsed.details.push(parsePlaceSection(section, subSections));
+      } else if (role === "bestMatches") {
+        // The rows are already merged into the place cards; keep any prose
+        // that sat alongside the table so it is not lost with it.
+        const prose = section.lines.filter((line) => !/^\s*\|.*\|\s*$/.test(line));
+        if (prose.some((line) => line.trim())) {
+          parsed.other.push({ ...section, lines: prose });
+        }
+      } else {
+        parsed[role].push(section);
+      }
     }
 
-    return {
-      interpretation,
-      bestMatches,
-      details,
-      tradeoffs,
-      assumptions,
-      sources,
-    };
+    const rendersSomething =
+      parsed.preamble.length ||
+      parsed.interpretation.length ||
+      parsed.details.length ||
+      parsed.tradeoffs.length ||
+      parsed.assumptions.length ||
+      parsed.other.length ||
+      bestMatches.length;
+
+    return rendersSomething ? parsed : null;
   }
 
   function confidenceClass(confidence) {
@@ -577,10 +734,25 @@
     return `${elapsedDays}d ago`;
   }
 
-  function sectionHtml(section) {
-    if (!section) return "";
-    const body = section.lines.join("\n").trim();
-    return body ? safeMarkdownToHtml(body) : "<p>Not specified.</p>";
+  // Several sections can land in one role -- an answer carries both
+  // "## Assumptions" near the top and "## Assumptions and limitations" at the
+  // bottom, and both belong in the panel. The first section's own heading
+  // names the panel and the rest keep theirs inline, so the writer's wording
+  // survives: "Trade-offs across the three" says more than a generic
+  // "Trade-offs", and it is their sentence to write, not this layout's.
+  function panelFromSections(sections, fallbackTitle) {
+    const present = (sections || []).filter((section) => sectionBody(section) || section.title);
+    if (!present.length) {
+      return { title: fallbackTitle, html: "<p>Not specified.</p>", empty: true };
+    }
+    const html = present
+      .map((section, index) => {
+        const heading =
+          index > 0 && section.title ? `<h4>${inlineMarkdownToHtml(section.title)}</h4>` : "";
+        return heading + safeMarkdownToHtml(sectionBody(section));
+      })
+      .join("\n");
+    return { title: present[0].title || fallbackTitle, html, empty: false };
   }
 
   function listHtml(items) {
@@ -607,7 +779,7 @@
           detail.drawbacks && detail.drawbacks.length ? detail.drawbacks : [match.main_drawback].filter(Boolean),
         limitations: detail.limitations || [],
         confidence: detail.confidence || match.confidence || "Medium",
-        other: detail.other || [],
+        fields: detail.fields || [],
       };
     });
 
@@ -627,7 +799,7 @@
           drawbacks: detail.drawbacks,
           limitations: detail.limitations,
           confidence: detail.confidence || "Medium",
-          other: detail.other,
+          fields: detail.fields,
         });
       }
     });
@@ -635,68 +807,40 @@
     return items;
   }
 
-  function renderBestMatchesTable(items) {
-    if (!items.length) return "";
-
-    const rows = items
-      .map((item) => {
-        const confidence = item.confidence || "Medium";
-        return `
-          <tr>
-            <td class="rank-cell"><span class="rank-badge">${escapeHtml(item.rank)}</span></td>
-            <td>
-              <div class="place-cell">
-                ${thumbMarkup(item)}
-                <span>
-                  <span class="place-name">${inlineMarkdownToHtml(item.place)}</span>
-                  ${item.country ? `<span class="place-country">${inlineMarkdownToHtml(item.country)}</span>` : ""}
-                </span>
-              </div>
-            </td>
-            <td>${inlineMarkdownToHtml(item.why[0] || "Not specified.")}</td>
-            <td>${inlineMarkdownToHtml(item.drawbacks[0] || "Not specified.")}</td>
-            <td><span class="confidence-pill ${confidenceClass(confidence)}">${inlineMarkdownToHtml(confidence)}</span></td>
-          </tr>
-        `;
-      })
-      .join("");
-
-    return `
-      <section class="table-card" aria-labelledby="best-matches-heading">
-        <h3 id="best-matches-heading">Best matches</h3>
-        <div class="table-wrap">
-          <table class="recommendations-table">
-            <thead>
-              <tr>
-                <th>Rank</th>
-                <th>Place</th>
-                <th>Why it fits</th>
-                <th>Main drawback</th>
-                <th>Confidence</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-      </section>
-    `;
-  }
-
-  function renderDetails(items) {
+  function renderDetails(items, heading) {
     if (!items.length) return "";
 
     const cards = items
       .map((item, index) => {
         const title = `${item.rank}. ${item.place}${item.country ? `, ${item.country}` : ""}`;
-        const mainDrawback = item.drawbacks[0] || "Not specified.";
-        const secondaryDetails = [
-          ...item.drawbacks.slice(1).map((drawback) => `Main drawback: ${drawback}`),
-          ...item.limitations.map((limitation) => `Evidence limitations: ${limitation}`),
-        ];
-        const confidence = item.confidence || "Medium";
-        const extra = item.other && item.other.length
-          ? `<div class="detail-extra markdown-body">${safeMarkdownToHtml(item.other.join("\n"))}</div>`
+        // The group's own heading already says "Main drawback", so repeating
+        // it on every entry after the first just stutters.
+        const drawbacks = item.drawbacks.length ? item.drawbacks : ["Not specified."];
+        const limitations = item.limitations.length
+          ? `
+              <div class="detail-group detail-group-wide">
+                <h4>Evidence limitations</h4>
+                ${listHtml(item.limitations)}
+              </div>
+            `
           : "";
+        const confidence = item.confidence || "Medium";
+        // Everything the writer said about this place that is not "why it
+        // fits", "main drawback" or the confidence -- relevant evidence,
+        // budget fit, the verdict, whatever else they chose to write. Each
+        // keeps the label it was given instead of being flattened into one
+        // unlabelled block.
+        const extra = (item.fields || [])
+          .filter((field) => field.value || field.label)
+          .map(
+            (field) => `
+              <div class="detail-group detail-group-wide">
+                ${field.label ? `<h4>${inlineMarkdownToHtml(field.label)}</h4>` : ""}
+                <div class="markdown-body">${safeMarkdownToHtml(field.value)}</div>
+              </div>
+            `
+          )
+          .join("");
 
         return `
           <details class="place-card" ${index === 0 ? "open" : ""}>
@@ -717,7 +861,7 @@
               </div>
               <div class="detail-group">
                 <h4>Main drawback</h4>
-                ${listHtml([mainDrawback, ...secondaryDetails])}
+                ${listHtml(drawbacks)}
               </div>
               <div class="confidence-panel">
                 <span class="confidence-panel-icon" aria-hidden="true">
@@ -728,6 +872,7 @@
                 <span>Confidence</span>
                 <span class="confidence-pill ${confidenceClass(confidence)}">${inlineMarkdownToHtml(confidence)}</span>
               </div>
+              ${limitations}
               ${extra}
             </div>
           </details>
@@ -737,26 +882,78 @@
 
     return `
       <section class="details-section" aria-labelledby="recommendation-details-heading">
-        <h3 id="recommendation-details-heading">Recommendation details</h3>
+        <h3 id="recommendation-details-heading">${inlineMarkdownToHtml(heading || "Recommendation details")}</h3>
         ${cards}
       </section>
     `;
   }
 
-  function renderInfoPanels(parsed) {
-    const tradeoffsHtml = sectionHtml(parsed.tradeoffs);
-    const assumptionsHtml = sectionHtml(parsed.assumptions);
+  // The deterministic disclosures that _assemble() puts above the answer.
+  // They are the reader's warning that the comparison narrowed, that a
+  // requirement could not be checked, or that what they asked for is outside
+  // what the agent can do -- so they lead, rather than being dropped.
+  function renderDisclosures(sections) {
+    const body = (sections || []).map(sectionBody).filter(Boolean).join("\n\n");
+    if (!body) return "";
+    return `
+      <section class="disclosures-panel" aria-label="Before you read this">
+        <span class="info-icon info-disclosure" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false">
+            <path d="M12 3 2 20h20L12 3Z" />
+            <path d="M12 10v4M12 17h.01" />
+          </svg>
+        </span>
+        <div class="markdown-body">${safeMarkdownToHtml(body)}</div>
+      </section>
+    `;
+  }
 
-    const sourcesHtml = parsed.sources
-      ? `
+  function renderInterpretation(sections) {
+    const panel = panelFromSections(sections, "How your request was read");
+    if (panel.empty) return "";
+    return `
+      <section class="interpretation-panel">
+        <h3>${inlineMarkdownToHtml(panel.title)}</h3>
+        <div class="markdown-body">${panel.html}</div>
+      </section>
+    `;
+  }
+
+  // Whatever the writer wrote that this UI has no dedicated slot for. It is
+  // rendered in document order with its own heading rather than discarded --
+  // the point of the rewrite: the layout decides how text is presented, never
+  // whether it survives.
+  function renderOtherSections(sections) {
+    const blocks = (sections || [])
+      .map((section) => {
+        const body = sectionBody(section);
+        if (!body && !section.title) return "";
+        const heading = section.title
+          ? `<h3>${inlineMarkdownToHtml(section.title)}</h3>`
+          : "";
+        return body || heading
+          ? `<section class="extra-panel markdown-body">${heading}${safeMarkdownToHtml(body)}</section>`
+          : "";
+      })
+      .filter(Boolean);
+    return blocks.join("\n");
+  }
+
+  function renderInfoPanels(parsed) {
+    const tradeoffs = panelFromSections(parsed.tradeoffs, "Trade-offs");
+    const assumptions = panelFromSections(parsed.assumptions, "Assumptions and limitations");
+    const sources = panelFromSections(parsed.sources, "Sources");
+
+    const sourcesHtml = sources.empty
+      ? ""
+      : `
         <section class="sources-panel markdown-body">
           <details>
-            <summary>Sources</summary>
-            <div>${sectionHtml(parsed.sources)}</div>
+            <summary>${inlineMarkdownToHtml(sources.title)}</summary>
+            <div>${sources.html}</div>
           </details>
         </section>
-      `
-      : "";
+      `;
 
     return `
       <div class="info-grid">
@@ -767,8 +964,8 @@
             </svg>
           </span>
           <div class="markdown-body">
-            <h3>Trade-offs</h3>
-            ${tradeoffsHtml}
+            <h3>${inlineMarkdownToHtml(tradeoffs.title)}</h3>
+            ${tradeoffs.html}
           </div>
         </article>
         <article class="info-panel">
@@ -779,8 +976,8 @@
             </svg>
           </span>
           <div class="markdown-body">
-            <h3>Assumptions and limitations</h3>
-            ${assumptionsHtml}
+            <h3>${inlineMarkdownToHtml(assumptions.title)}</h3>
+            ${assumptions.html}
           </div>
         </article>
       </div>
@@ -795,13 +992,19 @@
     }
 
     const items = mergeRecommendationItems(parsed);
-    if (!items.length) {
+    if (!items.length && !parsed.preamble.length && !parsed.other.length) {
       return `<div class="recommendation-board markdown-body">${safeMarkdownToHtml(markdown)}</div>`;
     }
 
+    // Every section the answer contains reaches one of these six calls: the
+    // five roles this layout knows, plus renderOtherSections for the rest.
+    // Nothing is filtered out along the way.
     return `
       <div class="recommendation-board">
-        ${renderDetails(items)}
+        ${renderDisclosures(parsed.preamble)}
+        ${renderInterpretation(parsed.interpretation)}
+        ${renderDetails(items, parsed.detailsHeading)}
+        ${renderOtherSections(parsed.other)}
         ${renderInfoPanels(parsed)}
       </div>
     `;
