@@ -436,12 +436,16 @@
     return { grade, reason: bare ? "" : text };
   }
 
-  // Bullets are the one place a colon usually is not a label: "- Monthly
-  // estimate well below your cap: EUR 638" is a sentence, and treating its
-  // first clause as a field name would shred the evidence list under a
-  // "**Relevant evidence**" sub-heading. So a bullet only opens a field when
-  // it names one this answer format actually uses -- which keeps the
-  // deterministic renderer's "- Why it fits: ..." bullets working.
+  // A colon or a bold run is not enough to make something a field name.
+  // Answers are prose: "Barcelona is strong on transport: the metro ...",
+  // "- **Medium**: strongest overall evidence ...", "**Yes if** you can be
+  // flexible" all fit the shape, and each one gave the card a heading that was
+  // really the first clause of a sentence. So a field is only named when it is
+  // named one of these; everything else is content.
+  //
+  // Note this is a whitelist for *labelling*, not for inclusion -- unlabelled
+  // text still renders in full. That is the difference between this and the
+  // section whitelist that caused the original bug.
   const KNOWN_PLACE_LABELS = new Set([
     ...Object.keys(PLACE_FIELD_SLOTS),
     "evidence trail",
@@ -450,6 +454,41 @@
     "main trade off",
     "verdict",
   ]);
+
+  // "**Verdict: yes.**" bolds the whole statement and "**Verdict: Yes if** you
+  // can accept ..." bolds the label plus the start of its sentence. Both hide
+  // the real label in front of a colon inside the bold run, so it is split out
+  // and the remainder handed back to the value.
+  function resolveLabel(rawLabel, rawValue) {
+    let label = String(rawLabel || "").trim();
+    let value = String(rawValue || "").trim();
+
+    const cut = label.indexOf(":");
+    if (cut > -1) {
+      const head = label.slice(0, cut).trim();
+      if (KNOWN_PLACE_LABELS.has(normalizeTitle(head))) {
+        value = [label.slice(cut + 1).trim(), value].filter(Boolean).join(" ");
+        label = head;
+      }
+    }
+
+    return KNOWN_PLACE_LABELS.has(normalizeTitle(label)) ? { label, value } : null;
+  }
+
+  // "**Why it fits**" over three bullets is a list, and the slots render as
+  // one, so it has to arrive as three entries. Collapsed into a single string
+  // it came out as one run-on line with stray "- " markers in the middle of
+  // it, because the slot lists render an entry as inline text, not markdown.
+  function asItems(text) {
+    const lines = String(text || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length > 1 && lines.every((line) => /^[-*]\s+/.test(line))) {
+      return lines.map((line) => line.replace(/^[-*]\s+/, ""));
+    }
+    return [String(text || "").trim()];
+  }
 
   // Label/value pairs arrive three ways and all three have to be read. The
   // deterministic renderer writes "- Why it fits: ...", the model writes
@@ -475,7 +514,7 @@
         if (grade) detail.confidence = grade;
         if (reason) detail.fields.push({ label: "Confidence", value: reason });
       } else if (slot) {
-        if (text) detail[slot].push(text);
+        if (text) detail[slot].push(...asItems(text));
       } else if (label || text) {
         detail.fields.push({ label: String(label || "").trim(), value: text });
       }
@@ -504,32 +543,20 @@
       const text = bullet ? bullet[1].trim() : trimmed;
       // "**Label:** value" first -- a bold label may itself contain a colon
       // ("**Main trade-off:**"), which the plain pattern would split wrongly.
+      // "**Label:** value" first -- a bold label may itself contain a colon
+      // ("**Main trade-off:**"), which the plain pattern would split wrongly.
       const bolded = /^\*\*([^*]+?):?\*\*:?\s*(.*)$/.exec(text);
-      const colon = /^([^:]{1,40}):\s*(.*)$/.exec(text);
-      const labelled = bullet
-        ? colon && KNOWN_PLACE_LABELS.has(normalizeTitle(colon[1]))
-          ? colon
-          : null
-        : colon;
-      const pair = bolded || labelled;
+      const colon = /^([^:]{1,60}):\s*(.*)$/.exec(text);
+      const candidate = bolded || colon;
+      const pair = candidate ? resolveLabel(candidate[1], candidate[2]) : null;
       if (!pair) {
         if (!open) open = { label: "", lines: [] };
         open.lines.push(bullet ? `- ${text}` : text);
         return;
       }
 
-      let label = pair[1].trim();
-      let value = pair[2].trim();
-      // "**Verdict: yes.**" bolds the whole statement rather than just the
-      // label, leaving nothing after the closing asterisks.
-      if (!value && label.includes(":")) {
-        const cut = label.indexOf(":");
-        value = label.slice(cut + 1).trim();
-        label = label.slice(0, cut).trim();
-      }
-
       flush();
-      open = { label, lines: value ? [value] : [] };
+      open = { label: pair.label, lines: pair.value ? [pair.value] : [] };
     });
     flush();
 
