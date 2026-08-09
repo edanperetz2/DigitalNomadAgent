@@ -44,6 +44,49 @@ class SavedSearchStore:
         rows = await cursor.fetchall()
         return [self._row_to_session(row) for row in rows]
 
+    async def seed_examples(self, examples: tuple[dict[str, Any], ...] | list[dict[str, Any]]) -> int:
+        """Write the shipped examples into a history that has none.
+
+        Only into an empty one. A visitor's own conversations are the history;
+        examples are what stands in for it before they have any, so anything
+        already saved means these are not wanted.
+
+        Timestamps are the real ones from the run that produced each answer, so
+        the sidebar dates them honestly rather than implying they were just
+        generated. Each row carries the true hash of its prompt, so a visitor
+        who submits that same prompt updates the example rather than ending up
+        with two copies of it.
+        """
+        cursor = await self._db.conn.execute("SELECT COUNT(*) FROM saved_search_sessions")
+        row = await cursor.fetchone()
+        if row[0]:
+            return 0
+
+        seeded = 0
+        for example in examples:
+            prompt = " ".join(str(example["prompt"]).split())
+            generated_at = example.get("generated_at") or _now_iso()
+            await self._db.conn.execute(
+                """
+                INSERT OR IGNORE INTO saved_search_sessions
+                  (id, request_hash, title, original_request, response_json, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    example["id"],
+                    _request_hash(prompt),
+                    example.get("title") or _title(prompt),
+                    prompt,
+                    json.dumps(example["result"], ensure_ascii=False, separators=(",", ":")),
+                    generated_at,
+                    generated_at,
+                ),
+            )
+            seeded += 1
+
+        await self._db.conn.commit()
+        return seeded
+
     async def save_session(self, *, prompt: str, result_data: dict[str, Any]) -> dict[str, Any]:
         now = _now_iso()
         normalized_prompt = " ".join(prompt.split())

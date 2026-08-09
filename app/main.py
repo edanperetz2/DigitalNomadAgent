@@ -25,6 +25,7 @@ from app.core.exceptions import BudgetExceededError, ConfigurationError, PlaceMa
 from app.core.logging import logger
 from app.evidence.cache import ToolCache
 from app.evidence.database import Database
+from app.evidence.example_sessions import load_example_sessions
 from app.evidence.memory import EvidenceMemory
 from app.evidence.saved_searches import SavedSearchStore
 from app.llm.base import BaseLLMClient
@@ -165,6 +166,11 @@ async def lifespan(app: FastAPI):
     db = Database(settings.sqlite_path_resolved)
     await db.connect()
     app.state.db = db
+
+    if settings.seed_example_sessions:
+        seeded = await SavedSearchStore(db).seed_examples(load_example_sessions())
+        if seeded:
+            logger.info("seeded_example_sessions count=%d", seeded)
 
     cache = ToolCache(db, default_ttl_hours=settings.cache_ttl_hours)
     evidence_memory = EvidenceMemory(db)

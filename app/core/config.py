@@ -95,6 +95,12 @@ class Settings(BaseSettings):
     # --- Storage / server -----------------------------------------------------------
     sqlite_path: str = "./data/digitalnomadagent.db"
     app_port: int = 8000
+    # Write the shipped example conversations into an empty history at startup.
+    # On Vercel the database lives in /tmp, which is wiped on every cold start,
+    # so a deployment otherwise shows an empty sidebar to its first visitor.
+    # Off by default: a developer's own history is theirs, and every test gets a
+    # fresh database that should stay empty unless the test fills it.
+    seed_example_sessions: bool = False
 
     # --- Request limits ---------------------------------------------------------------
     max_prompt_length: int = 4000

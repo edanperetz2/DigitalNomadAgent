@@ -12,6 +12,7 @@
   "env": {
     "MOCK_LLM": "false",
     "SQLITE_PATH": "/tmp/digitalnomadagent.db",
+    "SEED_EXAMPLE_SESSIONS": "true",
     "AGENT_EXECUTION_TIMEOUT_SECONDS": "270",
     "RECOMMENDATION_RESERVE_SECONDS": "60",
     "TOOL_EXECUTION_TIMEOUT_SECONDS": "50",
