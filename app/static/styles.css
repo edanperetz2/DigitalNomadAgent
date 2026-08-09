@@ -17,6 +17,8 @@
   --purple-soft: #f1e8ff;
   --yellow-soft: #ffe9b4;
   --yellow-text: #6e5115;
+  --red: #b3261e;
+  --red-soft: #ffe2e2;
   --error-bg: #fff1f1;
   --error-border: #ffd4d4;
   --error-text: #9b2424;
@@ -56,6 +58,8 @@ html[data-theme="dark"] {
   --purple-soft: #2c2145;
   --yellow-soft: #4b3d1f;
   --yellow-text: #ffe0a3;
+  --red: #ff9ba4;
+  --red-soft: #4a1f26;
   --error-bg: #351b24;
   --error-border: #6b2a38;
   --error-text: #ffb8c4;
@@ -1333,8 +1337,8 @@ textarea::placeholder {
 }
 
 .confidence-low {
-  color: var(--green);
-  background: var(--green-soft);
+  color: var(--red);
+  background: var(--red-soft);
 }
 
 .details-section {
