@@ -39,11 +39,6 @@
           <button type="button" class="clear-history-btn" id="clear-history-btn" hidden>Clear all</button>
         </div>
         <div class="history-toolbar" id="history-toolbar" hidden>
-          <div class="history-filter-group" role="group" aria-label="Filter conversation history">
-            <button type="button" class="history-filter-btn active" data-filter="all">All</button>
-            <button type="button" class="history-filter-btn" data-filter="llm">LLM</button>
-            <button type="button" class="history-filter-btn" data-filter="fallback">Fallback</button>
-          </div>
           <button type="button" class="clear-selected-btn" id="clear-selected-btn" disabled>Clear selected</button>
         </div>
         <div id="history-list" class="conversation-list dynamic-history" hidden></div>
@@ -192,13 +187,6 @@
             <span>Back to chat</span>
           </button>
           <h1>AI Conversations</h1>
-          <div class="history-toolbar">
-            <div class="history-filter-group" role="group" aria-label="Filter conversation history">
-              <button type="button" class="history-filter-btn active" data-filter="all">All</button>
-              <button type="button" class="history-filter-btn" data-filter="llm">LLM</button>
-              <button type="button" class="history-filter-btn" data-filter="fallback">Fallback</button>
-            </div>
-          </div>
           <div id="all-conversations-list" class="all-conversations-list"></div>
         </div>
       </section>

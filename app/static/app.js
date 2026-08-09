@@ -26,14 +26,7 @@
   const historyList = document.getElementById("history-list");
   const clearHistoryBtn = document.getElementById("clear-history-btn");
   const historyToolbar = document.getElementById("history-toolbar");
-  // Scoped by container, not just the shared .history-filter-btn class -- the
-  // sidebar stays visible on every view, so an unscoped query would also catch
-  // the "All Conversations" page's filter buttons and cross-wire their clicks.
-  const historyFilterButtons = Array.from(document.querySelectorAll("#history-toolbar .history-filter-btn"));
   const clearSelectedBtn = document.getElementById("clear-selected-btn");
-  const allConversationsFilterButtons = Array.from(
-    document.querySelectorAll("#conversations-view .history-filter-btn")
-  );
   const sidebarToggleBtn = document.getElementById("sidebar-toggle");
   const sidebarResizeHandle = document.getElementById("sidebar-resize-handle");
   const backToChatBtn = document.getElementById("back-to-chat");
@@ -98,9 +91,7 @@
   let loadingNoteTimer = null;
   let loadingElapsedTimer = null;
   let savedSearchSessions = [];
-  let historyFilter = "all";
   let selectedHistoryIds = new Set();
-  let allConversationsFilter = "all";
   let currentPrompt = "";
 
   function getStoredTheme() {
@@ -1057,18 +1048,6 @@
     renderHistory();
   }
 
-  // Derived from the disclosure line app/agent/recommendation_generator.py's
-  // _mode_disclosure_line()/render_recommendation_fallback() always appends to a
-  // successful response's markdown -- the only 3 possible strings it can contain.
-  function sessionMode(item) {
-    const text = item.response || "";
-    if (text.includes("a real LLM provider")) return "llm";
-    // Catches both "a deterministic fallback template" and "mock deterministic
-    // mode" -- per explicit instruction, mock counts as fallback here, not LLM.
-    if (text.includes("deterministic")) return "fallback";
-    return "unknown";
-  }
-
   function pruneSelectedHistoryIds() {
     const validIds = new Set(savedSearchSessions.map((item) => item.id));
     selectedHistoryIds.forEach((id) => {
@@ -1094,25 +1073,8 @@
       return;
     }
 
-    const filtered = savedSearchSessions.filter(
-      (item) => historyFilter === "all" || sessionMode(item) === historyFilter
-    );
-
-    if (!filtered.length) {
-      historyList.hidden = true;
-      historyList.innerHTML = "";
-      historyToolbar.insertAdjacentHTML(
-        "afterend",
-        '<p class="history-empty-note" id="history-empty-note">No conversations match this filter.</p>'
-      );
-      return;
-    }
-
-    const existingNote = document.getElementById("history-empty-note");
-    if (existingNote) existingNote.remove();
-
     historyList.hidden = false;
-    historyList.innerHTML = filtered
+    historyList.innerHTML = savedSearchSessions
       .map(
         (item) => `
           <div class="conversation-card history-card" data-history-id="${escapeHtml(item.id)}">
@@ -1140,7 +1102,6 @@
 
   function allConversationItems() {
     return savedSearchSessions
-      .filter((item) => allConversationsFilter === "all" || sessionMode(item) === allConversationsFilter)
       .map((item) => ({
         type: "history",
         id: item.id,
@@ -1153,10 +1114,8 @@
   function renderAllConversations() {
     const items = allConversationItems();
     if (!items.length) {
-      const message = savedSearchSessions.length
-        ? "No conversations match this filter."
-        : "No conversations are available yet.";
-      allConversationsList.innerHTML = `<div class="empty-conversations"><p>${escapeHtml(message)}</p></div>`;
+      allConversationsList.innerHTML =
+        '<div class="empty-conversations"><p>No conversations are available yet.</p></div>';
       return;
     }
 
@@ -1228,22 +1187,6 @@
       selectedHistoryIds.delete(id);
     }
     updateClearSelectedButton();
-  });
-
-  historyFilterButtons.forEach((filterBtn) => {
-    filterBtn.addEventListener("click", () => {
-      historyFilter = filterBtn.getAttribute("data-filter");
-      historyFilterButtons.forEach((btn) => btn.classList.toggle("active", btn === filterBtn));
-      renderHistory();
-    });
-  });
-
-  allConversationsFilterButtons.forEach((filterBtn) => {
-    filterBtn.addEventListener("click", () => {
-      allConversationsFilter = filterBtn.getAttribute("data-filter");
-      allConversationsFilterButtons.forEach((btn) => btn.classList.toggle("active", btn === filterBtn));
-      renderAllConversations();
-    });
   });
 
   clearHistoryBtn.addEventListener("click", async () => {
