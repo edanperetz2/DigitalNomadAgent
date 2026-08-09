@@ -1526,6 +1526,11 @@ textarea::placeholder {
   background: var(--red-soft);
 }
 
+.info-caveat {
+  color: var(--yellow-text);
+  background: var(--yellow-soft);
+}
+
 /* The deterministic disclosures. Deliberately the first thing on the page and
    deliberately louder than a normal panel: on an out-of-scope request this
    block is the answer, not a footnote to it. */
@@ -1541,6 +1546,14 @@ textarea::placeholder {
   border-radius: var(--radius);
   background: var(--surface-soft);
   box-shadow: var(--shadow-soft);
+}
+
+/* Same block, read after the ranking rather than before it: a caveat on an
+   answer you have already read, not a warning to read first. */
+.disclosures-footnote {
+  margin: 10px 0 0;
+  border-color: var(--yellow-soft);
+  border-left-color: var(--yellow-text);
 }
 
 .disclosures-panel .markdown-body > :first-child {

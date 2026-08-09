@@ -324,6 +324,30 @@
     return section.lines.join("\n").trim();
   }
 
+  // The preamble is several disclosure blocks in one run of text, each opening
+  // with a bold header on its own line. Trailing paragraphs inside a block do
+  // not start with "**", so they stay attached to the block they explain --
+  // which is why this splits on the header, not on blank lines.
+  function splitDisclosureBlocks(body) {
+    const blocks = [];
+    let current = [];
+    for (const line of String(body || "").split(/\r?\n/)) {
+      if (/^\s*\*\*/.test(line) && current.some((prior) => prior.trim())) {
+        blocks.push(current.join("\n").trim());
+        current = [];
+      }
+      current.push(line);
+    }
+    if (current.some((line) => line.trim())) blocks.push(current.join("\n").trim());
+    return blocks.filter(Boolean);
+  }
+
+  // Not every disclosure belongs at the top. What cannot be satisfied and what
+  // the agent cannot answer have to be read before the ranking; which criteria
+  // the ranking could not measure is a caveat on a ranking you have already
+  // read, and it reads better under it.
+  const FOOTNOTE_DISCLOSURE = /^\s*\*\*not used in this ranking/i;
+
   function parseMarkdownTable(lines) {
     const tableLines = lines.filter((line) => /^\s*\|.*\|\s*$/.test(line));
     if (tableLines.length < 2) return [];
@@ -371,6 +395,47 @@
     confidence: "confidence",
   };
 
+  const CONFIDENCE_GRADES = [
+    [/\bhigh\b/i, "High"],
+    [/\b(?:medium|moderate)\b/i, "Medium"],
+    [/\blow\b/i, "Low"],
+  ];
+
+  // Confidence arrives as a bare grade ("Low."), a grade with its reasoning
+  // ("Low, because climate and social fit were not established."), or as a
+  // bold sub-heading with the grade on a bullet underneath -- which is how a
+  // pill ended up reading "- High". The pill can only carry the grade: a
+  // sentence of reasoning inside a rounded chip is unreadable, and the bullet
+  // marker was never part of the grade. So the grade goes to the pill and the
+  // reasoning stays in the card, where there is room to read it.
+  //
+  // The earliest grade word wins, because the grade is stated before it is
+  // qualified: "High on the practical-city fit; low on affordability" is High.
+  function splitConfidence(raw) {
+    const text = String(raw || "")
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^\s*[-*]\s+/, "").trim())
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\*\*/g, "")
+      .trim();
+    if (!text) return { grade: "", reason: "" };
+
+    let grade = "";
+    let at = Infinity;
+    for (const [pattern, label] of CONFIDENCE_GRADES) {
+      const match = pattern.exec(text);
+      if (match && match.index < at) {
+        at = match.index;
+        grade = label;
+      }
+    }
+    // "High." is the grade and nothing else; anything longer is reasoning the
+    // reader should see in full.
+    const bare = grade && normalizeTitle(text) === normalizeTitle(grade);
+    return { grade, reason: bare ? "" : text };
+  }
+
   // Bullets are the one place a colon usually is not a label: "- Monthly
   // estimate well below your cap: EUR 638" is a sentence, and treating its
   // first clause as a field name would shred the evidence list under a
@@ -406,7 +471,9 @@
       const text = String(value || "").trim();
       const slot = PLACE_FIELD_SLOTS[normalizeTitle(label)];
       if (slot === "confidence") {
-        if (text) detail.confidence = text;
+        const { grade, reason } = splitConfidence(text);
+        if (grade) detail.confidence = grade;
+        if (reason) detail.fields.push({ label: "Confidence", value: reason });
       } else if (slot) {
         if (text) detail[slot].push(text);
       } else if (label || text) {
@@ -514,6 +581,7 @@
 
     const parsed = {
       preamble: [],
+      footnotes: [],
       interpretation: [],
       details: [],
       tradeoffs: [],
@@ -527,6 +595,13 @@
     for (let i = 0; i < sections.length; i += 1) {
       const section = sections[i];
       const role = classifySection(section, placeNames);
+
+      if (role === "preamble") {
+        for (const block of splitDisclosureBlocks(sectionBody(section))) {
+          (FOOTNOTE_DISCLOSURE.test(block) ? parsed.footnotes : parsed.preamble).push(block);
+        }
+        continue;
+      }
 
       // "## Recommended places" / "## Recommendations" is an empty wrapper
       // around the per-place sections. Rendering it as its own block would
@@ -564,6 +639,7 @@
 
     const rendersSomething =
       parsed.preamble.length ||
+      parsed.footnotes.length ||
       parsed.interpretation.length ||
       parsed.details.length ||
       parsed.tradeoffs.length ||
@@ -778,7 +854,9 @@
         drawbacks:
           detail.drawbacks && detail.drawbacks.length ? detail.drawbacks : [match.main_drawback].filter(Boolean),
         limitations: detail.limitations || [],
-        confidence: detail.confidence || match.confidence || "Medium",
+        // The ranking table's own cell is the fallback, graded the same way so
+        // a cell carrying more than a grade cannot reach the pill either.
+        confidence: detail.confidence || splitConfidence(match.confidence).grade || "Medium",
         fields: detail.fields || [],
       };
     });
@@ -892,12 +970,15 @@
   // They are the reader's warning that the comparison narrowed, that a
   // requirement could not be checked, or that what they asked for is outside
   // what the agent can do -- so they lead, rather than being dropped.
-  function renderDisclosures(sections) {
-    const body = (sections || []).map(sectionBody).filter(Boolean).join("\n\n");
+  function renderDisclosures(blocks, variant) {
+    const body = (blocks || []).filter(Boolean).join("\n\n");
     if (!body) return "";
+    const footnote = variant === "footnote";
     return `
-      <section class="disclosures-panel" aria-label="Before you read this">
-        <span class="info-icon info-disclosure" aria-hidden="true">
+      <section class="disclosures-panel${footnote ? " disclosures-footnote" : ""}" aria-label="${
+        footnote ? "Caveats on this ranking" : "Before you read this"
+      }">
+        <span class="info-icon ${footnote ? "info-caveat" : "info-disclosure"}" aria-hidden="true">
           <svg viewBox="0 0 24 24" focusable="false">
             <path d="M12 3 2 20h20L12 3Z" />
             <path d="M12 10v4M12 17h.01" />
@@ -981,6 +1062,7 @@
           </div>
         </article>
       </div>
+      ${renderDisclosures(parsed.footnotes, "footnote")}
       ${sourcesHtml}
     `;
   }

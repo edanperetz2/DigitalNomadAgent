@@ -421,9 +421,12 @@ def _coverage_disclosure(unmeasured: list[str]) -> str:
     if not unmeasured:
         return ""
     lines = "\n".join(f"- {item}" for item in _distinct(unmeasured))
+    # "the order below" was written when this block could only ever sit above
+    # the ranking. The UI now shows it under the ranking instead, so the
+    # sentence is phrased without a direction and reads correctly either way.
     return (
         "\n\n**Not used in this ranking:** no evidence was found for these on any candidate, "
-        f"so the order below does not reflect them at all.\n{lines}"
+        f"so the ranking does not reflect them at all.\n{lines}"
     )
 
 

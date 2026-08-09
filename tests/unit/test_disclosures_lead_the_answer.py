@@ -74,8 +74,21 @@ def test_the_wording_now_describes_where_the_places_actually_are():
         unverifiable_requirements=["reliable internet"],
     )
 
-    assert answer.index("the order below") < answer.index("Rhodes")
     assert answer.index("Every place below") < answer.index("Rhodes")
+
+
+def test_unmeasured_priorities_claim_no_direction():
+    """The UI renders this one *under* the ranking, so it cannot say "below".
+
+    The other blocks are fixed above the answer and may point downwards at it.
+    This block moved, and a sentence that points the wrong way is the same
+    defect as the one that put it under the bibliography -- just reversed.
+    """
+    answer = _answer(unmeasured_priorities=["food scene"])
+
+    claim = answer[answer.index("Not used in this ranking") :].split("\n")[0]
+    assert "below" not in claim, claim
+    assert "the ranking does not reflect them" in claim
 
 
 def test_how_the_answer_was_generated_stays_at_the_foot():
