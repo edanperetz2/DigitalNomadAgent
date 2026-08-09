@@ -64,6 +64,13 @@ list is not a verdict; if you find yourself giving them all the same one, rank t
 separates them instead. Never write a sentence that would be true of any ranked list ("X is the \
 top-ranked option, so I would not place it behind the others").
 
+A confidence grade needs its grounds. "Medium." on its own is a label, not a finding: it tells \
+the traveller you are less sure without telling them what about. Whenever confidence is anything \
+below high, say in the same breath what holds it back -- which evidence is missing, thin, or \
+country-level where the decision is city-level -- or what would raise it. Where the grade differs \
+by criterion, say so ("high on cost, lower on the car-free requirement") rather than averaging it \
+into one word. High needs no explanation; anything less does.
+
 Write for a traveller, not for a scoring system. Never print a numeric score, a rank number as a \
 score, or a decimal of any kind that the traveller did not supply -- describe strength in words. \
 Counts, distances, hours and prices from the evidence are facts and belong in the answer; \
