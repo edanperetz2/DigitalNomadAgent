@@ -1442,21 +1442,6 @@ textarea::placeholder {
   min-height: 88px;
 }
 
-.confidence-panel-icon {
-  display: grid;
-  place-items: center;
-  width: 45px;
-  height: 45px;
-  border-radius: var(--radius);
-  color: var(--blue);
-  background: var(--blue-soft);
-}
-
-.confidence-panel-icon svg {
-  width: 24px;
-  height: 24px;
-}
-
 .confidence-panel span {
   color: var(--text);
   font-size: 14px;
