@@ -1044,6 +1044,10 @@
 
   function renderInfoPanels(parsed) {
     const tradeoffs = panelFromSections(parsed.tradeoffs, "Trade-offs");
+    // This panel keeps a fixed name. The writers' own headings for it are
+    // "Trade-offs discussion" and "Trade-offs across the three", which say
+    // nothing the panel does not already say by being the trade-offs panel.
+    tradeoffs.title = "Trade-offs";
     const assumptions = panelFromSections(parsed.assumptions, "Assumptions and limitations");
     const sources = panelFromSections(parsed.sources, "Sources");
 
