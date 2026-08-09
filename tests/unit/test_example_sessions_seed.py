@@ -73,6 +73,21 @@ async def test_the_date_shown_is_when_the_answer_was_produced(store):
     assert session["updated_at"].startswith("2026-08-08")
 
 
+async def test_the_listing_order_follows_the_example_numbering(store):
+    """Example 1 first, whatever order the underlying runs happened in."""
+    examples = [
+        {**_example("p01", "Run first, listed first."), "listed_at": "2026-08-08T15:00:00+00:00"},
+        {**_example("p06", "Run last, listed last."), "listed_at": "2026-08-08T14:57:00+00:00"},
+    ]
+    # The one produced *later* must still be listed second.
+    examples[1]["generated_at"] = "2026-08-08T14:59:18+00:00"
+
+    await store.seed_examples(examples)
+
+    sessions = await store.list_sessions()
+    assert [s["id"] for s in sessions] == ["example-p01", "example-p06"]
+
+
 async def test_running_an_example_prompt_updates_it_rather_than_duplicating(store):
     """The row carries the true hash of its prompt, so save_session finds it."""
     prompt = "Somewhere warm for a month."
@@ -98,10 +113,19 @@ def test_the_shipped_file_parses_and_carries_complete_answers():
 
 
 def test_the_examples_are_numbered_in_the_order_they_are_listed():
-    """The sidebar lists newest first, so Example 1 must be the newest."""
+    """The sidebar sorts on updated_at, newest first, so Example 1 needs the
+    latest listed_at for the numbering to read 1, 2, 3, 4 downwards."""
     examples = load_example_sessions()
     numbers = [int(e["title"].split(":")[0].removeprefix("Example ")) for e in examples]
-    dates = [e["generated_at"] for e in examples]
+    listed = [e["listed_at"] for e in examples]
 
     assert numbers == sorted(numbers)
-    assert dates == sorted(dates, reverse=True)
+    assert listed == sorted(listed, reverse=True)
+
+
+def test_an_example_is_dated_when_it_was_produced_not_when_it_is_listed():
+    """listed_at only orders the sidebar; it must not restate the answer's age
+    as newer than it is."""
+    for example in load_example_sessions():
+        assert example["generated_at"].startswith("2026-08-08")
+        assert example["listed_at"].startswith("2026-08-08")

@@ -51,11 +51,16 @@ class SavedSearchStore:
         examples are what stands in for it before they have any, so anything
         already saved means these are not wanted.
 
-        Timestamps are the real ones from the run that produced each answer, so
-        the sidebar dates them honestly rather than implying they were just
-        generated. Each row carries the true hash of its prompt, so a visitor
-        who submits that same prompt updates the example rather than ending up
-        with two copies of it.
+        `created_at` is the real time the answer was produced, so the sidebar
+        dates it honestly rather than implying it was generated on boot.
+        `updated_at` is the sidebar's sort key and carries the curation order
+        instead: the list runs newest first, so Example 1 needs the latest one
+        for the numbering to read downwards. Both sit inside the window of the
+        run they came from.
+
+        Each row carries the true hash of its prompt, so a visitor who submits
+        that same prompt updates the example rather than ending up with two
+        copies of it.
         """
         cursor = await self._db.conn.execute("SELECT COUNT(*) FROM saved_search_sessions")
         row = await cursor.fetchone()
@@ -66,6 +71,7 @@ class SavedSearchStore:
         for example in examples:
             prompt = " ".join(str(example["prompt"]).split())
             generated_at = example.get("generated_at") or _now_iso()
+            listed_at = example.get("listed_at") or generated_at
             await self._db.conn.execute(
                 """
                 INSERT OR IGNORE INTO saved_search_sessions
@@ -79,7 +85,7 @@ class SavedSearchStore:
                     prompt,
                     json.dumps(example["result"], ensure_ascii=False, separators=(",", ":")),
                     generated_at,
-                    generated_at,
+                    listed_at,
                 ),
             )
             seeded += 1
