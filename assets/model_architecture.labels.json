@@ -22,7 +22,8 @@
     "Activities",
     "Safety",
     "Language",
-    "Terrain"
+    "Terrain",
+    "Internet Connectivity"
   ],
   "all_labels": [
     "API requests / evidence responses",
@@ -40,6 +41,7 @@
     "External Data Sources",
     "External data source",
     "Geocoding",
+    "Internet Connectivity",
     "Language",
     "Legend",
     "Local Mobility",

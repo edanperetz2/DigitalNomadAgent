@@ -799,7 +799,9 @@ def test_canonicalize_maps_observed_real_interpreter_keys():
         }
     )
     assert weights["timezone"] == 1.0
-    assert weights["work_infrastructure"] == 0.95
+    # `internet_speed` is its own criterion since InternetConnectivityTool
+    # exists. It used to land on work_infrastructure, which counted cafes.
+    assert weights["internet"] == 0.95
     assert weights["accessibility"] == 0.85
     assert weights["cost"] == 0.7
     assert weights["transportation"] == 0.9
@@ -882,12 +884,26 @@ def test_scored_criteria_are_not_reported_missing_under_free_form_names():
                 "Lisbon",
                 {"counts_by_category": {"coworking": 5, "cafe": 25}, "partial": False},
             ),
+            # `internet_quality` is its own criterion since
+            # InternetConnectivityTool exists, so it needs its own evidence here.
+            # It used to ride on the coworking counts above, which is the
+            # conflation that tool was added to end.
+            _tool_result(
+                "InternetConnectivityTool",
+                "Lisbon",
+                {
+                    "connectivity_score": 0.82,
+                    "broadband_subscriptions_per_100": 40.0,
+                    "internet_users_pct": 88.0,
+                },
+            ),
         ]
     }
     evaluation = evaluate_candidates([candidate], profile, evidence)[0]
 
     assert "timezone" in evaluation.criterion_scores
     assert "work_infrastructure" in evaluation.criterion_scores
+    assert "internet" in evaluation.criterion_scores
     assert "time_zone_overlap" not in evaluation.missing_evidence
     assert "internet_quality" not in evaluation.missing_evidence
     # Nothing evidenced these two, so they are still reported -- in the user's wording.
@@ -1012,8 +1028,19 @@ def test_overlap_minimum_never_eliminates_on_missing_evidence():
 
 def test_unevidenced_criteria_reports_each_criterion_once():
     """Two raw names for one criterion must not become two research targets."""
+    # Both name work_infrastructure. "internet quality" is deliberately not the
+    # example any more: it is its own criterion since InternetConnectivityTool,
+    # so pairing it with coworking would be two targets, correctly.
+    assert unevidenced_criteria(["coworking availability", "desk space"], {}) == [
+        "coworking availability"
+    ]
+
+
+def test_internet_and_coworking_are_two_research_targets_not_one():
+    """They were one while work_infrastructure owned "internet"."""
     assert unevidenced_criteria(["internet quality", "coworking availability"], {}) == [
-        "internet quality"
+        "internet quality",
+        "coworking availability",
     ]
     assert unevidenced_criteria(["cost of living", "climate"], {"cost": 0.5}) == ["climate"]
 

@@ -19,7 +19,7 @@ throughout the code, the diagram, `/api/agent_info`, LLM-call tracing, and this 
 | Recommendation Validator | `app/agent/recommendation_validator.py` | No |
 | Recommendation Generator | `app/agent/recommendation_generator.py` | Yes — 1 call |
 
-The thirteen research tools inside `Tool Registry` are pinned the same way, by
+The fourteen research tools inside `Tool Registry` are pinned the same way, by
 `module_names.TOOL_NAMES`:
 
 | Tool | File | Principal source |
@@ -37,6 +37,22 @@ The thirteen research tools inside `Tool Registry` are pinned the same way, by
 | `SafetyTool` | `app/tools/safety.py` | GOV.UK travel advice, World Bank |
 | `LanguageTool` | `app/tools/language.py` | `app/languages.py` reference data |
 | `TerrainTool` | `app/tools/terrain.py` | Open-Elevation |
+| `InternetConnectivityTool` | `app/tools/internet_connectivity.py` | Ookla medians (via Wikipedia) |
+
+`InternetConnectivityTool` scores the `internet` criterion, deliberately separate from
+`work_infrastructure`: a city can have forty cafés and unusable upstream bandwidth, and until
+2026-08-10 one criterion answered both questions from mapped coworking counts.
+
+It scores **median fixed-broadband download speed**, read from Wikipedia's Ookla-sourced country
+table through the MediaWiki API and pinned to the revision it came from. Its first version scored
+World Bank *subscriptions per 100 people* instead, which inverted the ranking — Portugal (244
+Mbit/s) scored 0.95 while Thailand (280 Mbit/s) scored 0.59 — because penetration tracks GDP and
+housing patterns, not connection quality, and is therefore biased against exactly the destinations
+digital nomads pick. World Bank adoption share survives only as a fallback for countries the speed
+table omits, and is labelled as adoption rather than speed wherever it is used. The score saturates
+at 150 Mbit/s, past which more makes no difference to a working day. Figures are national medians
+and the answer says so.
+
 
 `assets/model_architecture.png` is **rendered from these two lists** by
 `scripts/render_architecture.py`, and `tests/unit/test_architecture_png_file.py` fails if the image

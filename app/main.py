@@ -38,6 +38,7 @@ from app.tools.amenities import AmenitiesTool
 from app.tools.budget_fit import BudgetFitTool
 from app.tools.geocoding import GeocodingTool
 from app.tools.http_client import JsonHttpClient
+from app.tools.internet_connectivity import InternetConnectivityTool
 from app.tools.language import LanguageTool
 from app.tools.local_mobility import LocalMobilityTool
 from app.tools.mediawiki_client import WIKIVOYAGE_API, MediaWikiClient
@@ -150,6 +151,11 @@ def _build_tool_registry(
         ),
         "LanguageTool": LanguageTool(),
         "TerrainTool": TerrainTool(cache, timeout, http=http),
+        "InternetConnectivityTool": InternetConnectivityTool(
+            cache,
+            timeout,
+            http=http,
+        ),
     }
     # TOOL_NAMES is what the architecture diagram and the docs are rendered from.
     # If a tool is added or removed here without updating it, say so now rather

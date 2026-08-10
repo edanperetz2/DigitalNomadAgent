@@ -677,6 +677,64 @@ class FakeSafetyTool:
         )
 
 
+class FakeInternetConnectivityTool:
+    name = "InternetConnectivityTool"
+
+    async def run(self, candidate: CandidatePlace, profile: PlaceRequestProfile) -> ToolResult:
+        from app.tools.internet_connectivity import speed_band, speed_score
+
+        del profile
+        now = datetime.now(UTC)
+        seed = sum(ord(c) for c in candidate.place_name)
+        mbps = 15.0 + (seed % 240)
+        pct = 55.0 + (seed % 40)
+        return ToolResult(
+            tool_name=self.name,
+            place=candidate.place_name,
+            normalized_data={
+                "connectivity_score": speed_score(mbps),
+                "scored_from": "median_download_speed",
+                "median_download_mbps": mbps,
+                "speed_meaning": speed_band(mbps),
+                "country_speed_rank": 1 + (seed % 150),
+                "countries_ranked": 153,
+                "speed_source_url": "https://en.wikipedia.org/w/index.php?oldid=123456",
+                "internet_users_pct": pct,
+                "internet_users_year": "2024",
+                "country": candidate.country,
+                "country_code": (candidate.country_code or "XX"),
+                "evidence_level": "country",
+            },
+            source_name="Ookla Speedtest Global Index, via Wikipedia (fake)",
+            source_url="https://en.wikipedia.org/w/index.php?oldid=123456",
+            retrieved_at=now,
+            confidence="medium",
+            warnings=[
+                "This is a national median, not a measurement of any one apartment or cafe: "
+                "connections inside a city vary widely around it."
+            ],
+            evidence_items=[
+                EvidenceItem(
+                    criterion="internet",
+                    component="median_fixed_download_mbps",
+                    value=mbps,
+                    normalized_data={
+                        "median_download_mbps": mbps,
+                        "country": candidate.country,
+                        "measure": "median fixed-broadband download speed",
+                    },
+                    source=EvidenceSource(
+                        source_name="Ookla Speedtest Global Index, via Wikipedia (fake)",
+                        source_url="https://en.wikipedia.org/w/index.php?oldid=123456",
+                        retrieved_at=now,
+                        data_date="Wikipedia revision 123456",
+                        confidence="medium",
+                    ),
+                )
+            ],
+        )
+
+
 def build_fake_tool_registry_dict() -> dict[str, object]:
     return {
         "GeocodingTool": FakeGeocodingTool(),
@@ -690,4 +748,5 @@ def build_fake_tool_registry_dict() -> dict[str, object]:
         "LocalMobilityTool": FakeLocalMobilityTool(),
         "ActivitiesTool": FakeActivitiesTool(),
         "SafetyTool": FakeSafetyTool(),
+        "InternetConnectivityTool": FakeInternetConnectivityTool(),
     }

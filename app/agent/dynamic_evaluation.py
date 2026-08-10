@@ -27,6 +27,10 @@ from app.tools.activities import avoided_activity_categories
 DEFAULT_WEIGHTS: dict[str, float] = {
     "climate": 0.5,
     "work_infrastructure": 0.5,
+    # Separate from work_infrastructure: a city can have forty cafes and
+    # unusable upstream bandwidth. Weighted like cost because for a remote
+    # worker it is a comparable make-or-break.
+    "internet": 0.5,
     "cost": 0.5,
     "timezone": 0.5,
     "transportation": 0.4,
@@ -64,7 +68,16 @@ _WEIGHT_KEY_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("terrain", "topograph", "flat", "hilly", "step free", "step-free", "wheelchair", "gradient"),
     ),
     ("timezone", ("timezone", "time zone", "overlap", "working hours")),
-    ("work_infrastructure", ("work infrastructure", "internet", "wifi", "cowork", "remote work")),
+    # Ahead of work_infrastructure, which used to own "internet"/"wifi" and so
+    # answered "is the internet any good" with a count of cafes. They are
+    # different questions and now different criteria: InternetConnectivityTool
+    # measures one, AmenitiesTool the other.
+    # "connectivity" is deliberately absent: `accessibility` owns it, and the
+    # real interpreter emits `airport_connectivity`, which is about flights.
+    # Stealing it here would be D62 again -- a pattern that reads plausibly and
+    # fires on a different subject.
+    ("internet", ("internet", "wifi", "wi-fi", "broadband", "bandwidth")),
+    ("work_infrastructure", ("work infrastructure", "cowork", "remote work", "desk", "office")),
     ("cost", ("budget", "cost", "afford", "price", "expense")),
     ("safety", ("safety", "safe", "crime", "security")),
     ("nightlife", ("nightlife", "party")),
@@ -219,6 +232,7 @@ _TOOL_CRITERIA: dict[str, tuple[str, ...]] = {
     "WikivoyageClimateTool": ("climate",),
     "LanguageTool": ("language_spoken",),
     "TerrainTool": ("terrain",),
+    "InternetConnectivityTool": ("internet",),
 }
 
 
@@ -309,6 +323,10 @@ _HARD_CONSTRAINT_KEYWORDS: dict[str, tuple[str, ...]] = {
     "safety": ("safety", "safe", "crime", "danger", "dangerous", "security"),
     "flight_duration": ("flight time", "flight duration", "flying time", "hours of flying", "hour flight"),
     "language_spoken": ("english", "language", "languages", "speak", "spoken"),
+    # Added with InternetConnectivityTool. Without a row here a stated "fast,
+    # reliable internet" -- P01's top priority after budget -- is disclosed as
+    # something nothing could check, while the tool is measuring it (D75).
+    "internet": ("internet", "wifi", "wi-fi", "broadband", "bandwidth"),
     "terrain": (
         "flat terrain",
         "flat ground",
@@ -483,6 +501,7 @@ _CONSTRAINT_LABELS: dict[str, str] = {
     "language_spoken": "whether the language works for you",
     "terrain": "how flat the ground is",
     "timezone": "the working-hours overlap",
+    "internet": "how good the internet is",
 }
 
 # Timezone is deliberately absent from the table above: those rows threshold a
@@ -848,6 +867,39 @@ def _extract_criterion_scores(
                 scores["language_spoken"] = score
                 confidence_factors["language_spoken"] = 0.75
                 (advantages if score >= 0.7 else drawbacks).append(note)
+        elif result.tool_name == "InternetConnectivityTool":
+            connectivity = result.normalized_data.get("connectivity_score")
+            if isinstance(connectivity, int | float) and not isinstance(connectivity, bool):
+                scores["internet"] = clamp(float(connectivity))
+                # Lower than a city-level measurement earns: these are national
+                # indicators standing in for a local connection (the treatment
+                # country-level cost estimates already get).
+                confidence_factors["internet"] = 0.6
+                mbps = result.normalized_data.get("median_download_mbps")
+                pct = result.normalized_data.get("internet_users_pct")
+                if isinstance(mbps, int | float) and not isinstance(mbps, bool):
+                    # Number, then what it means, then how it compares, then the
+                    # caveat. "45 Mbit/s" on its own asks the reader to know what
+                    # a megabit is; the rank asks nothing of them at all.
+                    meaning = result.normalized_data.get("speed_meaning")
+                    rank = result.normalized_data.get("country_speed_rank")
+                    ranked = result.normalized_data.get("countries_ranked")
+                    note = f"Internet is about {mbps:.0f} Mbit/s on the national median"
+                    if meaning:
+                        note += f" -- {meaning}"
+                    if isinstance(rank, int) and isinstance(ranked, int):
+                        note += f" ({rank} of {ranked} countries measured)"
+                    note += ". That is a national figure, not a measurement of any one apartment."
+                elif isinstance(pct, int | float) and not isinstance(pct, bool):
+                    # Said plainly, because it is the weaker signal: no median
+                    # speed is published for this country.
+                    note = (
+                        f"No median speed is published for this country; {pct:.0f}% of people "
+                        "are online, which says how many rather than how fast."
+                    )
+                else:
+                    note = "National connectivity evidence was collected."
+                (advantages if connectivity >= 0.7 else drawbacks).append(note)
         elif result.tool_name == "TerrainTool":
             flatness = result.normalized_data.get("flatness_score")
             if isinstance(flatness, int | float) and not isinstance(flatness, bool):

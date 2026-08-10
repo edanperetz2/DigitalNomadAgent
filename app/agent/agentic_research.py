@@ -14,6 +14,7 @@ import json
 
 from pydantic import BaseModel, ConfigDict
 
+from app.agent.dynamic_evaluation import canonical_criterion_name
 from app.agent.models import CandidatePlace, CandidatePlaceSeed, PlaceRequestProfile
 from app.core.module_names import AGENTIC_RESEARCH
 from app.geography import resolve_region
@@ -117,6 +118,15 @@ _ACCESSIBILITY_TRIGGER_WORDS = [
     "remoteness",
 ]
 _SAFETY_TRIGGER_WORDS = ["safety", "safe", "crime", "danger", "security"]
+_INTERNET_TRIGGER_WORDS = [
+    "internet",
+    "wifi",
+    "wi-fi",
+    "broadband",
+    "bandwidth",
+    "video call",
+    "upload speed",
+]
 # Both criteria used to have no tool at all, so a stated requirement went
 # unmeasured for every candidate and cost nothing (D34).
 _LANGUAGE_TRIGGER_WORDS = [
@@ -169,7 +179,10 @@ def select_tools(profile: PlaceRequestProfile) -> set[str]:
     if "study" in purposes:
         tools |= {"BudgetFitTool", "AmenitiesTool"}
     if "remote_work" in purposes:
-        tools |= {"AmenitiesTool", "BudgetFitTool"}
+        # Connectivity is the thing a remote worker cannot work around, so it
+        # runs for every remote-work request rather than waiting to be asked
+        # for -- and for anyone else who mentions it (below).
+        tools |= {"AmenitiesTool", "BudgetFitTool", "InternetConnectivityTool"}
         if any(w in haystack for w in _TIMEZONE_TRIGGER_WORDS):
             tools.add("TimezoneFitTool")
     if "vacation" in purposes:
@@ -200,4 +213,8 @@ def select_tools(profile: PlaceRequestProfile) -> set[str]:
     if any(w in haystack for w in _ACCESSIBILITY_TRIGGER_WORDS):
         tools.add("TransportAccessTool")
 
+    if "internet" in {canonical_criterion_name(c) for c in profile.relevant_criteria} or any(
+        w in haystack for w in _INTERNET_TRIGGER_WORDS
+    ):
+        tools.add("InternetConnectivityTool")
     return tools

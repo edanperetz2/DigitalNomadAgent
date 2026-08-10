@@ -76,7 +76,6 @@ def test_remote_work_is_not_an_airport_access_requirement(phrase):
         "quick access to a hospital",
         "clean air is the deciding factor",
         "reachable from Madrid with at most one connecting flight",
-        "decent internet",
         "coastal location",
         "must be within about two hours of UK time",
     ],
@@ -91,21 +90,37 @@ def test_a_requirement_nothing_measures_matches_nothing_rather_than_something_cl
     assert criteria_for_constraint(phrase) == []
 
 
+def test_a_stated_internet_requirement_now_matches_because_it_is_measured():
+    """"decent internet" was in the list above until InternetConnectivityTool.
+
+    D75's lesson in the other direction: a requirement is reported as uncheckable
+    only while nothing checks it. Once it is measured, leaving it unmatched tells
+    the reader their top priority went unexamined while the answer scores it.
+    """
+    for phrase in ("decent internet", "fast reliable wifi", "good broadband"):
+        assert criteria_for_constraint(phrase) == ["internet"], phrase
+
+
+def test_airport_connectivity_is_still_about_flights_not_wifi():
+    """`connectivity` stays with accessibility -- stealing it would be D62."""
+    assert "internet" not in criteria_for_constraint("good airport connectivity")
+
+
 def test_an_unmatched_requirement_is_disclosed_rather_than_dropped():
     """D61: the whole point -- the reader is told it went unchecked."""
     profile = PlaceRequestProfile(
         purpose="remote_work",
-        hard_constraints=["decent internet", "quick access to a hospital"],
+        hard_constraints=["clean air is the deciding factor", "quick access to a hospital"],
     )
     eliminated, _, results = _check_hard_constraints(profile, {"cost": 0.9}, _candidate(), [])
 
-    assert set(results) == {"decent internet", "quick access to a hospital"}
+    assert set(results) == {"clean air is the deciding factor", "quick access to a hospital"}
     assert all(value is None for value in results.values())
     assert not eliminated, "an unmeasurable requirement must never eliminate a place"
     assert constraint_tier(results) == 1, "unverified ranks below verified, above failed"
 
     note = unmet_constraint_note(results)
-    assert note and "decent internet" in note and "quick access to a hospital" in note
+    assert note and "clean air" in note and "quick access to a hospital" in note
 
 
 def test_a_region_requirement_is_not_reported_as_unconfirmed():
@@ -121,7 +136,9 @@ def test_a_region_requirement_is_not_reported_as_unconfirmed():
     )
     _, _, results = _check_hard_constraints(profile, {}, _candidate(), [])
 
-    assert "decent internet" in results
+    # Keyed by criterion now that internet is measured; unmatched requirements
+    # are the ones keyed by the traveller's raw wording.
+    assert "internet" in results
     assert not any("Southeast Asia" in key for key in results)
 
 

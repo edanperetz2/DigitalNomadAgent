@@ -51,6 +51,7 @@ TOOL_NAMES: tuple[str, ...] = (
     "SafetyTool",
     "LanguageTool",
     "TerrainTool",
+    "InternetConnectivityTool",
 )
 
 

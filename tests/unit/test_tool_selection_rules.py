@@ -134,9 +134,14 @@ def test_tool_sets_differ_across_purposes():
     remote_tools = select_tools(_profile(purpose="remote_work"))
     study_tools = select_tools(_profile(purpose="study"))
     vacation_tools = select_tools(_profile(purpose="vacation"))
-    # remote_work and study select an identical base set (Amenities + BudgetFit) now that
-    # OfficialSourceTool -- their one distinguishing tool -- has been removed.
-    assert remote_tools == study_tools
+    # remote_work and study shared an identical base set (Amenities + BudgetFit)
+    # once OfficialSourceTool was removed. InternetConnectivityTool distinguishes
+    # them again: connectivity is what a remote worker cannot work around, and a
+    # student picking a city is not choosing on upstream bandwidth.
+    assert remote_tools != study_tools
+    assert "InternetConnectivityTool" in remote_tools
+    assert "InternetConnectivityTool" not in study_tools
+    assert remote_tools - study_tools == {"InternetConnectivityTool"}
     assert study_tools != vacation_tools
     assert remote_tools != vacation_tools
 
