@@ -127,5 +127,5 @@ def test_an_example_is_dated_when_it_was_produced_not_when_it_is_listed():
     """listed_at only orders the sidebar; it must not restate the answer's age
     as newer than it is."""
     for example in load_example_sessions():
-        assert example["generated_at"].startswith("2026-08-08")
-        assert example["listed_at"].startswith("2026-08-08")
+        assert example["generated_at"].startswith("2026-08-10")
+        assert example["listed_at"].startswith("2026-08-10")

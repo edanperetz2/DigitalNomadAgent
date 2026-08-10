@@ -1,6 +1,6 @@
 """The example conversations shipped with the app.
 
-These are real recorded responses from the validation run of 2026-08-08, not
+These are real recorded responses from the validation run of 2026-08-10, not
 generated at startup: reproducing them would mean four LLM calls per cold start
 and would not reproduce them faithfully anyway. They exist so a deployment has
 something to show. On Vercel the database is `/tmp/digitalnomadagent.db`, wiped
