@@ -440,6 +440,32 @@ ordinary `pytest` runs.
 
 ---
 
+## Storage: a stated deviation from the brief
+
+The course brief names **Supabase** as the primary database and **Pinecone** for embeddings/vectors.
+DigitalNomadAgent uses neither. It runs on SQLite (`app/evidence/database.py`), and it does not
+embed anything — there is no retrieval-over-vectors step in the architecture to serve.
+
+This is a deliberate choice, recorded here rather than glossed over:
+
+- **Nothing in the four required endpoints depends on persistence.** `/api/team_info`,
+  `/api/agent_info` and `/api/model_architecture` are file reads. `/api/execute` is stateless and
+  single-shot: it interprets, researches, scores and answers within the one request. The database
+  holds two things that are *optimisations*, not correctness requirements — the tool-evidence cache
+  and the local LLM budget ledger.
+- **Under Vercel, that database lives in `/tmp` and resets on every cold start.** So in production
+  the cache is best-effort and the local ledger does not accumulate. The budget that actually binds
+  is the provider-side account cap ($13, enforced by LLMod.ai and readable via
+  `scripts/probe_llmod_account.py`), not the local ledger — see "Budget control".
+- **Retrieval is live, not vectorised.** Evidence comes from named APIs (Overpass, Open-Meteo,
+  Wikivoyage, GOV.UK, World Bank) at request time, with the source URL and retrieval date attached
+  to every claim. A vector store would add an indexing layer between the answer and its source
+  without making the answer more checkable.
+
+Swapping SQLite for Supabase would make the cache and ledger genuinely persistent in production.
+It is the largest remaining gap against the brief's letter, and it was not attempted this close to
+the deadline in preference to leaving the four required endpoints untouched.
+
 ## Known limitations
 
 - Detailed typed city prices currently cover 57 cities through a third-party researched/modelled
@@ -473,5 +499,6 @@ ordinary `pytest` runs.
 
 ## Team information
 
-Replace all placeholders in `config/team_info.json` (`REPLACE_WITH_...`) with the real team name,
-batch/order number, and each student's name and email before submission.
+`config/team_info.json` carries the real team name, batch/order number (`2_4`), and each student's
+name and email. It is served verbatim by `GET /api/team_info` and pinned by
+`tests/unit/test_config_team_info.py`.
