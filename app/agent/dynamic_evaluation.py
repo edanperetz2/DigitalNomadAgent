@@ -42,12 +42,6 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "safety": 0.6,
 }
 
-# Ceiling on the soft weight of a criterion the request also enforces as a hard
-# constraint. Sits at the top of the default band rather than at zero: passing a
-# non-negotiable well should still beat passing it barely, but it must not also
-# decide the ranking it has already gated. See `_score_totals`.
-GATED_CRITERION_WEIGHT_CAP = 0.5
-
 # The interpreter -- especially the real LLM -- emits free-form weight keys
 # ("time_zone_overlap", "car_free_livability"); scoring uses the fixed
 # vocabulary of DEFAULT_WEIGHTS. Without a mapping, a stated weight silently
@@ -1607,35 +1601,35 @@ def _score_totals(
     criterion_scores: dict[str, float],
     inferred_weights: dict[str, float],
     confidence_factors: dict[str, float],
-    hard_constraint_results: dict[str, bool | None] | None = None,
 ) -> tuple[dict[str, float], float, float]:
     """Shared weighting/uncertainty-penalty math used by both evaluation passes."""
     weights = canonicalize_criterion_weights(inferred_weights)
     for c in criterion_scores:
         weights.setdefault(c, DEFAULT_WEIGHTS.get(c, 0.4))
 
-    # A criterion stated as non-negotiable is already the first two sort keys
-    # (`constraint_tier`, then `confirmed_constraint_count`). Letting it also
-    # carry its full stated weight here counts it a third time -- and because
-    # non-negotiables are stated most emphatically, the interpreter gives them
-    # the heaviest weights. The result is that merely *clearing the gates* wins
-    # the ranking, and the preferences the traveller wanted the choice made on
-    # cannot move it.
+    # Deliberately NOT damped for criteria that are also hard constraints.
     #
-    # P06 is the case: a retired couple said mild winters were "the main thing",
-    # then made accessibility, English and step-free transport non-negotiable.
-    # Those three took 0.95-1.0 of the weight, every English-speaking flat city
-    # cleared them, and the answer ranked Manchester, London and Birmingham as a
-    # winter escape while conceding their climate was "only adequate". Capping
-    # the gated criteria lets the ungated ones discriminate among the candidates
-    # that survive the gate, which is how the traveller framed it themselves.
+    # Capping them to 0.5 was tried on 2026-08-10 and reverted the same day. The
+    # reasoning looked sound -- `constraint_tier` and `confirmed_constraint_count`
+    # already sort on the non-negotiables, so weighting them again here counts
+    # them a third time, and it was crowding out the preferences a traveller
+    # wanted the choice made on. P06 asked for mild winters as "the main thing"
+    # and got Manchester, London and Birmingham.
     #
-    # Capped rather than dropped: a constraint met at 0.75 is still worse than
-    # one met at 0.95, and that difference should cost something.
-    if hard_constraint_results:
-        for criterion in hard_constraint_results:
-            if criterion in weights:
-                weights[criterion] = min(weights[criterion], GATED_CRITERION_WEIGHT_CAP)
+    # What it actually produced was worse. The gates are coarse -- a tier plus a
+    # count of *confirmed* constraints -- and it was this weight that carried
+    # **how well** a place meets a requirement. Removing it let climate (0.9,
+    # ungated) outweigh terrain and wheelchair accessibility (capped to 0.5), and
+    # P06 came back with **Lisbon first** for a wheelchair user, its own answer
+    # conceding the centre is hilly and step-free access unestablished. That is
+    # D34 and D55 exactly, recreated. Verified live:
+    # `20260810T111045Z-postfix-gated-weights`.
+    #
+    # Weighting a confirmed constraint per-candidate is not the fix either:
+    # totals computed under different weight vectors are not comparable.
+    # The Manchester ranking is not a weighting bug -- it is what happens when no
+    # warm city can be *shown* to meet a wheelchair user's non-negotiables, and
+    # preferring the places it can prove is the correct behaviour.
 
     available_weights = {c: w for c, w in weights.items() if c in criterion_scores}
     weight_sum = sum(available_weights.values())
@@ -1983,7 +1977,7 @@ def apply_llm_scores(
             eliminated, elimination_reason, hard_constraint_results = False, None, {}
 
         normalized_weights, total_score, confidence_score = _score_totals(
-            criterion_scores, profile.inferred_weights, confidence_factors, hard_constraint_results
+            criterion_scores, profile.inferred_weights, confidence_factors
         )
 
         missing_evidence = unevidenced_criteria(profile.relevant_criteria, criterion_scores)
@@ -2055,7 +2049,7 @@ def evaluate_candidates(
         )
 
         normalized_weights, total_score, confidence_score = _score_totals(
-            criterion_scores, profile.inferred_weights, confidence_factors, hard_constraint_results
+            criterion_scores, profile.inferred_weights, confidence_factors
         )
 
         if not criterion_scores and not eliminated:

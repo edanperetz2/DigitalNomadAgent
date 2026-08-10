@@ -1,26 +1,36 @@
-"""A non-negotiable gates the field; it must not also decide the order.
+"""A stated non-negotiable must keep its weight, and must reach its criterion.
 
-Found by reading P06 on 2026-08-10. A retired couple said mild winters were
-"the main thing", then made accessibility, English and step-free transport
-non-negotiable. The interpreter weighted those 0.95-1.0 and climate 0.8 -- all
-correctly extracted -- so every English-speaking flat city cleared the gates and
-then *also* collected almost all of the score for clearing them. The answer
-ranked Manchester, London and Birmingham as a six-month winter escape while
-conceding their climate was "only adequate", and no warm destination appeared.
+Two things came out of reading P06 on 2026-08-10, one fix and one reverted
+experiment. Both are pinned here because the second is the more expensive
+lesson.
 
-The same criterion was being counted three times: `constraint_tier`,
-`confirmed_constraint_count`, and again at full stated weight in `total_score`.
+**The fix.** The interpreter files the weight for "reasonably flat terrain"
+under whichever word it chooses -- `terrain` on one run, `topography` on the
+next. `topography` matched no pattern in the alias table, so a 0.95 requirement
+scored at the 0.4 default and the answer announced "Not used in this ranking:
+topography" directly above a body citing elevation evidence for it.
+
+**The experiment, reverted.** Criteria that are also hard constraints were
+capped at 0.5 on the reasoning that `constraint_tier` and
+`confirmed_constraint_count` already sort on them, so weighting them again
+counted them a third time and crowded out the traveller's stated preferences.
+Live verification (`20260810T111045Z-postfix-gated-weights`) showed the cap let
+climate (0.9, ungated) outweigh terrain and wheelchair accessibility (0.5), and
+P06 returned **Lisbon first** for a wheelchair user -- its own answer conceding
+the centre is hilly and step-free access unestablished. That is D34 and D55
+recreated. The weight was carrying *how well* a place meets a requirement,
+which the coarse tier/count gates do not express.
 """
 
 from app.agent.dynamic_evaluation import (
     DEFAULT_WEIGHTS,
-    GATED_CRITERION_WEIGHT_CAP,
     _score_totals,
     canonical_criterion_name,
 )
 
-# What P06's interpreter actually returned on 2026-08-10.
-P06_WEIGHTS = {
+# What P06's interpreter returned on the two 2026-08-10 runs. It used a
+# different word for the same criterion each time, which is the point.
+P06_WEIGHTS_RUN_A = {
     "language": 0.95,
     "accessibility": 1.0,
     "public_transport": 0.95,
@@ -28,129 +38,79 @@ P06_WEIGHTS = {
     "healthcare": 0.75,
     "climate": 0.8,
 }
-P06_GATED = {
-    "accessibility": True,
-    "language_spoken": True,
-    "transportation": None,
-    "terrain": True,
+P06_WEIGHTS_RUN_B = {
+    "climate": 0.9,
+    "language": 0.9,
+    "mobility_accessibility": 1.0,
+    "public_transport": 0.95,
+    "terrain": 0.95,
+    "healthcare": 0.7,
 }
 
 
 def test_topography_reaches_the_terrain_criterion():
-    """The interpreter's own word for the criterion it was asked to weight."""
     assert canonical_criterion_name("topography") == "terrain"
     assert canonical_criterion_name("Topographical") == "terrain"
-    # The wording the traveller used still works.
     assert canonical_criterion_name("reasonably flat terrain") == "terrain"
+    assert canonical_criterion_name("terrain") == "terrain"
+
+
+def test_both_wordings_the_interpreter_used_land_on_the_same_criterion():
+    assert canonical_criterion_name("topography") == canonical_criterion_name("terrain") == "terrain"
+
+
+def test_mobility_accessibility_is_read_as_getting_around():
+    """Recorded because it is surprising, not because it is wrong.
+
+    `transportation` is matched before `accessibility` and owns the pattern
+    "mobility", so the interpreter's `mobility_accessibility` weight lands on
+    getting around the city rather than on `accessibility` -- which in this
+    vocabulary means airport/arrival reach, not step-free access. For a
+    wheelchair user asking about moving around a city, that is the better of the
+    two. Pinned so a future edit to the ordered pattern table has to notice it.
+    """
+    assert canonical_criterion_name("mobility_accessibility") == "transportation"
 
 
 def test_a_stated_terrain_weight_is_not_silently_replaced_by_the_default():
     scores = {"terrain": 0.8, "climate": 0.5}
     weights, _, _ = _score_totals(scores, {"topography": 0.9}, {})
-    # Normalized, so compare against climate's share rather than the raw 0.9.
     assert weights["terrain"] > weights["climate"]
     assert DEFAULT_WEIGHTS["terrain"] == 0.4
 
 
-def test_a_gated_criterion_is_capped_but_never_dropped():
-    scores = {"accessibility": 0.9, "climate": 0.5}
-    weights, _, _ = _score_totals(scores, P06_WEIGHTS, {}, {"accessibility": True})
-    assert weights["accessibility"] > 0.0, "a capped constraint still counts for something"
-    assert weights["climate"] > weights["accessibility"], (
-        "climate was stated as the main thing; accessibility is already gated"
-    )
+def test_a_non_negotiable_outweighs_a_preference_in_the_score():
+    """The property the reverted cap destroyed.
 
-
-def test_climate_outweighs_the_gates_on_p06s_real_weights():
-    """The exact vector that produced the Manchester ranking."""
-    scores = {
-        "accessibility": 0.8,
-        "language_spoken": 1.0,
-        "transportation": 0.8,
-        "terrain": 0.9,
-        "climate": 0.4,
-    }
-    weights, _, _ = _score_totals(scores, P06_WEIGHTS, {}, P06_GATED)
-    assert weights["climate"] == max(weights.values()), (
-        "among candidates that clear the gates, the stated preference must decide"
-    )
-
-
-def test_a_warm_city_now_outranks_a_cold_one_that_clears_the_same_gates():
-    """The P06 shape: both clear the gates, the cold one clears them *better*.
-
-    A native-English city with documented step-free transit outscores a warm one
-    on all four gated criteria -- by 0.10-0.25 each -- while losing on climate by
-    0.60. Uncapped, the four gates outvote the one thing the traveller called the
-    main thing. Capped, they no longer do.
+    A wheelchair user's stated requirements for terrain and for getting around
+    must not be outweighed by a climate preference, however warmly phrased.
     """
-    gates = dict(P06_GATED)
-    cold = {
-        "accessibility": 0.85,
-        "language_spoken": 1.00,
-        "transportation": 0.90,
-        "terrain": 0.95,
-        "climate": 0.30,
-    }
-    warm = {
-        "accessibility": 0.70,
-        "language_spoken": 0.75,
-        "transportation": 0.80,
-        "terrain": 0.85,
-        "climate": 0.90,
-    }
-
-    # The shipped behaviour, which is the defect this test holds closed.
-    _, cold_uncapped, _ = _score_totals(cold, P06_WEIGHTS, {})
-    _, warm_uncapped, _ = _score_totals(warm, P06_WEIGHTS, {})
-    assert cold_uncapped > warm_uncapped
-
-    _, cold_total, _ = _score_totals(cold, P06_WEIGHTS, {}, gates)
-    _, warm_total, _ = _score_totals(warm, P06_WEIGHTS, {}, gates)
-    assert warm_total > cold_total
+    scores = {"terrain": 0.5, "transportation": 0.5, "climate": 0.5}
+    weights, _, _ = _score_totals(scores, P06_WEIGHTS_RUN_B, {})
+    assert weights["terrain"] > weights["climate"]
+    assert weights["transportation"] > weights["climate"]
 
 
-def test_a_warm_city_that_fails_the_gates_badly_still_loses():
-    """The cap must not turn a non-negotiable into a suggestion.
-
-    A hilly, poorly-served city is still the wrong answer for a wheelchair user,
-    however mild its winters. (Constraint elimination and `constraint_tier` are
-    the primary guards; this checks the score agrees rather than fighting them.)
-    """
-    cold = {
-        "accessibility": 0.85,
-        "language_spoken": 1.00,
-        "transportation": 0.90,
-        "terrain": 0.95,
-        "climate": 0.30,
-    }
-    unsuitable = {
-        "accessibility": 0.20,
-        "language_spoken": 0.25,
-        "transportation": 0.30,
-        "terrain": 0.15,
-        "climate": 0.95,
-    }
-    _, cold_total, _ = _score_totals(cold, P06_WEIGHTS, {}, P06_GATED)
-    _, unsuitable_total, _ = _score_totals(unsuitable, P06_WEIGHTS, {}, P06_GATED)
-    assert cold_total > unsuitable_total
+def test_a_hilly_city_does_not_outrank_a_flat_one_on_climate_alone():
+    """P06's live regression, as a unit test: Lisbon must not beat Dublin here."""
+    hilly_but_warm = {"terrain": 0.25, "accessibility": 0.62, "climate": 0.95}
+    flat_but_cool = {"terrain": 0.90, "accessibility": 0.70, "climate": 0.45}
+    _, warm_total, _ = _score_totals(hilly_but_warm, P06_WEIGHTS_RUN_B, {})
+    _, cool_total, _ = _score_totals(flat_but_cool, P06_WEIGHTS_RUN_B, {})
+    assert cool_total > warm_total
 
 
-def test_an_ungated_request_is_scored_exactly_as_before():
-    """No hard constraints means no cap, so existing behaviour is untouched."""
-    scores = {"cost": 0.7, "climate": 0.6}
-    weights_none, total_none, _ = _score_totals(scores, {"cost": 0.9, "climate": 0.5}, {})
-    weights_empty, total_empty, _ = _score_totals(scores, {"cost": 0.9, "climate": 0.5}, {}, {})
-    assert weights_none == weights_empty
-    assert total_none == total_empty
-    assert weights_none["cost"] > weights_none["climate"]
+def test_the_same_holds_under_the_other_runs_weight_vector():
+    hilly_but_warm = {"terrain": 0.25, "accessibility": 0.62, "climate": 0.95}
+    flat_but_cool = {"terrain": 0.90, "accessibility": 0.70, "climate": 0.45}
+    _, warm_total, _ = _score_totals(hilly_but_warm, P06_WEIGHTS_RUN_A, {})
+    _, cool_total, _ = _score_totals(flat_but_cool, P06_WEIGHTS_RUN_A, {})
+    assert cool_total > warm_total
 
 
-def test_the_cap_only_touches_criteria_that_are_actually_gated():
-    scores = {"cost": 0.7, "work_infrastructure": 0.6}
-    weights, _, _ = _score_totals(
-        scores, {"cost": 0.95, "work_infrastructure": 0.9}, {}, {"cost": True}
-    )
-    # work_infrastructure keeps its stated weight; cost is capped to 0.5.
-    assert weights["work_infrastructure"] > weights["cost"]
-    assert GATED_CRITERION_WEIGHT_CAP == 0.5
+def test_score_totals_takes_no_constraint_argument():
+    """The cap is gone, not merely disabled -- see this module's docstring."""
+    import inspect
+
+    params = inspect.signature(_score_totals).parameters
+    assert "hard_constraint_results" not in params
