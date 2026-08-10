@@ -47,7 +47,6 @@ from app.tools.overpass_client import OverpassClient
 from app.tools.place_context import PlaceContextTool
 from app.tools.registry import ToolRegistry
 from app.tools.safety import SafetyTool
-from app.tools.terrain import TerrainTool
 from app.tools.timezone_fit import TimezoneFitTool
 from app.tools.transport_access import TransportAccessTool
 from app.tools.weather import WeatherTool
@@ -150,7 +149,6 @@ def _build_tool_registry(
             wikivoyage=wikivoyage_sections,
         ),
         "LanguageTool": LanguageTool(),
-        "TerrainTool": TerrainTool(cache, timeout, http=http),
         "InternetConnectivityTool": InternetConnectivityTool(
             cache,
             timeout,

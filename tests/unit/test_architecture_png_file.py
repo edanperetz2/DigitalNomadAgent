@@ -61,7 +61,7 @@ def test_diagram_names_every_registered_tool_and_no_others():
 def test_diagram_does_not_name_a_tool_the_code_does_not_have():
     drawn = set(_labels()["all_labels"])
     known = {tool_display_label(name) for name in TOOL_NAMES} | set(ALL_MODULES)
-    for retired in ("Education Options", "Accessibility", "Official Sources"):
+    for retired in ("Education Options", "Accessibility", "Official Sources", "Terrain"):
         assert retired not in drawn, f"{retired!r} is on the diagram but not in the registry"
     assert known <= drawn
 

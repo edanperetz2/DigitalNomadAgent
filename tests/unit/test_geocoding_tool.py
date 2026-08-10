@@ -164,6 +164,49 @@ async def test_distinct_localities_with_close_importance_are_ambiguous():
 
 
 @pytest.mark.asyncio
+async def test_exact_city_name_wins_over_similarly_named_administrative_region():
+    matches = [
+        _match(
+            name="Valencia",
+            country="Spain",
+            country_code="es",
+            state="Valencian Community",
+            county="Valencia",
+            importance=0.73,
+            place_id=101,
+            osm_id=344953,
+        ),
+        _match(
+            name="Valencian Community",
+            country="Spain",
+            country_code="es",
+            state="Valencian Community",
+            county="",
+            importance=0.69,
+            place_id=102,
+            osm_id=349043,
+        ),
+        _match(
+            name="Valencia",
+            country="Spain",
+            country_code="es",
+            state="Valencian Community",
+            county="Valencia",
+            importance=0.62,
+            place_id=103,
+            osm_id=349044,
+        ),
+    ]
+    tool, _, _ = _tool(matches)
+
+    result = await tool.run(_candidate("Valencia", "Spain"), PlaceRequestProfile(purpose="remote_work"))
+
+    assert result.error is None
+    assert result.normalized_data["canonical_name"] == "Valencia"
+    assert result.normalized_data["osm_id"] == 344953
+
+
+@pytest.mark.asyncio
 async def test_duplicate_osm_representations_of_same_locality_are_collapsed():
     matches = [
         _match(importance=0.60, osm_type="relation", osm_id=1),

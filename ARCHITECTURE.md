@@ -19,7 +19,7 @@ throughout the code, the diagram, `/api/agent_info`, LLM-call tracing, and this 
 | Recommendation Validator | `app/agent/recommendation_validator.py` | No |
 | Recommendation Generator | `app/agent/recommendation_generator.py` | Yes — 1 call |
 
-The fourteen research tools inside `Tool Registry` are pinned the same way, by
+The thirteen research tools inside `Tool Registry` are pinned the same way, by
 `module_names.TOOL_NAMES`:
 
 | Tool | File | Principal source |
@@ -36,7 +36,6 @@ The fourteen research tools inside `Tool Registry` are pinned the same way, by
 | `ActivitiesTool` | `app/tools/activities.py` | Overpass + Wikivoyage |
 | `SafetyTool` | `app/tools/safety.py` | GOV.UK travel advice, World Bank |
 | `LanguageTool` | `app/tools/language.py` | `app/languages.py` reference data |
-| `TerrainTool` | `app/tools/terrain.py` | Open-Elevation |
 | `InternetConnectivityTool` | `app/tools/internet_connectivity.py` | Ookla medians (via Wikipedia) |
 
 `InternetConnectivityTool` scores the `internet` criterion, deliberately separate from

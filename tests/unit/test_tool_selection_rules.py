@@ -162,27 +162,10 @@ def test_place_context_is_deferred_for_all_purposes():
     assert all("PlaceContextTool" not in select_tools(profile) for profile in profiles)
 
 
-def test_terrain_is_not_researched_for_an_ordinary_walkability_request():
-    """D46: "mobility" and "accessible" fired on any car-free request. P08 asks
-    about snow, swimming and cafes; the interpreter listed mobility and
-    walkability as criteria, TerrainTool ran, and elevation spread became the
-    headline "why it fits" for half the ranking."""
+def test_no_request_selects_a_terrain_tool():
     profile = PlaceRequestProfile(
         purpose="vacation",
-        relevant_criteria=["mobility", "walkability", "public_transport_access"],
-        mobility_requirements=["no_car", "walkable", "public_transport"],
-    )
-    assert "TerrainTool" not in select_tools(profile)
-
-
-def test_terrain_is_researched_when_the_request_is_actually_about_terrain():
-    profile = PlaceRequestProfile(
-        purpose="vacation",
+        relevant_criteria=["terrain"],
         hard_constraints=["step-free access around the city centre", "reasonably flat terrain"],
     )
-    assert "TerrainTool" in select_tools(profile)
-
-
-def test_a_wheelchair_user_still_triggers_terrain_research():
-    profile = PlaceRequestProfile(purpose="vacation", hard_constraints=["wheelchair access required"])
-    assert "TerrainTool" in select_tools(profile)
+    assert "TerrainTool" not in select_tools(profile)

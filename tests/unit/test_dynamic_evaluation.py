@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from app.agent.dynamic_evaluation import (
+    canonical_criterion_name,
     canonicalize_criterion_weights,
     check_geocoded_constraints,
     evaluate_candidates,
@@ -29,6 +30,12 @@ def _candidate(name: str, country: str = "Testland") -> CandidatePlace:
     return CandidatePlace(
         place_name=name, country=country, reason_for_inclusion="test", verified=True, lat=1.0, lon=1.0
     )
+
+
+def test_cultural_life_maps_to_activity_evidence_but_touristiness_does_not():
+    assert canonical_criterion_name("cultural_life") == "activities"
+    assert canonical_criterion_name("cultural life") == "activities"
+    assert canonical_criterion_name("touristy_level") == "touristy_level"
 
 
 def test_missing_evidence_is_excluded_not_scored():

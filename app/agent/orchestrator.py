@@ -148,17 +148,28 @@ def _include_named_destinations(
     if not profile.named_destinations:
         return candidates
 
-    present = {c.place_name.strip().casefold() for c in candidates}
-    added = [
-        CandidatePlace(
-            place_name=name.strip(),
-            country="",
-            reason_for_inclusion="Named by the user, who asked whether it is a good fit.",
+    by_name = {c.place_name.strip().casefold(): c for c in candidates}
+    named: list[CandidatePlace] = []
+    named_keys: set[str] = set()
+    for raw_name in profile.named_destinations:
+        name = raw_name.strip()
+        key = name.casefold()
+        if not name or key in named_keys:
+            continue
+        named_keys.add(key)
+        named.append(
+            by_name.get(key)
+            or CandidatePlace(
+                place_name=name,
+                country="",
+                reason_for_inclusion="Named by the user, who asked whether it is a good fit.",
+            )
         )
-        for name in profile.named_destinations
-        if name.strip() and name.strip().casefold() not in present
-    ]
-    return added + candidates
+
+    # Verification shares a finite research deadline. Put every named place
+    # first, in the traveller's order, so an already-generated named candidate
+    # gets the same priority as one synthesized here.
+    return named + [c for c in candidates if c.place_name.strip().casefold() not in named_keys]
 
 
 def _relax_unresolvable_preferred_regions(

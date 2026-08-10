@@ -178,6 +178,31 @@ def test_an_interest_filed_under_soft_preferences_still_selects_prose():
     assert set(activities["wikivoyage_matched_interests"]) >= {"food", "market"}
 
 
+def test_unsupported_touristiness_does_not_leak_into_activity_scoring():
+    profile = PlaceRequestProfile(
+        purpose="vacation",
+        soft_preferences=["cheap", "warm city", "not too touristy"],
+        relevant_criteria=["budget", "climate", "internet_quality", "touristy_level"],
+    )
+    evidence = _activities_evidence(
+        "Seville",
+        {
+            "counts_by_category": {"culture": 10},
+            "wikivoyage_see_context": _section(
+                ("Old town", "The central quarter is the most touristy part of the city.")
+            ),
+        },
+    )
+
+    payload = build_unresolved_scoring_payload(
+        [_evaluation("Seville", unscored_evidence=["activities"])], profile, evidence
+    )
+
+    assert payload[0]["preferences"]["soft_preferences"] == []
+    activities = payload[0]["criteria"]["activities"]
+    assert "wikivoyage_matched_interests" not in activities
+
+
 def test_a_stray_word_from_a_preference_phrase_is_not_treated_as_a_match():
     """"car-free livability" once matched a line about a "free PDF guide"."""
     profile = PlaceRequestProfile(purpose="remote_work", mobility_requirements=["car-free livability"])

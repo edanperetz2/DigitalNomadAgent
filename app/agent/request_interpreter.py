@@ -59,7 +59,7 @@ phrase there. If the user names a specific place they are considering and wants 
 (e.g. "is <city> a good fit for me?"), put that place in named_destinations instead, \
 and still propose alternatives.
 
-Interpret "must"/"required"/"non-negotiable" as hard constraints, "most important" as a very \
+Interpret "must"/"need"/"required"/"non-negotiable" as hard constraints, "most important" as a very \
 high weight, "prefer" as a moderate weight, "would be nice" as a low weight, "do not care about \
 X" as removing/minimizing that criterion, and "avoid"/"never" as a deal breaker. Indifference is \
 not avoidance: "I don't care about nightlife at all" means weight it 0 and say nothing more about \
@@ -105,7 +105,6 @@ _OUT_OF_SCOPE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         "booking or purchasing anything",
     ),
 )
-
 
 def out_of_scope_requests(prompt: str) -> list[str]:
     """Named asks this agent cannot fulfil, in the reader's terms.

@@ -82,12 +82,28 @@ def test_the_payload_tells_the_generator_a_place_was_named():
 
     named = _build_payload(
         PlaceRequestProfile(purpose="remote_work", named_destinations=["Lisbon"]),
-        [],
+        [CandidateEvaluation(place="Lisbon", country="Portugal")],
         validation,
         [],
         3,
     )
     assert named["named_destinations"] == ["Lisbon"]
+
+    missing = _build_payload(
+        PlaceRequestProfile(
+            purpose="remote_work", named_destinations=["Porto", "Valencia", "Split"]
+        ),
+        [
+            CandidateEvaluation(place="Porto", country="Portugal"),
+            CandidateEvaluation(place="Lisbon", country="Portugal"),
+            CandidateEvaluation(place="Split", country="Croatia"),
+        ],
+        validation,
+        [],
+        3,
+    )
+    assert missing["named_destinations"] == ["Porto", "Split"]
+    assert missing["unresearched_named_destinations"] == ["Valencia"]
 
     # Absent otherwise, so the nine prompts that name nothing are untouched.
     plain = _build_payload(PlaceRequestProfile(purpose="remote_work"), [], validation, [], 3)
@@ -239,6 +255,7 @@ def test_the_named_destination_instruction_exists_for_when_one_was_named():
     from app.agent.recommendation_generator import NAMED_DESTINATION_PROMPT
 
     assert "has named specific places" in NAMED_DESTINATION_PROMPT
+    assert "never relabel another candidate" in NAMED_DESTINATION_PROMPT
 
 
 def test_leaky_payload_keys_are_renamed_for_the_model():
@@ -258,3 +275,23 @@ def test_leaky_payload_keys_are_renamed_for_the_model():
     assert presented["caveats_to_pass_on"] == ["a caveat"]
     assert presented["places_the_traveller_named"] == ["Lisbon"]
     assert presented["priorities_no_evidence_could_be_found_for"] == ["food scene"]
+
+
+def test_writer_ranking_must_preserve_the_evaluators_order():
+    from app.agent.recommendation_generator import _ranking_matches_payload
+
+    payload = {"candidates": [{"place": "Porto"}, {"place": "Valencia"}, {"place": "Split"}]}
+    correct = """## Best matches
+| Rank | Place | Why | Drawback | Confidence |
+|---:|---|---|---|---|
+| 1 | Porto | x | y | Medium |
+| 2 | Valencia | x | y | Medium |
+| 3 | Split | x | y | Medium |"""
+    relabelled = correct.replace("| 2 | Valencia |", "| 2 | Lisbon |")
+    reordered = correct.replace("| 1 | Porto |", "| 1 | Split |").replace(
+        "| 3 | Split |", "| 3 | Porto |"
+    )
+
+    assert _ranking_matches_payload(correct, payload)
+    assert not _ranking_matches_payload(relabelled, payload)
+    assert not _ranking_matches_payload(reordered, payload)

@@ -129,13 +129,26 @@ def test_the_end_to_end_ranking_uses_it():
 
     profile = PlaceRequestProfile(
         purpose="vacation",
-        relevant_criteria=["terrain"],
-        hard_constraints=["reasonably flat terrain"],
+        preferred_languages=["English"],
+        relevant_criteria=["language_spoken"],
+        hard_constraints=["English widely spoken"],
     )
     evidence = {
-        "Flat": [tool("TerrainTool", "Flat", {"flatness_score": 1.0, "elevation_spread_m": 8.0, "terrain": "flat"})],
+        "Confirmed": [
+            tool(
+                "LanguageTool",
+                "Confirmed",
+                {
+                    "spoken_languages": ["English"],
+                    "requested_languages": ["English"],
+                    "matched_languages": ["English"],
+                    "english_reach": "native",
+                    "english_score": 1.0,
+                },
+            )
+        ],
         "Unknown": [],
     }
-    ranked = evaluate_candidates([candidate("Unknown"), candidate("Flat")], profile, evidence)
-    assert ranked[0].place == "Flat"
-    assert ranked[0].hard_constraint_results["terrain"] is True
+    ranked = evaluate_candidates([candidate("Unknown"), candidate("Confirmed")], profile, evidence)
+    assert ranked[0].place == "Confirmed"
+    assert ranked[0].hard_constraint_results["language_spoken"] is True

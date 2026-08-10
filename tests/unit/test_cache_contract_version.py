@@ -19,7 +19,6 @@ from app.tools import (
     amenities,
     language,
     local_mobility,
-    terrain,
     transport_access,
     weather,
 )
@@ -39,8 +38,6 @@ PINNED_SOURCES = {
     "transport_access.OVERPASS_SOURCE_URL": "https://www.openstreetmap.org/",
     "language.SOURCE_NAME": "DigitalNomadAgent country language reference",
     "language.SOURCE_URL": "https://github.com/edanperetz2/DigitalNomadAgent/blob/main/app/languages.py",
-    "terrain.SOURCE_NAME": "Open-Meteo elevation API",
-    "terrain.SOURCE_URL": "https://open-meteo.com/en/docs/elevation-api",
     "weather.SOURCE_URL": "https://open-meteo.com/en/docs/historical-weather-api",
 }
 
@@ -49,7 +46,6 @@ MODULES = {
     "amenities": amenities,
     "language": language,
     "local_mobility": local_mobility,
-    "terrain": terrain,
     "transport_access": transport_access,
     "weather": weather,
 }

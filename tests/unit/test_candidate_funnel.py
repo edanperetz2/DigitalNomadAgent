@@ -57,6 +57,31 @@ def test_a_named_destination_already_present_is_not_duplicated():
     assert [c.place_name for c in result] == ["Valencia"]
 
 
+def test_all_named_destinations_are_prioritized_in_the_users_order():
+    from app.agent.orchestrator import _include_named_destinations
+
+    profile = PlaceRequestProfile(
+        purpose="remote_work", named_destinations=["Porto", "Valencia", "Split"]
+    )
+    candidates = [
+        _candidate("Lisbon", country="Portugal", country_code="PT"),
+        _candidate("Split", country="Croatia", country_code="HR"),
+        _candidate("Porto", country="Portugal", country_code="PT"),
+        _candidate("Seville"),
+        _candidate("Valencia"),
+    ]
+
+    result = _include_named_destinations(profile, candidates)
+
+    assert [candidate.place_name for candidate in result] == [
+        "Porto",
+        "Valencia",
+        "Split",
+        "Lisbon",
+        "Seville",
+    ]
+
+
 def test_orchestrator_relaxes_a_preferred_region_that_matches_nothing():
     """The pipeline-level fix. Relaxing only inside select_finalists is not
     enough: _check_hard_constraints re-runs the same region check during

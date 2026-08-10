@@ -1,11 +1,4 @@
-"""D34: the two criteria the wheelchair prompt (P06) stated and nothing measured.
-
-Lisbon -- steep and cobbled -- was recommended first to a wheelchair user who
-called step-free access and flat terrain non-negotiable, and the evidence cited
-in its favour was the city's funiculars and public elevator. Separately,
-"English being widely spoken matters a lot" ranked Lisbon, Barcelona and Seville
-above London, Dublin, Bristol and Belfast.
-"""
+"""Language evidence and ranking behavior."""
 
 from datetime import UTC, datetime
 
@@ -17,7 +10,6 @@ from app.evidence.models import ToolResult
 from app.languages import english_reach, spoken_languages
 from app.tools.language import SOURCE_URL as LANGUAGE_SOURCE_URL
 from app.tools.language import LanguageTool
-from app.tools.terrain import flatness_score, terrain_label
 
 
 def _candidate(name: str, country: str) -> CandidatePlace:
@@ -75,14 +67,6 @@ async def test_language_tool_errors_rather_than_guessing_an_unlisted_country():
 
     assert result.error is not None
     assert "not in the language reference table" in result.error
-
-
-def test_flatness_reads_a_flat_city_higher_than_a_steep_one():
-    assert flatness_score(10.0) == 1.0
-    assert flatness_score(150.0) == 0.0
-    assert 0.0 < flatness_score(60.0) < 1.0
-    assert terrain_label(10.0) == "flat"
-    assert terrain_label(150.0) == "steep"
 
 
 def test_a_native_english_city_outranks_one_where_english_is_only_widespread():
@@ -202,57 +186,3 @@ def test_a_requested_language_other_than_english_still_fails_when_unspoken():
     ranked = evaluate_candidates([_candidate("Lisbon", "Portugal")], profile, evidence)
 
     assert any("None of the languages you asked for" in note for note in ranked[0].drawbacks)
-
-
-def test_flat_terrain_outranks_steep_when_the_request_says_it_is_non_negotiable():
-    profile = PlaceRequestProfile(
-        purpose="vacation",
-        relevant_criteria=["terrain"],
-        hard_constraints=["reasonably_flat_terrain", "step_free_access"],
-        budget=Budget(),
-    )
-    evidence = {
-        "Lisbon": [
-            _tool_result(
-                "TerrainTool",
-                "Lisbon",
-                {"flatness_score": 0.05, "elevation_spread_m": 120.0, "terrain": "steep"},
-            )
-        ],
-        "Adelaide": [
-            _tool_result(
-                "TerrainTool",
-                "Adelaide",
-                {"flatness_score": 1.0, "elevation_spread_m": 12.0, "terrain": "flat"},
-            )
-        ],
-    }
-
-    ranked = evaluate_candidates(
-        [_candidate("Lisbon", "Portugal"), _candidate("Adelaide", "Australia")], profile, evidence
-    )
-
-    assert [e.place for e in ranked] == ["Adelaide", "Lisbon"]
-    assert any("steep" in drawback for drawback in ranked[1].drawbacks)
-
-
-def test_terrain_evidence_never_claims_to_be_step_free_access():
-    """A gradient measurement is not an accessibility audit, and must not read
-    as one -- the original answer offered Lisbon's funiculars as evidence *for*
-    step-free access."""
-    profile = PlaceRequestProfile(
-        purpose="vacation", relevant_criteria=["terrain"], hard_constraints=["step_free_access"], budget=Budget()
-    )
-    evidence = {
-        "Adelaide": [
-            _tool_result(
-                "TerrainTool",
-                "Adelaide",
-                {"flatness_score": 1.0, "elevation_spread_m": 12.0, "terrain": "flat"},
-            )
-        ]
-    }
-
-    evaluation = evaluate_candidates([_candidate("Adelaide", "Australia")], profile, evidence)[0]
-
-    assert all("step-free" not in advantage for advantage in evaluation.advantages)

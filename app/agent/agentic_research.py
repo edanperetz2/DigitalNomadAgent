@@ -137,27 +137,6 @@ _LANGUAGE_TRIGGER_WORDS = [
     "widely spoken",
     "speak the language",
 ]
-# Deliberately narrow. "mobility", "accessible" and bare "flat" fire on any
-# ordinary walkability request -- P08 asks about snow, swimming and cafes, the
-# interpreter listed "mobility" and "walkability" as criteria, and terrain
-# became the headline reason for half the ranking of a prompt that never
-# mentioned it (D46). Gradient only matters when someone says it does.
-_TERRAIN_TRIGGER_WORDS = [
-    "wheelchair",
-    "step-free",
-    "step free",
-    "step-free access",
-    "flat terrain",
-    "level ground",
-    "hilly",
-    "steep",
-    "mobility impair",
-    "reduced mobility",
-    "mobility aid",
-    "walking difficult",
-]
-
-
 def select_tools(profile: PlaceRequestProfile) -> set[str]:
     """Decide which tools are relevant for this request. Deterministic and
     purpose-driven -- the same fixed tool list is never used for every prompt.
@@ -207,9 +186,6 @@ def select_tools(profile: PlaceRequestProfile) -> set[str]:
 
     if profile.preferred_languages or any(w in haystack for w in _LANGUAGE_TRIGGER_WORDS):
         tools.add("LanguageTool")
-    if any(w in haystack for w in _TERRAIN_TRIGGER_WORDS):
-        tools.add("TerrainTool")
-
     if any(w in haystack for w in _ACCESSIBILITY_TRIGGER_WORDS):
         tools.add("TransportAccessTool")
 

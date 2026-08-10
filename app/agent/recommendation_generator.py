@@ -52,7 +52,9 @@ then let it shape which evidence you lead with. Do not perform sympathy and do n
 
 Present the ranking once. The comparison table and the per-place sections are one pass through \
 the list, not two summaries of it plus a third -- and every place in the table gets a section, or \
-it should not be in the table. Every source arrives with a `number`: cite it in the prose as \
+it should not be in the table. The candidates are already ranked: preserve their exact input \
+order and rank numbers; do not re-rank, insert, rename, or omit a place. Every source arrives with \
+a `number`: cite it in the prose as \
 [number], exactly as given. Never renumber, and never cite a number you were not given -- a \
 citation that points at nothing is worse than no citation. The sources list is built from the \
 numbers you cite, so do not write one yourself.
@@ -87,6 +89,10 @@ for having none, when the truth is that nothing measured it -- say it was not es
 Equally, never report "no major drawback" for a candidate whose evidence is simply thin; silence \
 is not reassurance.
 
+Anything listed under `priorities_no_evidence_could_be_found_for` was not measured. Do not use it \
+to rank, compare, praise, criticize, or infer anything about a place, even from a seemingly related \
+proxy. State only that it remains unverified.
+
 Never present something the traveller asked to avoid as a reason to go. A trait they ruled out \
 does not become a selling point by being reframed; name what it costs them instead.
 
@@ -110,12 +116,14 @@ Respond with ONLY a JSON object: {"markdown": "..."}."""
 # on the named destinations" when the traveller had named nothing (D42).
 NAMED_DESTINATION_PROMPT = """
 
-The traveller has named specific places and is asking you to judge those, not to discover new \
-ones. Open by naming them and give the verdict on each -- plainly yes, no, or yes only if some \
+The traveller has named specific places. `places_the_traveller_named` contains only the ones that \
+were actually researched; judge those plainly yes, no, or yes only if some \
 named condition holds -- before presenting the ranking. Say explicitly if one of them is not the \
 top-ranked option and why, and if one was researched but did not make the final list, say that \
-rather than leaving it unmentioned. The other places are alternatives offered around that \
-verdict, not a replacement for it."""
+rather than leaving it unmentioned. `places_not_researched_do_not_assess` is different: never give \
+those places a fit verdict, factual description, or citation, and never relabel another candidate \
+as one of them. A deterministic notice will explain that gap. The other places are alternatives \
+offered around the researched verdict, not a replacement for it."""
 
 
 class _RecommendationOutput(BaseModel):
@@ -276,7 +284,17 @@ def _build_payload(
     # D18 got the named place into the ranking; this is the other half of it.
     # Only present when a place was actually named, so nothing else changes.
     if profile.named_destinations:
-        payload["named_destinations"] = list(profile.named_destinations)
+        evaluated = {evaluation.place.strip().casefold() for evaluation in evaluations}
+        researched = [
+            name for name in profile.named_destinations if name.strip().casefold() in evaluated
+        ]
+        unresearched = [
+            name for name in profile.named_destinations if name.strip().casefold() not in evaluated
+        ]
+        if researched:
+            payload["named_destinations"] = researched
+        if unresearched:
+            payload["unresearched_named_destinations"] = unresearched
     return payload
 
 
@@ -296,6 +314,7 @@ def _llm_payload(payload: dict) -> dict:
         "unmeasured_priorities": "priorities_no_evidence_could_be_found_for",
         "irreconcilable_requests": "requests_that_cannot_both_be_met",
         "named_destinations": "places_the_traveller_named",
+        "unresearched_named_destinations": "places_not_researched_do_not_assess",
         "stated_request": "what_the_traveller_asked_for",
     }
     presented = {
@@ -467,8 +486,36 @@ def _coverage_disclosure(unmeasured: list[str]) -> str:
     )
 
 
+def _unresearched_named_disclosure(names: list[str]) -> str:
+    """Do not let the writing model turn an absent named place into a verdict."""
+    if not names:
+        return ""
+    listed = ", ".join(_distinct(names))
+    pronoun = "them" if len(_distinct(names)) > 1 else "it"
+    return (
+        f"\n\n**Could not be reliably researched in this run:** {listed}. "
+        f"I cannot give {pronoun} a fit verdict or compare {pronoun} fairly with the researched places below."
+    )
+
+
 _SOURCES_HEADING = re.compile(r"^#{1,6}\s*(?:sources|references|sources used)\b.*$", re.I | re.M)
 _CITATION = re.compile(r"\[(\d{1,3})\]")
+_RANKING_ROW = re.compile(r"^\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|", re.M)
+
+
+def _ranking_matches_payload(body: str, payload: dict) -> bool:
+    """The writer may explain an order, but it may not replace the evaluator's."""
+    expected = [str(candidate.get("place") or "").strip() for candidate in payload.get("candidates", [])]
+    rows = _RANKING_ROW.findall(body)
+    if len(rows) != len(expected):
+        return False
+
+    def clean(place: str) -> str:
+        return re.sub(r"[*_`]", "", place).strip().casefold()
+
+    return [int(rank) for rank, _ in rows] == list(range(1, len(expected) + 1)) and [
+        clean(place) for _, place in rows
+    ] == [clean(place) for place in expected]
 
 
 def _strip_model_sources(body: str) -> str:
@@ -570,6 +617,7 @@ def render_recommendation_fallback(
         disclosures=[
             _conflict_disclosure(conflicts or []),
             _out_of_scope_disclosure(out_of_scope or []),
+            _unresearched_named_disclosure(payload.get("unresearched_named_destinations") or []),
             _degradation_disclosure(service_notices or []),
             _collapse_disclosure(
                 len(evaluations),
@@ -626,7 +674,7 @@ async def generate_recommendation(
 
     try:
         system_prompt = SYSTEM_PROMPT
-        if payload.get("named_destinations"):
+        if payload.get("named_destinations") or payload.get("unresearched_named_destinations"):
             system_prompt += NAMED_DESTINATION_PROMPT
         messages = [
             {"role": "system", "content": system_prompt},
@@ -644,11 +692,16 @@ async def generate_recommendation(
         )
         response = await asyncio.wait_for(call, timeout=llm_timeout_seconds) if llm_timeout_seconds else await call
         answer = _strip_model_sources(response["markdown"])
+        if not _ranking_matches_payload(answer, payload):
+            raise LLMOutputError("Recommendation writer changed the authoritative candidate ranking")
         return _assemble(
             answer,
             disclosures=[
                 _conflict_disclosure(stated_conflicts),
                 _out_of_scope_disclosure(declined),
+                _unresearched_named_disclosure(
+                    payload.get("unresearched_named_destinations") or []
+                ),
                 _degradation_disclosure(notices),
                 collapse,
                 _unverifiable_requirements_disclosure(unverifiable_requirements or []),

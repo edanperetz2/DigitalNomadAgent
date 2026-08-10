@@ -195,7 +195,7 @@ class GeocodingTool:
 
     @staticmethod
     def _select_match(
-        results: list[dict], expected_country: str
+        results: list[dict], expected_country: str, expected_place: str
     ) -> tuple[_GeocodingMatch | None, str | None]:
         if not results:
             return None, "This destination could not be reliably verified."
@@ -226,6 +226,17 @@ class GeocodingTool:
                 raise ValueError("Nominatim returned matches, but none had a usable response structure")
             return None, "This destination could not be reliably verified."
 
+        # Prefer results whose canonical name exactly matches the requested
+        # place before applying the ambiguity check. Nominatim commonly returns
+        # a city beside its similarly named administrative region (Valencia vs
+        # the Valencian Community); treating those as two rival localities drops
+        # a perfectly exact city match. Genuine ambiguity remains: two exact
+        # Springfield results in the same country both survive this filter.
+        expected_name = _normalize_text(expected_place)
+        exact = [match for match in accepted if _normalize_text(match.canonical_name) == expected_name]
+        if exact:
+            accepted = exact
+
         locality_groups: dict[tuple[str, str, str], _GeocodingMatch] = {}
         for match in accepted:
             current = locality_groups.get(match.locality_key)
@@ -249,7 +260,7 @@ class GeocodingTool:
 
         try:
             results = await self._fetch(query)
-            match, rejection = self._select_match(results, candidate.country)
+            match, rejection = self._select_match(results, candidate.country, candidate.place_name)
         except Exception as exc:  # noqa: BLE001 - preserve stale identity on any live-response failure
             if cached is not None:
                 stale_result = ToolResult.model_validate(cached)

@@ -95,20 +95,22 @@ E2E_PROMPTS: list[E2EPrompt] = [
     ),
     E2EPrompt(
         id="P04",
-        title="Solo traveller, safety-dominant",
+        title="Solo digital nomad, safety-dominant",
         category="mainstream",
         prompt=(
-            "I'm travelling alone for ten days in October — my first solo trip. Safety is "
-            "genuinely my top priority; I want somewhere I'd feel fine walking back to my "
-            "accommodation at 10pm. After that, a city I can explore mostly on foot without "
-            "renting a car, and a really good food scene, ideally with strong street food or "
+            "I'm a freelance designer planning a six-week solo remote-work stay starting in "
+            "October — my first time living abroad alone. Safety is genuinely my top priority; "
+            "I want somewhere I'd feel fine walking back to my accommodation at 10pm. I need "
+            "reliable internet for video calls, and I'd like to keep my all-in monthly spending "
+            "under €1,600 including rent. After that, I want a city I can explore mostly on foot "
+            "without renting a car, with a really good food scene, ideally strong street-food or "
             "market culture. I'd rather skip the big party destinations. Mild autumn weather "
-            "would be a bonus but I'm not fussy about temperature."
+            "would be a bonus, but I'm not fussy about temperature."
         ),
         focus=(
-            "Safety + local-mobility trigger words co-activating. One criterion dominating the "
-            "weight vector. An explicit NEGATIVE preference ('skip party destinations'). Is "
-            "GOV.UK/World Bank safety evidence cited, or merely asserted?"
+            "Digital-nomad safety + internet + budget + local-mobility requirements. One "
+            "criterion dominates the weight vector. An explicit NEGATIVE preference ('skip "
+            "party destinations'). Is GOV.UK/World Bank safety evidence cited, or merely asserted?"
         ),
     ),
     E2EPrompt(
@@ -130,16 +132,17 @@ E2E_PROMPTS: list[E2EPrompt] = [
     ),
     E2EPrompt(
         id="P06",
-        title="Long stay, accessibility non-negotiable",
+        title="Remote-working couple, accessibility non-negotiable",
         category="mainstream",
         prompt=(
-            "My wife and I are both retired and we want to spend six months escaping the winter, "
+            "My wife and I both work remotely and want to spend six months escaping the winter, "
             "roughly November through April. Mild winters are the main thing — not tropical "
-            "heat, just somewhere we're not housebound by cold. English being widely spoken "
-            "matters a lot; we're not going to learn a new language at this stage. The important "
-            "one: I use a wheelchair, so step-free access around the city centre, accessible "
-            "public transport, and reasonably flat terrain are non-negotiable. Good access to "
-            "healthcare would put our minds at ease too."
+            "heat, just somewhere we're not housebound by cold. We need reliable internet for "
+            "daily video calls, English being widely spoken matters a lot, and our all-in budget "
+            "is about €2,400 a month including rent. The important one: I use a wheelchair, so "
+            "step-free access around the city centre, accessible public transport, and reasonably "
+            "flat terrain are non-negotiable. Good access to healthcare would put our minds at "
+            "ease too."
         ),
         focus=(
             "Accessibility trigger words. A hard constraint that is QUALITATIVE rather than "
