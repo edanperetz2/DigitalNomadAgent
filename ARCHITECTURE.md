@@ -19,6 +19,30 @@ throughout the code, the diagram, `/api/agent_info`, LLM-call tracing, and this 
 | Recommendation Validator | `app/agent/recommendation_validator.py` | No |
 | Recommendation Generator | `app/agent/recommendation_generator.py` | Yes — 1 call |
 
+The thirteen research tools inside `Tool Registry` are pinned the same way, by
+`module_names.TOOL_NAMES`:
+
+| Tool | File | Principal source |
+|---|---|---|
+| `GeocodingTool` | `app/tools/geocoding.py` | OpenStreetMap Nominatim |
+| `WeatherTool` | `app/tools/weather.py` | Open-Meteo historical archive |
+| `WikivoyageClimateTool` | `app/tools/wikivoyage_climate.py` | Wikivoyage climate tables |
+| `AmenitiesTool` | `app/tools/amenities.py` | Overpass (OSM) |
+| `LocalMobilityTool` | `app/tools/local_mobility.py` | Overpass + Wikivoyage |
+| `PlaceContextTool` | `app/tools/place_context.py` | Wikipedia/Wikivoyage |
+| `TimezoneFitTool` | `app/tools/timezone_fit.py` | IANA offsets + origin resolution |
+| `BudgetFitTool` | `app/tools/budget_fit.py` | Cost baskets + FX |
+| `TransportAccessTool` | `app/tools/transport_access.py` | Overpass + Wikivoyage |
+| `ActivitiesTool` | `app/tools/activities.py` | Overpass + Wikivoyage |
+| `SafetyTool` | `app/tools/safety.py` | GOV.UK travel advice, World Bank |
+| `LanguageTool` | `app/tools/language.py` | `app/languages.py` reference data |
+| `TerrainTool` | `app/tools/terrain.py` | Open-Elevation |
+
+`assets/model_architecture.png` is **rendered from these two lists** by
+`scripts/render_architecture.py`, and `tests/unit/test_architecture_png_file.py` fails if the image
+and the code disagree. That is deliberate: the diagram previously named three tools that had been
+deleted and omitted six that existed, and nothing could detect it.
+
 Four modules ever produce a `steps` entry in `/api/execute`'s response, because four modules ever
 call an LLM — always exactly once each per request, so the total stays at 4 calls even when a
 gap-research round runs (Dynamic Evaluation's call fires only once, from the state machine's single
@@ -96,7 +120,7 @@ have bounded, disclosed paths to a usable response.
 
 ## 3. Why tool selection is deterministic, not LLM-driven
 
-`Agentic Research` still needs to decide *which* of the 10 tools matter for a given request. The
+`Agentic Research` still needs to decide *which* of the 13 tools matter for a given request. The
 course's optimization requirements (§6 of the spec) explicitly ask for deterministic Python logic
 "whenever an LLM is unnecessary" and a hard cap on LLM calls. Tool relevance is a classification
 problem cleanly solvable from the interpreted profile (`purpose`, `relevant_criteria`,

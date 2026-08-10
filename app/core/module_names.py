@@ -31,3 +31,42 @@ LLM_CALLING_MODULES: tuple[str, ...] = (
     DYNAMIC_EVALUATION,
     RECOMMENDATION_GENERATOR,
 )
+
+# The research tools inside the Tool Registry. Same rule as the pipeline modules
+# above: the registry built in app/main.py, the architecture diagram and the
+# documentation must all name exactly these. The diagram used to list three
+# tools that had been deleted (Education Options, Accessibility, Official
+# Sources) and omit six that existed, which is what this list exists to prevent.
+TOOL_NAMES: tuple[str, ...] = (
+    "GeocodingTool",
+    "WeatherTool",
+    "WikivoyageClimateTool",
+    "AmenitiesTool",
+    "LocalMobilityTool",
+    "PlaceContextTool",
+    "TimezoneFitTool",
+    "BudgetFitTool",
+    "TransportAccessTool",
+    "ActivitiesTool",
+    "SafetyTool",
+    "LanguageTool",
+    "TerrainTool",
+)
+
+
+def tool_display_label(tool_name: str) -> str:
+    """`WikivoyageClimateTool` -> `Wikivoyage Climate`, for diagrams and prose.
+
+    The class-style name is what the code and the tool results use; the spaced
+    form is what a reader sees. Deriving one from the other keeps them from
+    drifting apart the way the hand-drawn diagram did.
+    """
+    stem = tool_name.removesuffix("Tool")
+    words: list[str] = []
+    for char in stem:
+        if char.isupper() and words and words[-1]:
+            words.append("")
+        if not words:
+            words.append("")
+        words[-1] += char
+    return " ".join(word for word in words if word)

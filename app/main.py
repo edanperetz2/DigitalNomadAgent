@@ -23,6 +23,7 @@ from app.api.schemas import TeamInfoResponse
 from app.core.config import REPO_ROOT, get_settings
 from app.core.exceptions import BudgetExceededError, ConfigurationError, PlaceMatchError
 from app.core.logging import logger
+from app.core.module_names import TOOL_NAMES
 from app.evidence.cache import ToolCache
 from app.evidence.database import Database
 from app.evidence.example_sessions import load_example_sessions
@@ -150,6 +151,15 @@ def _build_tool_registry(
         "LanguageTool": LanguageTool(),
         "TerrainTool": TerrainTool(cache, timeout, http=http),
     }
+    # TOOL_NAMES is what the architecture diagram and the docs are rendered from.
+    # If a tool is added or removed here without updating it, say so now rather
+    # than shipping a diagram that names tools the code does not have.
+    if set(tools) != set(TOOL_NAMES):
+        raise ConfigurationError(
+            "The tool registry and app.core.module_names.TOOL_NAMES disagree: "
+            f"only in registry={sorted(set(tools) - set(TOOL_NAMES))}, "
+            f"only in TOOL_NAMES={sorted(set(TOOL_NAMES) - set(tools))}."
+        )
     return ToolRegistry(
         tools,
         max_concurrent_requests=max_concurrent,
