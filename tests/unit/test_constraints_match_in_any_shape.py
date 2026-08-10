@@ -25,7 +25,7 @@ CANDIDATE = CandidatePlace(place_name="Seville", country="Spain", reason_for_inc
         ("budget_max_1800_eur_month_all_in", "budget no more than 1800 per month", ["cost"]),
         ("must_be_livable_without_a_car", "must be livable without a car", ["transportation"]),
         ("car_independence", "car independence", ["transportation"]),
-        ("english_taught_courses", "English-taught courses", ["language_spoken"]),
+        ("english_taught_courses", "English-taught courses", ["education"]),
         ("reasonably_flat_terrain", "reasonably flat terrain", ["terrain"]),
         ("flight_time_under_5_hours", "flight time under 5 hours", ["flight_duration"]),
     ],

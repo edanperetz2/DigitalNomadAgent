@@ -57,6 +57,13 @@ _WEIGHT_KEY_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # otherwise swallow a stated flight-time limit into a criterion that cannot
     # express hours (D33).
     ("flight_duration", ("flight time", "flight duration", "flying time", "flight length", "flight")),
+    # Course language is an education property, not evidence that a language is
+    # commonly spoken in the surrounding city. Keep these specific phrases
+    # ahead of the broad language rule below.
+    (
+        "education",
+        ("english instruction", "english taught", "instruction language", "course language"),
+    ),
     ("language_spoken", ("language", "english", "speak")),
     # "topograph" covers the interpreter's own word for this: P06 stated
     # "reasonably flat terrain" as a non-negotiable and the interpreter filed the
@@ -404,6 +411,12 @@ def _as_words(phrase: str) -> str:
 def criteria_for_constraint(phrase: str) -> list[str]:
     """Which measured criteria, if any, a stated requirement is about."""
     text = _as_words(phrase).casefold()
+    # Spoken-language evidence cannot establish the teaching language of a
+    # university course or degree. Leave that requirement on the unmeasured
+    # education criterion unless a dedicated source is added.
+    education_terms = r"\b(?:course|class|degree|program|programme|instruction|taught)\b"
+    if re.search(r"\b(?:english|language)\b", text) and re.search(education_terms, text):
+        return ["education"]
     return sorted(
         criterion
         for criterion, patterns in _HARD_CONSTRAINT_PATTERNS.items()

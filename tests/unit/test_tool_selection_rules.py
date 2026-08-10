@@ -48,6 +48,15 @@ def test_study_selects_amenities_not_a_dedicated_education_tool():
     assert "TimezoneFitTool" not in tools
 
 
+def test_missing_language_information_does_not_create_a_language_preference():
+    profile = _profile(
+        purpose="remote_work",
+        missing_information=["language preferences"],
+    )
+
+    assert "LanguageTool" not in select_tools(profile)
+
+
 def test_vacation_selects_weather_and_activities():
     profile = _profile(purpose="vacation")
     tools = select_tools(profile)

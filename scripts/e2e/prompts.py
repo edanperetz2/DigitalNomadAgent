@@ -132,22 +132,20 @@ E2E_PROMPTS: list[E2EPrompt] = [
     ),
     E2EPrompt(
         id="P06",
-        title="Remote-working couple, accessibility non-negotiable",
+        title="Remote-working couple, six-month winter base",
         category="mainstream",
         prompt=(
             "My wife and I both work remotely and want to spend six months escaping the winter, "
             "roughly November through April. Mild winters are the main thing — not tropical "
             "heat, just somewhere we're not housebound by cold. We need reliable internet for "
             "daily video calls, English being widely spoken matters a lot, and our all-in budget "
-            "is about €2,400 a month including rent. The important one: I use a wheelchair, so "
-            "step-free access around the city centre, accessible public transport, and reasonably "
-            "flat terrain are non-negotiable. Good access to healthcare would put our minds at "
-            "ease too."
+            "is about €2,400 a month including rent. Good access to healthcare would put our "
+            "minds at ease too."
         ),
         focus=(
-            "Accessibility trigger words. A hard constraint that is QUALITATIVE rather than "
-            "numeric. Six-month climate normals. Key question: is accessibility genuinely "
-            "researched from OSM data, or hand-waved?"
+            "Long-stay digital-nomad couple. Six-month climate normals, reliable internet, "
+            "English usability, an accommodation-inclusive monthly budget, and healthcare "
+            "evidence without an uncommon accessibility edge case."
         ),
     ),
     E2EPrompt(

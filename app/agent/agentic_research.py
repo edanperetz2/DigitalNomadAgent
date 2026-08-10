@@ -147,7 +147,6 @@ def select_tools(profile: PlaceRequestProfile) -> set[str]:
         + profile.deal_breakers
         + profile.relevant_criteria
         + profile.mobility_requirements
-        + profile.missing_information
     ).lower()
 
     tools: set[str] = {"GeocodingTool"}
