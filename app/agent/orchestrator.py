@@ -33,7 +33,7 @@ from app.climate_scoring import contradictory_climate_requests
 from app.core.exceptions import BudgetExceededError, LLMOutputError, PlaceMatchError
 from app.core.logging import logger
 from app.evidence.memory import EvidenceMemory
-from app.evidence.models import EvidenceRecord, ToolResult
+from app.evidence.models import EvidenceRecord, ToolResult, qualified_source_name
 from app.llm.base import BaseLLMClient
 from app.llm.budget import BudgetManager
 from app.llm.mock import generate_candidates as generate_fallback_candidates
@@ -371,10 +371,10 @@ class Orchestrator:
                     # Say which place each entry is about. P01's bibliography
                     # carried "Wikivoyage Get around section" five times and
                     # "OpenStreetMap Nominatim" six, so a reader could not tell
-                    # which city any of them supported (D44).
-                    name = item.source.source_name
-                    if place and place.casefold() not in name.casefold():
-                        name = f"{name} — {place}"
+                    # which city any of them supported (D44). Shared with
+                    # `_criterion_sources`, which needs to produce the identical
+                    # string for a candidate's sources to match their numbers.
+                    name = qualified_source_name(item.source.source_name, place)
                     key = (name, item.source.source_url)
                     if key not in sources:
                         sources[key] = {

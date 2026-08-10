@@ -57,6 +57,12 @@ it should not be in the table. Every source arrives with a `number`: cite it in 
 citation that points at nothing is worse than no citation. The sources list is built from the \
 numbers you cite, so do not write one yourself.
 
+Each place carries its own `cite_only_these_source_numbers`, and its \
+`criterion_sources` gives the numbers per criterion. When writing about a place, cite only from \
+that place's own numbers -- another place's number attached to this one's claim is a citation to \
+evidence about somewhere else, and it reads as verified. The only exception is an explicit \
+comparison, where you may cite the place you are comparing against.
+
 A verdict has to distinguish. Say yes, say no, or say "yes if X" where X is a specific condition \
 the traveller can check -- a budget they would have to raise, a neighbourhood they would have to \
 live in, a piece of evidence that is missing. "Yes with conditions" applied to every place on the \
@@ -141,7 +147,7 @@ def _strength_label(score: float) -> str:
 _CONSTRAINT_LABELS = {True: "met", False: "not met", None: "could not be checked"}
 
 
-def _present_candidate(candidate: dict, rank: int) -> dict:
+def _present_candidate(candidate: dict, rank: int, number_by_name: dict[str, int]) -> dict:
     """A candidate as the reader should meet it: labels, not internal numbers.
 
     The generator used to receive `model_dump()` and copied the floats straight
@@ -159,7 +165,26 @@ def _present_candidate(candidate: dict, rank: int) -> dict:
             criterion: _strength_label(score)
             for criterion, score in sorted((candidate.get("criterion_scores") or {}).items())
         },
-        "criterion_sources": candidate.get("criterion_sources") or {},
+        # Numbers, not names. `criterion_sources` used to arrive as source names
+        # ("OpenStreetMap Nominatim -- Timisoara") while the numbers lived in a
+        # separate flat list of eighty, so citing this place's geocoder meant
+        # finding its name in that list and reading off the number. On
+        # 2026-08-10 the model got the block wrong: Timisoara ranked first and
+        # every claim about it cited [1][2][4][8][9][10], which are Seville's,
+        # while Timisoara's own 11-20 were cited nowhere and so never reached the
+        # bibliography. Handing each place its own numbers removes the lookup.
+        "criterion_sources": {
+            criterion: [number_by_name[name] for name in names if name in number_by_name]
+            for criterion, names in sorted((candidate.get("criterion_sources") or {}).items())
+        },
+        "cite_only_these_source_numbers": sorted(
+            {
+                number_by_name[name]
+                for names in (candidate.get("criterion_sources") or {}).values()
+                for name in names
+                if name in number_by_name
+            }
+        ),
         "hard_constraints": {
             criterion: _CONSTRAINT_LABELS[passed]
             for criterion, passed in sorted(
@@ -288,8 +313,13 @@ def _llm_payload(payload: dict) -> dict:
     # "candidates" keeps its name: the deterministic renderer reads this same
     # payload, and the word itself never reached a reader -- what did was the
     # phrase "candidate set", which the prompt now forbids.
+    number_by_name = {
+        str(source.get("source_name")): source["number"]
+        for source in presented["sources"]
+        if source.get("source_name")
+    }
     presented["candidates"] = [
-        _present_candidate(candidate, rank)
+        _present_candidate(candidate, rank, number_by_name)
         for rank, candidate in enumerate(payload.get("candidates", []), start=1)
     ]
     return presented

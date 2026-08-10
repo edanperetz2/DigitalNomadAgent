@@ -1123,7 +1123,16 @@ def test_the_evidence_trail_uses_the_names_the_bibliography_uses():
 
     evaluation = evaluate_candidates([_candidate("Krakow")], profile, {"Krakow": [result]})[0]
 
-    assert evaluation.criterion_sources["work_infrastructure"] == ["OpenStreetMap"]
+    # Qualified with the place, which is exactly how the bibliography names it.
+    # The two used different conventions until 2026-08-10, so matching a
+    # candidate's sources to their numbers meant reading city names out of
+    # strings -- and Timisoara's claims came back citing Seville's numbers.
+    from app.evidence.models import qualified_source_name
+
+    assert evaluation.criterion_sources["work_infrastructure"] == ["OpenStreetMap — Krakow"]
+    assert evaluation.criterion_sources["work_infrastructure"] == [
+        qualified_source_name("OpenStreetMap", "Krakow")
+    ]
     assert "AmenitiesTool envelope" not in evaluation.criterion_sources["work_infrastructure"]
 
 

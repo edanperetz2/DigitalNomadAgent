@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.agent.models import CandidateEvaluation, CandidatePlace, PlaceRequestProfile
 from app.climate_scoring import clamp, requested_climate_dimensions, weather_component_scores
 from app.core.module_names import DYNAMIC_EVALUATION
-from app.evidence.models import ToolResult
+from app.evidence.models import ToolResult, qualified_source_name
 from app.geography import KNOWN_COUNTRIES, resolve_region
 from app.llm.base import BaseLLMClient
 from app.llm.budget import BudgetManager
@@ -258,7 +258,13 @@ def _criterion_sources(results: list[ToolResult], criterion_scores: dict[str, fl
         criteria = [c for c in _TOOL_CRITERIA.get(result.tool_name, ()) if c in criterion_scores]
         if not criteria:
             continue
-        names = {item.source.source_name for item in result.resolved_evidence_items()}
+        # Qualified with the place, exactly as the bibliography names them, so a
+        # candidate's sources can be matched to their numbers without anyone
+        # parsing city names out of strings (D44's other half).
+        names = {
+            qualified_source_name(item.source.source_name, result.place)
+            for item in result.resolved_evidence_items()
+        }
         for criterion in criteria:
             attributed.setdefault(criterion, set()).update(names)
     return {criterion: sorted(names) for criterion, names in attributed.items()}

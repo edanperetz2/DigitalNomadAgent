@@ -10,6 +10,24 @@ from pydantic import BaseModel, Field
 Confidence = Literal["high", "medium", "low"]
 
 
+def qualified_source_name(source_name: str, place: str | None) -> str:
+    """A source name that says which place it is about.
+
+    D44 added this suffix so a bibliography carrying "Wikivoyage Get around
+    section" six times told the reader which city each entry supported. It was
+    applied when building the bibliography and nowhere else, so a candidate's
+    `criterion_sources` went on carrying the bare name -- identical for every
+    city -- and matching the two meant reading city names out of strings.
+
+    On 2026-08-10 that cost a wrong-city citation: Timisoara ranked first and
+    every claim about it cited Seville's source numbers. One function now, used
+    by both, so the two conventions cannot drift apart again.
+    """
+    if place and place.casefold() not in source_name.casefold():
+        return f"{source_name} — {place}"
+    return source_name
+
+
 class EvidenceSource(BaseModel):
     """Identity and freshness metadata for one external evidence source."""
 
