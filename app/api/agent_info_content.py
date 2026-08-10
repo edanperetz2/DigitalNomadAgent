@@ -1,16 +1,25 @@
 """Static content for GET /api/agent_info.
 
-Built once at import time using the same deterministic, pure-Python functions
-that back MockLLMClient (interpret_prompt, generate_candidates) and the shared
-markdown renderer, so the examples are realistic and internally consistent --
-but this module makes zero LLM calls and zero network calls.
+`prompt_examples` are **real answers**, captured from a live run against the
+deployment and committed to `assets/prompt_examples.json` by
+`scripts/export_prompt_examples.py`. The brief asks for "the full response your
+agent returns", and a mock-rendered answer is not that -- it drifts out of the
+current answer format the moment the generator changes.
+
+If that asset is missing or malformed, the module falls back to building
+illustrative examples from the same deterministic, pure-Python functions that
+back MockLLMClient. Either way this module makes **zero LLM calls and zero
+network calls**: it is a file read at import time, never a live run.
 """
 
 from __future__ import annotations
 
 import json
 from datetime import date
+from pathlib import Path
 
+from app.core.config import REPO_ROOT
+from app.core.logging import logger
 from app.core.module_names import (
     AGENTIC_RESEARCH,
     DYNAMIC_EVALUATION,
@@ -19,6 +28,8 @@ from app.core.module_names import (
 )
 from app.core.rendering import render_recommendation_markdown
 from app.llm.mock import generate_candidates, interpret_prompt
+
+CAPTURED_EXAMPLES_PATH: Path = REPO_ROOT / "assets" / "prompt_examples.json"
 
 _INTERPRETER_PROMPT_SUMMARY = (
     "Extract a structured PlaceRequestProfile (purpose, constraints, preferences, budget, "
@@ -158,4 +169,33 @@ def _build_example(prompt_text: str) -> dict:
     }
 
 
-PROMPT_EXAMPLES = [_build_example(p[0]) for p in _EXAMPLES_SOURCE]
+def _load_captured_examples() -> list[dict] | None:
+    """Real captured answers, or None if the asset is absent or unusable.
+
+    Validated against the endpoint's own response model before being accepted:
+    `PromptExample` forbids extra keys, so a shape change in the exporter would
+    otherwise turn a missing asset into a 500 on a required endpoint.
+    """
+    if not CAPTURED_EXAMPLES_PATH.exists():
+        return None
+    try:
+        payload = json.loads(CAPTURED_EXAMPLES_PATH.read_text(encoding="utf-8"))
+        examples = payload["prompt_examples"]
+        if not isinstance(examples, list) or not examples:
+            raise ValueError("prompt_examples is empty or not a list")
+
+        from app.api.schemas import PromptExample  # local: avoids an import cycle
+
+        for example in examples:
+            PromptExample.model_validate(example)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        logger.warning(
+            "Falling back to generated prompt examples: %s could not be used (%s)",
+            CAPTURED_EXAMPLES_PATH.name,
+            exc,
+        )
+        return None
+    return examples
+
+
+PROMPT_EXAMPLES = _load_captured_examples() or [_build_example(p[0]) for p in _EXAMPLES_SOURCE]

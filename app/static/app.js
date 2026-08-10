@@ -39,8 +39,10 @@
   const exampleStudyBtn = document.getElementById("example-study");
   const exampleVacationBtn = document.getElementById("example-vacation");
 
-  // Kept in sync with app/api/agent_info_content.py's _EXAMPLES_SOURCE so the
-  // home-page buttons and /api/agent_info's illustrative examples agree.
+  // The home page's three starter prompts. Independent of /api/agent_info,
+  // which now serves real captured answers from a live run rather than the
+  // illustrative examples these once mirrored -- so the two no longer track
+  // each other, and these strings are the UI's own.
   const EXAMPLE_PROMPTS = {
     remoteWork:
       "I want to spend three months somewhere in Europe where I can work remotely, " +
