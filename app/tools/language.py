@@ -15,7 +15,11 @@ from app.evidence.models import EvidenceItem, EvidenceSource, ToolResult
 from app.languages import english_reach, spoken_languages
 
 SOURCE_NAME = "DigitalNomadAgent country language reference"
-SOURCE_URL = "https://github.com/shanigoren/DigitalNomadAgent/blob/main/app/languages.py"
+# Must be a URL a reader can actually open: this is cited by number in the
+# bibliography of every answer that scores a language requirement. It pointed at
+# `shanigoren/DigitalNomadAgent`, which 404s -- the repository is owned by
+# `edanperetz2`. Pinned by tests/unit/test_language_and_terrain.py.
+SOURCE_URL = "https://github.com/edanperetz2/DigitalNomadAgent/blob/main/app/languages.py"
 
 # How well a stated English requirement is met. Coarse by design: the underlying
 # table is a judgement in three bands, and a finer score would imply a precision

@@ -38,7 +38,7 @@ PINNED_SOURCES = {
     "local_mobility.OVERPASS_SOURCE_NAME": "OpenStreetMap local mobility infrastructure",
     "transport_access.OVERPASS_SOURCE_URL": "https://www.openstreetmap.org/",
     "language.SOURCE_NAME": "DigitalNomadAgent country language reference",
-    "language.SOURCE_URL": "https://github.com/shanigoren/DigitalNomadAgent/blob/main/app/languages.py",
+    "language.SOURCE_URL": "https://github.com/edanperetz2/DigitalNomadAgent/blob/main/app/languages.py",
     "terrain.SOURCE_NAME": "Open-Meteo elevation API",
     "terrain.SOURCE_URL": "https://open-meteo.com/en/docs/elevation-api",
     "weather.SOURCE_URL": "https://open-meteo.com/en/docs/historical-weather-api",

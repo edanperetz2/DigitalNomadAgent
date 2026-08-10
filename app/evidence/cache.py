@@ -26,7 +26,10 @@ from app.evidence.database import Database
 # expires, and a validation run can show a fixed defect as still broken -- or
 # hide a live one. `test_cache_contract_version.py` pins the source identities
 # below so this cannot be forgotten silently again (D59).
-CACHE_CONTRACT_VERSION = 3
+# v4 (2026-08-10): LanguageTool's SOURCE_URL pointed at `shanigoren/
+# DigitalNomadAgent`, which 404s -- the repository is owned by `edanperetz2`.
+# Cached language rows carry the dead link, so they have to be retired.
+CACHE_CONTRACT_VERSION = 4
 
 # Per-tool TTL in hours. Distinguishes short-lived forecasts from long-lived
 # climate normals / geocoding results per spec caching guidance (section 17).

@@ -15,6 +15,7 @@ from app.agent.dynamic_evaluation import evaluate_candidates
 from app.agent.models import Budget, CandidatePlace, PlaceRequestProfile
 from app.evidence.models import ToolResult
 from app.languages import english_reach, spoken_languages
+from app.tools.language import SOURCE_URL as LANGUAGE_SOURCE_URL
 from app.tools.language import LanguageTool
 from app.tools.terrain import flatness_score, terrain_label
 
@@ -34,6 +35,18 @@ def _tool_result(tool_name: str, place: str, data: dict) -> ToolResult:
         retrieved_at=datetime.now(UTC),
         confidence="medium",
     )
+
+
+def test_the_language_reference_cites_a_repository_that_exists():
+    """This URL is printed in the bibliography of real answers, so it must resolve.
+
+    It shipped as `shanigoren/DigitalNomadAgent` for weeks and 404s: the
+    repository is owned by `edanperetz2`. A dead citation is exactly what the
+    deterministic bibliography was built to eliminate, and a hard-coded constant
+    was the one path it did not cover.
+    """
+    assert LANGUAGE_SOURCE_URL.startswith("https://github.com/edanperetz2/DigitalNomadAgent/")
+    assert "shanigoren" not in LANGUAGE_SOURCE_URL
 
 
 def test_english_reach_separates_native_widespread_and_limited():
