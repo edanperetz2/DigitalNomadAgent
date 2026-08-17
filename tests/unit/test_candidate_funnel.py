@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
-from app.agent.candidate_funnel import estimate_affordability, select_finalists
-from app.agent.models import CandidatePlace, PlaceRequestProfile
+from app.agent.candidate_funnel import budget_comparison, estimate_affordability, select_finalists
+from app.agent.models import Budget, CandidatePlace, PlaceRequestProfile
 from app.evidence.models import ToolResult
 
 
@@ -276,13 +276,15 @@ def _budget_estimate_result(place: str, monthly_usd: float, budget_usd: float) -
 
 
 def _scandinavia_profile(amount: float = 400.0) -> PlaceRequestProfile:
-    from app.agent.models import Budget
-
     return PlaceRequestProfile(
         purpose="vacation",
         preferred_regions=["Scandinavia"],
         budget=Budget(
-            amount=amount, currency="USD", period="monthly", includes_accommodation=True
+            amount=amount,
+            currency="USD",
+            period="monthly",
+            budget_scope="total_living_cost",
+            includes_accommodation=True,
         ),
     )
 
@@ -307,7 +309,7 @@ def test_a_budget_nothing_can_meet_is_stated_not_just_scored_low():
 
     assert "None of the 3 places researched" in statement
     assert "400 USD monthly" in statement
-    assert "including accommodation" in statement
+    assert "for total monthly living costs including accommodation" in statement
     assert "Tallinn" in statement and "1,150 USD" in statement  # the cheapest, named
     # The original profile is never mutated -- callers still hold it.
     assert profile.assumptions == []
@@ -348,18 +350,31 @@ def test_no_budget_claim_when_the_user_never_stated_one():
 
 
 def test_budget_comparison_returns_none_when_nothing_is_comparable():
-    from app.agent.candidate_funnel import budget_comparison
-
     assert budget_comparison(None) is None
     assert budget_comparison({"budget_context": {"status": "not_provided"}}) is None
     assert budget_comparison({"budget_context": {"status": "converted_to_usd"}}) is None
 
 
+def test_accommodation_only_budget_does_not_compare_against_country_total_living_cost():
+    normalized = {
+        "budget_context": {
+            "status": "comparable_without_conversion",
+            "budget_scope": "accommodation_only",
+            "comparison_amount": 700.0,
+            "comparison_currency": "USD",
+        },
+        "country_context": {"monthly_estimate_usd": 1125.0},
+        "fixed_cost_scenarios": {},
+        "compatible_budget_comparison": None,
+    }
+
+    assert budget_comparison(normalized) is None
+    assert estimate_affordability(normalized) == 0.5
+
+
 def test_a_local_currency_estimate_is_not_reported_as_usd():
     """monthly_total_local is in the place's own currency, so labelling every
     figure USD would misreport it."""
-    from app.agent.candidate_funnel import budget_comparison
-
     local = {
         "budget_context": {
             "status": "comparable_without_conversion",

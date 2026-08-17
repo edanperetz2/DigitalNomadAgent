@@ -9,7 +9,14 @@ from app.agent.dynamic_evaluation import (
     evaluate_candidates,
     unevidenced_criteria,
 )
-from app.agent.models import Budget, CandidatePlace, PlaceRequestProfile
+from app.agent.models import (
+    HARD_CONSTRAINT_NO_EVIDENCE,
+    HARD_CONSTRAINT_REQUIREMENT_NOT_MET,
+    HARD_CONSTRAINT_VERIFIED,
+    Budget,
+    CandidatePlace,
+    PlaceRequestProfile,
+)
 from app.evidence.models import ToolResult
 
 
@@ -189,7 +196,7 @@ def test_budget_hard_constraint_remains_unresolved_before_llm_reasoning():
     assert evaluations[0].eliminated is False
     # D33: recorded as unverified rather than as nothing at all. Still never
     # eliminated on missing evidence -- that contract is what this test guards.
-    assert evaluations[0].hard_constraint_results == {"cost": None}
+    assert evaluations[0].hard_constraint_results == {"cost": HARD_CONSTRAINT_NO_EVIDENCE}
     assert "cost" not in evaluations[0].criterion_scores
     assert evaluations[0].unscored_evidence == ["cost"]
     assert any("affordability scoring awaits" in drawback for drawback in evaluations[0].drawbacks)
@@ -949,13 +956,13 @@ def test_stated_overlap_minimum_eliminates_a_candidate_that_misses_it():
     }
 
     assert evaluations["Lisbon"].eliminated is True
-    assert evaluations["Lisbon"].hard_constraint_results["timezone"] is False
+    assert evaluations["Lisbon"].hard_constraint_results["timezone"] == HARD_CONSTRAINT_REQUIREMENT_NOT_MET
     assert "3.0h" in evaluations["Lisbon"].elimination_reason
     assert evaluations["Guadalajara"].eliminated is False
-    assert evaluations["Guadalajara"].hard_constraint_results["timezone"] is True
+    assert evaluations["Guadalajara"].hard_constraint_results["timezone"] == HARD_CONSTRAINT_VERIFIED
 
 
-def _overlap_verdicts(profile: PlaceRequestProfile, hours: dict[str, float]) -> dict[str, bool]:
+def _overlap_verdicts(profile: PlaceRequestProfile, hours: dict[str, float]) -> dict[str, str]:
     """Each place's timezone hard-constraint verdict, whatever the field does as a whole."""
     evidence: dict[str, list[ToolResult]] = {}
     for place, value in hours.items():
@@ -969,13 +976,19 @@ def test_digits_and_number_words_both_state_a_minimum():
         _timezone_profile("must have 6 hours of overlap with London"),
         {"Lima": 5.0, "Accra": 6.0},
     )
-    assert verdicts == {"Lima": False, "Accra": True}
+    assert verdicts == {
+        "Lima": HARD_CONSTRAINT_REQUIREMENT_NOT_MET,
+        "Accra": HARD_CONSTRAINT_VERIFIED,
+    }
 
 
 def test_a_requirement_without_a_figure_falls_back_to_the_scoring_bar():
     profile = _timezone_profile("must have working hours overlap with the team")
     verdicts = _overlap_verdicts(profile, {"Lima": 3.9, "Oslo": 4.1})
-    assert verdicts == {"Lima": False, "Oslo": True}
+    assert verdicts == {
+        "Lima": HARD_CONSTRAINT_REQUIREMENT_NOT_MET,
+        "Oslo": HARD_CONSTRAINT_VERIFIED,
+    }
 
 
 def test_an_unrelated_hours_constraint_does_not_supply_the_overlap_minimum():
@@ -1004,7 +1017,10 @@ def test_an_overlap_no_candidate_can_meet_ranks_and_discloses_rather_than_failin
 
     assert [e.eliminated for e in evaluations] == [False, False, False]
     # The failed check stays visible, and the shortfall leads the drawbacks.
-    assert all(e.hard_constraint_results["timezone"] is False for e in evaluations)
+    assert all(
+        e.hard_constraint_results["timezone"] == HARD_CONSTRAINT_REQUIREMENT_NOT_MET
+        for e in evaluations
+    )
     assert "short of the 4h" in evaluations[0].drawbacks[0]
     # Best available overlap still ranks first.
     assert evaluations[0].place == "Lisbon"
@@ -1030,7 +1046,7 @@ def test_overlap_minimum_never_eliminates_on_missing_evidence():
     evaluation = evaluate_candidates([_candidate("Nowhere")], profile, {"Nowhere": []})[0]
     assert evaluation.eliminated is False
     # D33: unverified, not passed and not failed. It costs rank, never survival.
-    assert evaluation.hard_constraint_results["timezone"] is None
+    assert evaluation.hard_constraint_results["timezone"] == HARD_CONSTRAINT_NO_EVIDENCE
 
 
 def test_unevidenced_criteria_reports_each_criterion_once():
@@ -1180,7 +1196,9 @@ def test_a_bar_no_candidate_can_meet_relaxes_whatever_criterion_it_was():
     updated = apply_llm_scores(evaluations, candidates, profile, evidence, llm_scores)
 
     assert [e.eliminated for e in updated] == [False, False, False]
-    assert all(e.hard_constraint_results["cost"] is False for e in updated)
+    assert all(
+        e.hard_constraint_results["cost"] == HARD_CONSTRAINT_REQUIREMENT_NOT_MET for e in updated
+    )
     assert all("the stated budget" in e.drawbacks[0] for e in updated)
 
 
@@ -1271,8 +1289,11 @@ def test_a_flight_over_the_stated_ceiling_cannot_outrank_one_under_it():
     )
 
     assert [e.place for e in ranked] == ["Crete", "Madeira"]
-    assert ranked[0].hard_constraint_results["flight_duration"] is True
-    assert ranked[1].hard_constraint_results["flight_duration"] is False
+    assert ranked[0].hard_constraint_results["flight_duration"] == HARD_CONSTRAINT_VERIFIED
+    assert (
+        ranked[1].hard_constraint_results["flight_duration"]
+        == HARD_CONSTRAINT_REQUIREMENT_NOT_MET
+    )
 
 
 def test_an_unmeasured_hard_constraint_ranks_below_a_verified_one():
@@ -1288,7 +1309,7 @@ def test_an_unmeasured_hard_constraint_ranks_below_a_verified_one():
     )
 
     assert [e.place for e in ranked] == ["Crete", "Unknown"]
-    assert ranked[1].hard_constraint_results["flight_duration"] is None
+    assert ranked[1].hard_constraint_results["flight_duration"] == HARD_CONSTRAINT_NO_EVIDENCE
     assert ranked[1].eliminated is False
     assert any("non-negotiable" in drawback for drawback in ranked[1].drawbacks)
 
@@ -1306,7 +1327,10 @@ def test_an_unverified_constraint_never_removes_a_candidate():
 
     assert len(ranked) == 2
     assert all(e.eliminated is False for e in ranked)
-    assert all(e.hard_constraint_results["flight_duration"] is None for e in ranked)
+    assert all(
+        e.hard_constraint_results["flight_duration"] == HARD_CONSTRAINT_NO_EVIDENCE
+        for e in ranked
+    )
 
 
 def test_a_shorter_flight_scores_better_among_candidates_that_all_qualify():
@@ -1321,7 +1345,10 @@ def test_a_shorter_flight_scores_better_among_candidates_that_all_qualify():
     )
 
     assert [e.place for e in ranked] == ["Antalya", "Mallorca"]
-    assert all(e.hard_constraint_results["flight_duration"] is True for e in ranked)
+    assert all(
+        e.hard_constraint_results["flight_duration"] == HARD_CONSTRAINT_VERIFIED
+        for e in ranked
+    )
 
 
 def test_flight_hours_are_calibrated_against_real_routes_from_tel_aviv():
@@ -1549,6 +1576,36 @@ def _budget_evidence(place: str, level: str, country: str = "Brazil") -> ToolRes
     )
 
 
+def _generic_apartment_budget_evidence(place: str, amount: float, remaining: float) -> ToolResult:
+    return _tool_result(
+        "BudgetFitTool",
+        place,
+        {
+            "evidence_level": "city",
+            "fixed_cost_scenarios": {},
+            "compatible_budget_comparison": {
+                "cost_scope": "accommodation_only",
+                "evidence_label": "outside_center",
+                "comparison_cost": {"amount": amount, "currency": "EUR"},
+                "budget_remaining": {"amount": remaining, "currency": "EUR"},
+                "housing_evidence_kind": "generic_apartment",
+                "housing_evidence_description": "generic one-bedroom apartment outside the city center",
+                "student_housing_directly_verified": False,
+            },
+            "budget_context": {
+                "status": "comparable_without_conversion",
+                "original_amount": 700.0,
+                "original_currency": "EUR",
+                "period": "monthly",
+                "budget_scope": "accommodation_only",
+                "comparison_amount": 700.0,
+                "comparison_currency": "EUR",
+            },
+            "scoring_status": "unresolved_pending_llm",
+        },
+    )
+
+
 def test_a_national_average_says_it_cannot_tell_two_cities_apart():
     """D39: P05 gave Recife and Rio the same "Brazil ~$1,300"; every Israeli
     city in P10 shared one figure."""
@@ -1591,6 +1648,70 @@ def test_a_student_budget_is_not_compared_to_a_whole_flat_in_silence():
     evaluation = evaluate_candidates([_candidate("Warsaw")], profile, evidence)[0]
 
     assert any("not a room in student or shared housing" in d for d in evaluation.drawbacks)
+
+
+def test_student_housing_request_keeps_generic_apartment_proxy_disclosed_when_over_budget():
+    profile = PlaceRequestProfile(
+        purpose="study",
+        relevant_criteria=["cost"],
+        student_housing_requested=True,
+        budget=Budget(
+            amount=700.0,
+            currency="EUR",
+            period="monthly",
+            budget_scope="accommodation_only",
+        ),
+    )
+    evidence = {"Warsaw": [_generic_apartment_budget_evidence("Warsaw", amount=780.0, remaining=-80.0)]}
+
+    evaluation = evaluate_candidates([_candidate("Warsaw")], profile, evidence)[0]
+
+    assert any("generic one-bedroom apartment evidence" in d for d in evaluation.drawbacks)
+    assert any("student-housing pricing" in d for d in evaluation.drawbacks)
+    assert all("student housing costs" not in d.casefold() for d in evaluation.advantages + evaluation.drawbacks)
+
+
+def test_study_accommodation_budget_alone_does_not_add_student_housing_proxy_disclaimer():
+    profile = PlaceRequestProfile(
+        purpose="study",
+        relevant_criteria=["cost"],
+        hard_constraints=["private apartment under EUR 700"],
+        budget=Budget(
+            amount=700.0,
+            currency="EUR",
+            period="monthly",
+            budget_scope="accommodation_only",
+        ),
+    )
+    evidence = {"Warsaw": [_generic_apartment_budget_evidence("Warsaw", amount=650.0, remaining=50.0)]}
+
+    evaluation = evaluate_candidates([_candidate("Warsaw")], profile, evidence)[0]
+
+    assert all("student-housing pricing" not in d for d in evaluation.drawbacks)
+    assert all("Student-specific housing" not in d for d in evaluation.drawbacks)
+
+
+def test_compact_budget_payload_keeps_compatible_accommodation_overage_values():
+    from app.agent.dynamic_evaluation import _compact_unresolved_evidence
+
+    profile = PlaceRequestProfile(
+        purpose="study",
+        budget=Budget(
+            amount=700.0,
+            currency="EUR",
+            period="monthly",
+            budget_scope="accommodation_only",
+        ),
+    )
+    normalized = _generic_apartment_budget_evidence("Warsaw", amount=780.0, remaining=-80.0).normalized_data
+
+    compact = _compact_unresolved_evidence("BudgetFitTool", normalized, profile)
+
+    compatible = compact["compatible_budget_comparison"]
+    assert compatible["comparison_cost"] == {"amount": 780.0, "currency": "EUR"}
+    assert compatible["budget_remaining"] == {"amount": -80.0, "currency": "EUR"}
+    assert compact["budget_context"]["comparison_amount"] == 700.0
+    assert compact["budget_context"]["budget_scope"] == "accommodation_only"
 
 
 def test_costs_are_restated_in_the_travellers_own_currency():

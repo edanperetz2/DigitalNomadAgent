@@ -42,6 +42,22 @@ def budget_comparison(normalized_data: dict | None) -> tuple[float, float, str] 
     if status not in ("converted_to_usd", "comparable_without_conversion"):
         return None
 
+    selected = data.get("compatible_budget_comparison")
+    if isinstance(selected, dict):
+        cost = selected.get("comparison_cost") or {}
+        remaining_info = selected.get("budget_remaining") or {}
+        monthly_total = cost.get("amount")
+        remaining = remaining_info.get("amount")
+        currency = cost.get("currency") or remaining_info.get("currency") or ""
+        if remaining is not None and monthly_total:
+            return float(monthly_total), float(remaining), str(currency)
+
+    # New BudgetFitTool payloads declare budget_scope. If there is no selected
+    # compatible comparison, the cost evidence and budget scope do not match
+    # closely enough for filtering, ranking, or conflict warnings.
+    if "budget_scope" in budget_context:
+        return None
+
     scenarios = data.get("fixed_cost_scenarios") or {}
     scenario = scenarios.get("center") or scenarios.get("outside_center") or {}
     monthly_total = scenario.get("monthly_total_usd")

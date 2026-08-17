@@ -379,7 +379,7 @@ def test_a_named_place_with_an_unconfirmed_requirement_names_the_condition():
         )
     )
 
-    assert "yes only if you can live with flight duration being unconfirmed" in markdown
+    assert "yes only if you can confirm flight duration, where this run found No Evidence" in markdown
 
 
 def test_a_failed_requirement_is_a_no_not_a_conditional_yes():
@@ -400,5 +400,36 @@ def test_a_failed_requirement_is_a_no_not_a_conditional_yes():
         )
     )
 
-    assert "no — the evidence says it does not meet your requirement on terrain" in markdown
+    assert (
+        "no — available evidence indicates it does not adequately meet your requirement on terrain"
+        in markdown
+    )
     assert "yes only if" not in markdown
+
+
+def test_hard_requirement_statuses_are_rendered_as_labels():
+    from app.core.rendering import render_recommendation_markdown
+
+    markdown = render_recommendation_markdown(
+        {
+            "purpose_summary": "a study request",
+            "sources": [],
+            "candidates": [
+                {
+                    **_ranked("Valencia", 0.9, {"cost": 0.9}),
+                    "hard_constraint_results": {
+                        "cost": True,
+                        "transportation": "borderline",
+                        "education": None,
+                        "terrain": False,
+                    },
+                    "drawbacks": [],
+                }
+            ],
+        }
+    )
+
+    assert "cost: Verified" in markdown
+    assert "transportation: Borderline" in markdown
+    assert "education: No Evidence" in markdown
+    assert "terrain: Requirement Not Met" in markdown

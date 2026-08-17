@@ -212,6 +212,19 @@ def _relax_unresolvable_preferred_regions(
     return relaxed
 
 
+def _budget_scope_phrase(profile: PlaceRequestProfile) -> str:
+    scope = profile.budget.budget_scope
+    if scope == "accommodation_only":
+        return " for accommodation"
+    if scope == "total_living_cost":
+        return " for total monthly living costs including accommodation"
+    if scope == "living_cost_excluding_accommodation":
+        return " for living costs excluding accommodation"
+    if profile.budget.includes_accommodation is False:
+        return " for living costs excluding accommodation"
+    return ""
+
+
 def _disclose_unmeetable_budget(
     profile: PlaceRequestProfile, evidence_by_place: dict[str, list[ToolResult]]
 ) -> PlaceRequestProfile:
@@ -258,7 +271,7 @@ def _disclose_unmeetable_budget(
     disclosed.assumptions.append(
         f"None of the {len(comparisons)} places researched can be done for "
         f"{profile.budget.amount:g} {stated_currency} {period}"
-        + (" including accommodation" if profile.budget.includes_accommodation else "")
+        + _budget_scope_phrase(profile)
         + f". The cheapest evidenced option is {place} at about {cheapest} a month, so the "
         "stated budget and the rest of the request cannot both be satisfied; the ranking below "
         "optimises everything else and the shortfall is reported per place rather than hidden."
@@ -301,7 +314,7 @@ def _unmeetable_budget_conflict(
     # conversion: `remaining` is the budget minus the estimate, both in the
     # estimate's currency, so the converted budget is exactly their sum.
     converted_budget = monthly_total + remaining
-    stated = f"Your budget is {profile.budget.amount:g} {stated_currency} a month"
+    stated = f"Your budget is {profile.budget.amount:g} {stated_currency} a month{_budget_scope_phrase(profile)}"
     if currency != stated_currency:
         stated += f", about {converted_budget:,.0f} {currency}"
     multiple = monthly_total / converted_budget if converted_budget > 0 else None

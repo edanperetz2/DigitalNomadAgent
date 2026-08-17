@@ -2,12 +2,73 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Confidence = Literal["high", "medium", "low"]
 Month = Annotated[int, Field(ge=1, le=12)]
+BudgetScope = Literal[
+    "accommodation_only",
+    "total_living_cost",
+    "living_cost_excluding_accommodation",
+    "unspecified",
+]
+HardConstraintStatus = Literal[
+    "verified",
+    "borderline",
+    "no_evidence",
+    "requirement_not_met",
+]
+
+HARD_CONSTRAINT_VERIFIED: HardConstraintStatus = "verified"
+HARD_CONSTRAINT_BORDERLINE: HardConstraintStatus = "borderline"
+HARD_CONSTRAINT_NO_EVIDENCE: HardConstraintStatus = "no_evidence"
+HARD_CONSTRAINT_REQUIREMENT_NOT_MET: HardConstraintStatus = "requirement_not_met"
+HARD_CONSTRAINT_STATUS_ORDER: tuple[HardConstraintStatus, ...] = (
+    HARD_CONSTRAINT_VERIFIED,
+    HARD_CONSTRAINT_BORDERLINE,
+    HARD_CONSTRAINT_NO_EVIDENCE,
+    HARD_CONSTRAINT_REQUIREMENT_NOT_MET,
+)
+HARD_CONSTRAINT_DISPLAY_LABELS: dict[HardConstraintStatus, str] = {
+    HARD_CONSTRAINT_VERIFIED: "Verified",
+    HARD_CONSTRAINT_BORDERLINE: "Borderline",
+    HARD_CONSTRAINT_NO_EVIDENCE: "No Evidence",
+    HARD_CONSTRAINT_REQUIREMENT_NOT_MET: "Requirement Not Met",
+}
+
+
+def normalize_hard_constraint_status(value: object) -> HardConstraintStatus:
+    """Map explicit and legacy hard-constraint values to the current status."""
+    if value is True:
+        return HARD_CONSTRAINT_VERIFIED
+    if value is False:
+        return HARD_CONSTRAINT_REQUIREMENT_NOT_MET
+    if value is None:
+        return HARD_CONSTRAINT_NO_EVIDENCE
+    if isinstance(value, str):
+        normalized = value.strip().casefold().replace("-", "_").replace(" ", "_")
+        aliases = {
+            "met": HARD_CONSTRAINT_VERIFIED,
+            "passed": HARD_CONSTRAINT_VERIFIED,
+            "confirmed": HARD_CONSTRAINT_VERIFIED,
+            "verified": HARD_CONSTRAINT_VERIFIED,
+            "borderline": HARD_CONSTRAINT_BORDERLINE,
+            "partial": HARD_CONSTRAINT_BORDERLINE,
+            "partially_verified": HARD_CONSTRAINT_BORDERLINE,
+            "no_evidence": HARD_CONSTRAINT_NO_EVIDENCE,
+            "unverified": HARD_CONSTRAINT_NO_EVIDENCE,
+            "unconfirmed": HARD_CONSTRAINT_NO_EVIDENCE,
+            "could_not_be_checked": HARD_CONSTRAINT_NO_EVIDENCE,
+            "not_met": HARD_CONSTRAINT_REQUIREMENT_NOT_MET,
+            "not_met_adequately": HARD_CONSTRAINT_REQUIREMENT_NOT_MET,
+            "requirement_not_met": HARD_CONSTRAINT_REQUIREMENT_NOT_MET,
+            "failed": HARD_CONSTRAINT_REQUIREMENT_NOT_MET,
+        }
+        if normalized in aliases:
+            return aliases[normalized]
+    raise ValueError(f"Unknown hard-constraint status: {value!r}")
 
 
 class Budget(BaseModel):
@@ -16,6 +77,7 @@ class Budget(BaseModel):
     amount: float | None = None
     currency: str | None = None
     period: Literal["total", "monthly", "weekly", "daily", "unknown"] = "unknown"
+    budget_scope: BudgetScope = "unspecified"
     includes_accommodation: bool | None = None
     confidence: Confidence = "medium"
 
@@ -44,6 +106,10 @@ class PlaceRequestProfile(BaseModel):
     climate_preferences: list[str] = Field(default_factory=list)
     activity_preferences: list[str] = Field(default_factory=list)
     amenity_preferences: list[str] = Field(default_factory=list)
+    # True only when the user's wording asks for student-specific accommodation
+    # (student housing, student accommodation, residence, dorms, etc.). A study
+    # trip with a normal apartment budget is not enough.
+    student_housing_requested: bool = False
     budget: Budget = Field(default_factory=Budget)
     # Numeric limits, asked for as numbers -- the same treatment `budget` gets.
     #
@@ -122,18 +188,28 @@ class CandidateEvaluation(BaseModel):
     criterion_sources: dict[str, list[str]] = Field(default_factory=dict)
     total_score: float = 0.0
     confidence_score: float = 0.0
-    # True passed, False failed, None *stated but never measured*. The third
-    # state exists because an unmeasured hard constraint used to cost a
-    # candidate nothing at all: P02 capped flight time at five hours from Tel
-    # Aviv and Madeira -- roughly eight -- ranked first, the answer admitting in
-    # the same breath that it could not confirm the flight was short (D33).
-    hard_constraint_results: dict[str, bool | None] = Field(default_factory=dict)
+    # Evidence status for each stated hard requirement. Legacy traces used
+    # True/False/None; the validator below keeps them readable while new runs
+    # preserve the difference between borderline evidence and no evidence.
+    hard_constraint_results: dict[str, HardConstraintStatus] = Field(default_factory=dict)
     missing_evidence: list[str] = Field(default_factory=list)
     unscored_evidence: list[str] = Field(default_factory=list)
     advantages: list[str] = Field(default_factory=list)
     drawbacks: list[str] = Field(default_factory=list)
     eliminated: bool = False
     elimination_reason: str | None = None
+
+    @field_validator("hard_constraint_results", mode="before")
+    @classmethod
+    def _normalize_hard_constraint_results(cls, value: object) -> object:
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            return {
+                str(criterion): normalize_hard_constraint_status(status)
+                for criterion, status in value.items()
+            }
+        return cast(object, value)
 
 
 class MissingResearchItem(BaseModel):

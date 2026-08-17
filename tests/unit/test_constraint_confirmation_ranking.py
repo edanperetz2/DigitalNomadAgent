@@ -18,8 +18,14 @@ from app.agent.dynamic_evaluation import (
     confirmed_constraint_count,
     constraint_tier,
     evaluate_candidates,
+    hard_constraint_sort_key,
 )
-from app.agent.models import CandidateEvaluation, CandidatePlace, PlaceRequestProfile
+from app.agent.models import (
+    HARD_CONSTRAINT_VERIFIED,
+    CandidateEvaluation,
+    CandidatePlace,
+    PlaceRequestProfile,
+)
 
 
 def _evaluation(place: str, constraints: dict, score: float) -> CandidateEvaluation:
@@ -40,8 +46,7 @@ def _order(evaluations: list[CandidateEvaluation]) -> list[str]:
         evaluations,
         key=lambda e: (
             e.eliminated,
-            constraint_tier(e.hard_constraint_results),
-            -confirmed_constraint_count(e.hard_constraint_results),
+            *hard_constraint_sort_key(e.hard_constraint_results),
             -e.total_score,
         ),
     )
@@ -54,7 +59,7 @@ def test_a_confirmed_requirement_outranks_a_higher_score():
         _evaluation("Lisbon", {"terrain": None, "transportation": None}, 0.72),
         _evaluation("Seville", {"terrain": True, "transportation": None}, 0.65),
     ]
-    assert [constraint_tier(e.hard_constraint_results) for e in evaluations] == [1, 1]
+    assert [constraint_tier(e.hard_constraint_results) for e in evaluations] == [2, 2]
     assert _order(evaluations) == ["Seville", "Lisbon"]
 
 
@@ -89,7 +94,7 @@ def test_fully_verified_still_beats_partially_verified():
         _evaluation("Partial", {"a": True, "b": None}, 0.95),
         _evaluation("Complete", {"a": True, "b": True}, 0.20),
     ]
-    assert [constraint_tier(e.hard_constraint_results) for e in evaluations] == [1, 0]
+    assert [constraint_tier(e.hard_constraint_results) for e in evaluations] == [2, 0]
     assert _order(evaluations) == ["Complete", "Partial"]
 
 
@@ -151,4 +156,4 @@ def test_the_end_to_end_ranking_uses_it():
     }
     ranked = evaluate_candidates([candidate("Unknown"), candidate("Confirmed")], profile, evidence)
     assert ranked[0].place == "Confirmed"
-    assert ranked[0].hard_constraint_results["language_spoken"] is True
+    assert ranked[0].hard_constraint_results["language_spoken"] == HARD_CONSTRAINT_VERIFIED

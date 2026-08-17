@@ -227,6 +227,45 @@ def test_the_cost_rationale_states_the_comparison_it_made():
     assert "over by" not in by_place["Tirana"]
 
 
+def test_the_cost_rationale_states_accommodation_overage_from_compatible_proxy():
+    from app.llm.mock import score_unresolved_mock
+
+    scores = score_unresolved_mock(
+        {
+            "candidates": [
+                {
+                    "place": "Warsaw",
+                    "criteria": {
+                        "cost": {
+                            "budget_context": {
+                                "status": "comparable_without_conversion",
+                                "budget_scope": "accommodation_only",
+                                "comparison_amount": 700.0,
+                            },
+                            "compatible_budget_comparison": {
+                                "cost_scope": "accommodation_only",
+                                "comparison_cost": {"amount": 780.0, "currency": "EUR"},
+                                "budget_remaining": {"amount": -80.0, "currency": "EUR"},
+                                "housing_evidence_description": (
+                                    "generic one-bedroom apartment outside the city center"
+                                ),
+                            },
+                        }
+                    },
+                    "preferences": {},
+                }
+            ]
+        }
+    )
+
+    rationale = scores[0]["rationale"]
+    assert "780 EUR" in rationale
+    assert "700 EUR accommodation budget" in rationale
+    assert "over by 80 EUR" in rationale
+    assert "generic one-bedroom apartment outside the city center" in rationale
+    assert "not verified" not in rationale
+
+
 def test_the_cost_rationale_does_not_invent_a_comparison_it_cannot_make():
     from app.llm.mock import score_unresolved_mock
 

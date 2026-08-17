@@ -14,7 +14,18 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.agent.models import CandidateEvaluation, CandidatePlace, PlaceRequestProfile
+from app.agent.models import (
+    HARD_CONSTRAINT_BORDERLINE,
+    HARD_CONSTRAINT_NO_EVIDENCE,
+    HARD_CONSTRAINT_REQUIREMENT_NOT_MET,
+    HARD_CONSTRAINT_STATUS_ORDER,
+    HARD_CONSTRAINT_VERIFIED,
+    CandidateEvaluation,
+    CandidatePlace,
+    HardConstraintStatus,
+    PlaceRequestProfile,
+    normalize_hard_constraint_status,
+)
 from app.climate_scoring import clamp, requested_climate_dimensions, weather_component_scores
 from app.core.module_names import DYNAMIC_EVALUATION
 from app.evidence.models import ToolResult, qualified_source_name
@@ -205,13 +216,12 @@ HARD_CONSTRAINT_ELIMINATION_THRESHOLD = 0.2
 # single threshold a place needed roughly 78 m of spread before flat terrain
 # failed (D55).
 #
-# So the middle band now says what it means: not disproved, not confirmed. The
-# tri-state already existed for constraints nothing measured, and everything
-# downstream handles it -- `constraint_tier` ranks it below verified places,
-# `unmet_constraint_note` tells the reader it could not be confirmed, and D51
-# keeps the verdict off "yes". 0.75 is the same value as the "widespread"
-# English band, the weakest reading worth calling satisfactory.
+# So the evidence bands now say what they mean: strong enough to verify,
+# borderline but not verified, relevant negative evidence, or no evidence at
+# all. Elimination is deliberately separate and still uses the lower floor
+# below.
 HARD_CONSTRAINT_MET_THRESHOLD = 0.75
+HARD_CONSTRAINT_BORDERLINE_THRESHOLD = 0.50
 # Subtracted from a total when *none* of the stated weight was measured. Scales
 # linearly with the share that was missed, so a candidate evidenced on
 # everything loses nothing and one evidenced on nothing loses this much (D36).
@@ -560,6 +570,19 @@ pair given; do not skip any. The preferences have already been isolated to the c
 never use a preference to score or discuss a different criterion, and never infer an unsupported \
 trait (for example touristiness) from generic sightseeing evidence.
 
+For cost, use only evidence whose scope is compatible with the stated budget_scope. \
+accommodation_only budgets can be compared only with accommodation/housing costs; \
+total_living_cost budgets can be compared with rent-inclusive monthly living-cost evidence; \
+living_cost_excluding_accommodation budgets can be compared only with non-housing expenses. \
+If the evidence says affordability is not comparable or has no usable support, do not call the \
+place over budget from a broader or narrower figure. If compatible accommodation evidence is marked as \
+generic_apartment and the traveler asked about student housing/accommodation/residence/dorms, treat it \
+only as a generic accommodation proxy: never call it verified student-housing pricing, and disclose \
+that student-specific housing was not directly verified. When compatible accommodation evidence is \
+above an accommodation-only budget, state the approximate accommodation estimate, the user's budget, \
+and the amount over budget; do not describe that compatible over-budget comparison as the housing \
+requirement being unverifiable.
+
 Respond with ONLY a JSON object: {"scores": [{"place": str, "criterion": str, "score": float, \
 "rationale": str}, ...]}."""
 
@@ -840,6 +863,41 @@ def _language_evaluation(
     return float(score), f"{phrasing[reach]} (local languages: {spoken_text})."
 
 
+_STUDENT_HOUSING_PATTERN = re.compile(
+    r"\b(?:student[-\s]+(?:housing|accommodations?|residences?|dorms?)|"
+    r"housing[-\s]+for[-\s]+students?)\b",
+    re.I,
+)
+
+
+def _asks_for_student_housing(profile: PlaceRequestProfile) -> bool:
+    if profile.student_housing_requested:
+        return True
+    text = " ".join(
+        str(part)
+        for part in (
+            *profile.hard_constraints,
+            *profile.soft_preferences,
+            *profile.deal_breakers,
+            *profile.amenity_preferences,
+        )
+    )
+    if _STUDENT_HOUSING_PATTERN.search(text):
+        return True
+    return False
+
+
+def _uses_generic_housing_proxy(normalized_data: dict) -> bool:
+    comparison = normalized_data.get("compatible_budget_comparison")
+    if not isinstance(comparison, dict):
+        return False
+    return (
+        comparison.get("cost_scope") == "accommodation_only"
+        and comparison.get("housing_evidence_kind") == "generic_apartment"
+        and comparison.get("student_housing_directly_verified") is False
+    )
+
+
 def _extract_criterion_scores(
     results: list[ToolResult], profile: PlaceRequestProfile
 ) -> tuple[dict[str, float], dict[str, dict[str, float]], list[str], list[str], dict[str, float]]:
@@ -1031,12 +1089,38 @@ def _extract_criterion_scores(
                 drawbacks.append(limitation)
 
         elif r.tool_name == "BudgetFitTool":
-            limitation = (
-                "Structured city or country cost evidence was collected, but affordability scoring awaits "
-                "the LLM reasoning contract."
-            )
+            budget_context = nd.get("budget_context") or {}
+            budget_scope = budget_context.get("budget_scope") or "unspecified"
+            scoring_status = nd.get("scoring_status")
+            if scoring_status == "no_compatible_budget_evidence":
+                limitation = (
+                    "Cost evidence was collected, but it is not compatible with the stated budget scope, "
+                    "so affordability could not be verified."
+                )
+            elif scoring_status == "budget_scope_unspecified":
+                limitation = (
+                    "Cost evidence was collected, but the stated budget does not say what it covers, "
+                    "so affordability could not be verified."
+                )
+            elif scoring_status == "budget_not_comparable":
+                limitation = (
+                    "Cost evidence was collected, but the stated budget could not be converted into a "
+                    "compatible monthly comparison."
+                )
+            else:
+                limitation = (
+                    "Structured city or country cost evidence was collected, but affordability scoring awaits "
+                    "the LLM reasoning contract."
+                )
             if limitation not in drawbacks:
                 drawbacks.append(limitation)
+            if _asks_for_student_housing(profile) and _uses_generic_housing_proxy(nd):
+                proxy_note = (
+                    "The compatible accommodation figure is generic one-bedroom apartment evidence, "
+                    "not directly verified student-housing pricing."
+                )
+                if proxy_note not in drawbacks:
+                    drawbacks.append(proxy_note)
             # A national average cannot separate two cities in the same country:
             # P05 gave Recife and Rio the same "Brazil ~$1,300", and every
             # Israeli city in P10 shared one figure. The criterion still scores,
@@ -1058,7 +1142,11 @@ def _extract_criterion_scores(
                     "short trip costs -- treat them as a rough guide to how expensive the place is, "
                     "not as a holiday budget."
                 )
-            if "study" in _profile_purposes(profile) and nd.get("fixed_cost_scenarios"):
+            if (
+                "study" in _profile_purposes(profile)
+                and nd.get("fixed_cost_scenarios")
+                and budget_scope != "accommodation_only"
+            ):
                 drawbacks.append(
                     "The cost figures price a whole one-bedroom flat with utilities, not a room "
                     "in student or shared housing, so a student budget is not directly comparable "
@@ -1306,7 +1394,11 @@ def _relax_unmeetable_constraint(
     # the region check records nothing (it returns early), and that case has its
     # own relaxation in the orchestrator, which can still see the profile.
     if not all(
-        any(passed is False for passed in e.hard_constraint_results.values()) for e in evaluations
+        any(
+            normalize_hard_constraint_status(passed) == HARD_CONSTRAINT_REQUIREMENT_NOT_MET
+            for passed in e.hard_constraint_results.values()
+        )
+        for e in evaluations
     ):
         return evaluations
 
@@ -1328,12 +1420,22 @@ def _relax_unmeetable_constraint(
     return relaxed
 
 
+def hard_constraint_status_for_score(score: float) -> HardConstraintStatus:
+    """Interpret criterion evidence without deciding automatic elimination."""
+    score = clamp(score)
+    if score >= HARD_CONSTRAINT_MET_THRESHOLD:
+        return HARD_CONSTRAINT_VERIFIED
+    if score >= HARD_CONSTRAINT_BORDERLINE_THRESHOLD:
+        return HARD_CONSTRAINT_BORDERLINE
+    return HARD_CONSTRAINT_REQUIREMENT_NOT_MET
+
+
 def _check_hard_constraints(
     profile: PlaceRequestProfile,
     criterion_scores: dict[str, float],
     candidate: CandidatePlace,
     results: list[ToolResult],
-) -> tuple[bool, str | None, dict[str, bool]]:
+) -> tuple[bool, str | None, dict[str, HardConstraintStatus]]:
     """Region check (always available) plus keyword-triggered score-threshold checks.
 
     Only judges a criterion if it's both actually scored (never eliminates on
@@ -1358,7 +1460,7 @@ def _check_hard_constraints(
     if region_eliminated and not was_named:
         return True, region_reason, {}
 
-    hard_results: dict[str, bool | None] = {}
+    hard_results: dict[str, HardConstraintStatus] = {}
     eliminated = False
     reason: str | None = None
 
@@ -1369,10 +1471,12 @@ def _check_hard_constraints(
     measured_overlap = _measured_overlap_hours(results)
     if required_overlap is not None:
         if measured_overlap is None:
-            hard_results["timezone"] = None
+            hard_results["timezone"] = HARD_CONSTRAINT_NO_EVIDENCE
         else:
             passes = measured_overlap >= required_overlap
-            hard_results["timezone"] = passes
+            hard_results["timezone"] = (
+                HARD_CONSTRAINT_VERIFIED if passes else HARD_CONSTRAINT_REQUIREMENT_NOT_MET
+            )
             if not passes:
                 eliminated = True
                 reason = (
@@ -1384,10 +1488,12 @@ def _check_hard_constraints(
     measured_flight_hours = _measured_flight_hours(results)
     if required_flight_hours is not None:
         if measured_flight_hours is None:
-            hard_results["flight_duration"] = None
+            hard_results["flight_duration"] = HARD_CONSTRAINT_NO_EVIDENCE
         else:
             passes = measured_flight_hours <= required_flight_hours
-            hard_results["flight_duration"] = passes
+            hard_results["flight_duration"] = (
+                HARD_CONSTRAINT_VERIFIED if passes else HARD_CONSTRAINT_REQUIREMENT_NOT_MET
+            )
             if not passes and not eliminated:
                 eliminated = True
                 reason = (
@@ -1452,24 +1558,22 @@ def _check_hard_constraints(
             # Stated, and nothing measured it. Recorded rather than skipped: a
             # silent skip is why an unconfirmed five-hour flight cap cost
             # Madeira nothing and it ranked first anyway (D33).
-            hard_results[criterion] = None
+            hard_results[criterion] = HARD_CONSTRAINT_NO_EVIDENCE
             continue
         score = criterion_scores[criterion]
-        # Three bands, not two: shown to meet it, not shown either way, shown to
-        # fail it. The middle band records None -- the same value used for a
-        # constraint nothing measured, because the honest statement is the same
-        # one: this was not confirmed (D55).
-        passes = (
-            True
-            if score >= HARD_CONSTRAINT_MET_THRESHOLD
-            else False
-            if score < HARD_CONSTRAINT_ELIMINATION_THRESHOLD
-            else None
-        )
-        hard_results[criterion] = passes
-        if passes is False and criterion in _REPORTED_BUT_NEVER_ELIMINATING:
+        status = hard_constraint_status_for_score(score)
+        hard_results[criterion] = status
+        if (
+            status == HARD_CONSTRAINT_REQUIREMENT_NOT_MET
+            and score < HARD_CONSTRAINT_ELIMINATION_THRESHOLD
+            and criterion in _REPORTED_BUT_NEVER_ELIMINATING
+        ):
             continue
-        if passes is False and not eliminated:
+        if (
+            status == HARD_CONSTRAINT_REQUIREMENT_NOT_MET
+            and score < HARD_CONSTRAINT_ELIMINATION_THRESHOLD
+            and not eliminated
+        ):
             eliminated = True
             # Says which way it fails. Removing the score in D41 left "the
             # evidence puts it below the minimum this request sets", which for
@@ -1489,29 +1593,40 @@ def _check_hard_constraints(
     # connecting flight" left no trace at all (D61).
     for phrase in unmatched[:MAX_UNMATCHED_CONSTRAINTS]:
         if len(phrase) <= MAX_UNMATCHED_CONSTRAINT_CHARS:
-            hard_results.setdefault(phrase, None)
+            hard_results.setdefault(phrase, HARD_CONSTRAINT_NO_EVIDENCE)
 
     return eliminated, reason, hard_results
 
 
-def constraint_tier(hard_constraint_results: dict[str, bool | None]) -> int:
-    """0 every stated constraint verified, 1 something unverified, 2 something failed.
+_HARD_CONSTRAINT_TIER: dict[HardConstraintStatus, int] = {
+    HARD_CONSTRAINT_VERIFIED: 0,
+    HARD_CONSTRAINT_BORDERLINE: 1,
+    HARD_CONSTRAINT_NO_EVIDENCE: 2,
+    HARD_CONSTRAINT_REQUIREMENT_NOT_MET: 3,
+}
+
+
+def hard_constraint_status_counts(
+    hard_constraint_results: dict[str, object],
+) -> dict[HardConstraintStatus, int]:
+    counts = {status: 0 for status in HARD_CONSTRAINT_STATUS_ORDER}
+    for value in hard_constraint_results.values():
+        counts[normalize_hard_constraint_status(value)] += 1
+    return counts
+
+
+def constraint_tier(hard_constraint_results: dict[str, object]) -> int:
+    """Worst hard-requirement evidence status, with legacy values accepted.
 
     Used as the primary sort key so a candidate that cannot be shown to meet a
-    hard requirement never outranks one that can. It never removes anything --
-    when no candidate clears its constraints the tier is uniform and the
-    ordering is unchanged, which keeps the D24/D28 guarantee that the field
-    cannot empty.
+    hard requirement never outranks one that can. It never removes anything;
+    automatic elimination is handled separately.
     """
-    values = hard_constraint_results.values()
-    if any(passed is False for passed in values):
-        return 2
-    if any(passed is None for passed in values):
-        return 1
-    return 0
+    statuses = [normalize_hard_constraint_status(value) for value in hard_constraint_results.values()]
+    return max((_HARD_CONSTRAINT_TIER[status] for status in statuses), default=0)
 
 
-def confirmed_constraint_count(hard_constraint_results: dict[str, bool | None]) -> int:
+def confirmed_constraint_count(hard_constraint_results: dict[str, object]) -> int:
     """How many stated requirements this place was actually shown to meet.
 
     The tier above is deliberately coarse -- one unverified requirement puts a
@@ -1530,7 +1645,22 @@ def confirmed_constraint_count(hard_constraint_results: dict[str, bool | None]) 
     last, and this only breaks ties within a tier. Counts are comparable because
     every candidate is checked against the same profile.
     """
-    return sum(1 for passed in hard_constraint_results.values() if passed is True)
+    return sum(
+        1
+        for passed in hard_constraint_results.values()
+        if normalize_hard_constraint_status(passed) == HARD_CONSTRAINT_VERIFIED
+    )
+
+
+def hard_constraint_sort_key(hard_constraint_results: dict[str, object]) -> tuple[int, int, int, int]:
+    """Sort hard requirements before fit score: Verified > Borderline > No Evidence > Not Met."""
+    counts = hard_constraint_status_counts(hard_constraint_results)
+    return (
+        counts[HARD_CONSTRAINT_REQUIREMENT_NOT_MET],
+        counts[HARD_CONSTRAINT_NO_EVIDENCE],
+        -counts[HARD_CONSTRAINT_VERIFIED],
+        -counts[HARD_CONSTRAINT_BORDERLINE],
+    )
 
 
 def universally_unmeasured_priorities(
@@ -1592,11 +1722,11 @@ def _constraint_label(criterion: str) -> str:
     return _CONSTRAINT_LABELS.get(criterion, criterion.replace("_", " ").strip())
 
 
-def unverified_constraints(hard_constraint_results: dict[str, bool | None]) -> list[str]:
+def unverified_constraints(hard_constraint_results: dict[str, object]) -> list[str]:
     return [
         _constraint_label(criterion)
         for criterion, passed in sorted(hard_constraint_results.items())
-        if passed is None
+        if normalize_hard_constraint_status(passed) == HARD_CONSTRAINT_NO_EVIDENCE
     ]
 
 
@@ -1621,24 +1751,55 @@ def universally_unverified_constraints(evaluations: list[CandidateEvaluation]) -
     return sorted(set.intersection(*per_candidate)) if per_candidate else []
 
 
+def _constraints_with_status(
+    hard_constraint_results: dict[str, object], status: HardConstraintStatus
+) -> list[str]:
+    return [
+        _constraint_label(criterion)
+        for criterion, value in sorted(hard_constraint_results.items())
+        if normalize_hard_constraint_status(value) == status
+    ]
+
+
 def unmet_constraint_note(
-    hard_constraint_results: dict[str, bool | None],
+    hard_constraint_results: dict[str, object],
     *,
     exclude: set[str] | frozenset[str] = frozenset(),
 ) -> str | None:
-    """Say which stated requirement could not be confirmed *for this place*.
+    """Explain hard requirements that are not verified *for this place*.
 
-    Anything in `exclude` is unverified for every candidate, so it says nothing
-    about this one and is disclosed once at answer level instead.
+    Anything in `exclude` has No Evidence for every candidate, so it says
+    nothing about this one and is disclosed once at answer level instead.
     """
-    unverified = [c for c in unverified_constraints(hard_constraint_results) if c not in exclude]
-    if not unverified:
-        return None
-    return (
-        "Ranked below places that could be checked: nothing in the evidence confirms "
-        + ", ".join(unverified)
-        + ", which the request treats as non-negotiable."
+    notes: list[str] = []
+    not_met = _constraints_with_status(
+        hard_constraint_results, HARD_CONSTRAINT_REQUIREMENT_NOT_MET
     )
+    borderline = _constraints_with_status(hard_constraint_results, HARD_CONSTRAINT_BORDERLINE)
+    no_evidence = [
+        c
+        for c in _constraints_with_status(hard_constraint_results, HARD_CONSTRAINT_NO_EVIDENCE)
+        if c not in exclude
+    ]
+    if not_met:
+        notes.append(
+            "Available evidence indicates "
+            + ", ".join(not_met)
+            + " is not adequately met, although only very clear failures are automatically eliminated."
+        )
+    if borderline:
+        notes.append(
+            "Evidence for "
+            + ", ".join(borderline)
+            + " is Borderline: it exists, but is not strong enough to verify the non-negotiable requirement."
+        )
+    if no_evidence:
+        notes.append(
+            "Ranked below places with usable evidence: insufficient evidence to assess "
+            + ", ".join(no_evidence)
+            + ", which the request treats as non-negotiable."
+        )
+    return " ".join(notes) if notes else None
 
 
 def apply_unmet_constraint_notes(
@@ -1656,7 +1817,15 @@ def apply_unmet_constraint_notes(
         if not note:
             updated.append(evaluation)
             continue
-        updated.append(evaluation.model_copy(update={"drawbacks": [note, *evaluation.drawbacks]}))
+        existing = evaluation.drawbacks
+        has_specific_shortfall = any(
+            "short of the" in drawback
+            or "over the" in drawback
+            or ("does not meet" in drawback and "non-negotiable" in drawback)
+            for drawback in existing
+        )
+        drawbacks = ([*existing, note] if has_specific_shortfall else [note, *existing])[:5]
+        updated.append(evaluation.model_copy(update={"drawbacks": drawbacks}))
     return updated
 
 
@@ -1855,6 +2024,14 @@ def _compact_unresolved_evidence(tool_name: str, normalized_data: dict, profile:
             converted = in_budget_currency(scenario.get("monthly_total_usd"), rate)
             restated[label] = {**scenario, "monthly_total_in_budget_currency": converted}
         country_context = normalized_data.get("country_context") or {}
+        compatible = normalized_data.get("compatible_budget_comparison")
+        if isinstance(compatible, dict):
+            compatible = {
+                **compatible,
+                "monthly_total_in_budget_currency": in_budget_currency(
+                    compatible.get("monthly_total_usd"), rate
+                ),
+            }
         return {
             "evidence_level": normalized_data.get("evidence_level"),
             "fixed_cost_scenarios": restated or scenarios,
@@ -1866,7 +2043,9 @@ def _compact_unresolved_evidence(tool_name: str, normalized_data: dict, profile:
             }
             if country_context
             else country_context,
+            "compatible_budget_comparison": compatible,
             "budget_context": normalized_data.get("budget_context"),
+            "scoring_status": normalized_data.get("scoring_status"),
         }
     if tool_name == "ActivitiesTool":
         # Both halves: "Do" is where hiking, nightlife and beaches live, and it
@@ -2113,8 +2292,7 @@ def apply_llm_scores(
     updated.sort(
         key=lambda evaluation: (
             evaluation.eliminated,
-            constraint_tier(evaluation.hard_constraint_results),
-            -confirmed_constraint_count(evaluation.hard_constraint_results),
+            *hard_constraint_sort_key(evaluation.hard_constraint_results),
             -evaluation.total_score,
         )
     )
@@ -2190,8 +2368,7 @@ def evaluate_candidates(
     evaluations.sort(
         key=lambda evaluation: (
             evaluation.eliminated,
-            constraint_tier(evaluation.hard_constraint_results),
-            -confirmed_constraint_count(evaluation.hard_constraint_results),
+            *hard_constraint_sort_key(evaluation.hard_constraint_results),
             -evaluation.total_score,
         )
     )

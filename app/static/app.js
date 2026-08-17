@@ -181,13 +181,72 @@
     return div.innerHTML;
   }
 
-  function inlineMarkdownToHtml(text) {
+  function escapeAttribute(text) {
+    return escapeHtml(text).replace(/"/g, "&quot;");
+  }
+
+  function citationMapFromMarkdown(markdown) {
+    const citationMap = new Map();
+    let inSources = false;
+
+    for (const rawLine of String(markdown || "").split(/\r?\n/)) {
+      const heading = /^(#{2,4})\s+(.+?)\s*$/.exec(rawLine);
+      if (heading) {
+        const title = normalizeTitle(heading[2]);
+        inSources = title.includes("source") || title.includes("reference") || title.includes("bibliograph");
+        continue;
+      }
+      if (!inSources) continue;
+
+      const sourceLine = /^\s*(\d+)\.\s+(.+?)\s*$/.exec(rawLine);
+      if (!sourceLine) continue;
+
+      const number = sourceLine[1];
+      const details = sourceLine[2].trim();
+      const urlMatch = /\bhttps?:\/\/[^\s<>"']+/i.exec(details);
+      const sourceUrl = urlMatch ? urlMatch[0].replace(/[.,;]+$/, "") : "";
+      const sourceName = (sourceUrl ? details.slice(0, urlMatch.index) : details)
+        .replace(/\s+[—–-]\s*$/, "")
+        .trim();
+
+      citationMap.set(number, { number, sourceName, sourceUrl });
+    }
+
+    return citationMap;
+  }
+
+  function citationEntry(citationMap, number) {
+    if (!(citationMap instanceof Map)) return null;
+    return citationMap.get(String(Number(number))) || citationMap.get(String(number)) || null;
+  }
+
+  function citationTitle(entry) {
+    return entry?.sourceName ? ` title="${escapeAttribute(entry.sourceName)}"` : "";
+  }
+
+  function renderCitationMarkers(html, citationMap) {
+    if (!(citationMap instanceof Map) || !citationMap.size) return html;
+    return html.replace(/\[(\d+)\]/g, (label, number) => {
+      const entry = citationEntry(citationMap, number);
+      if (!entry) return label;
+      if (!entry.sourceUrl) {
+        return `<span class="citation-chip citation-missing"${citationTitle(entry)}>${label}</span>`;
+      }
+      return (
+        `<a class="citation-link" href="${escapeAttribute(entry.sourceUrl)}" ` +
+        `target="_blank" rel="noopener noreferrer"${citationTitle(entry)}>${label}</a>`
+      );
+    });
+  }
+
+  function inlineMarkdownToHtml(text, citationMap) {
     let line = escapeHtml(text);
     line = line.replace(
       /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
       '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
     );
     line = line.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    line = renderCitationMarkers(line, citationMap);
     return line;
   }
 
@@ -210,7 +269,7 @@
   // Small, whitelist-only Markdown-subset renderer. Input is always
   // HTML-escaped first; only a narrow set of structural transforms is then
   // applied. Raw HTML from the LLM/response is never inserted directly.
-  function safeMarkdownToHtml(markdown) {
+  function safeMarkdownToHtml(markdown, citationMap) {
     const lines = String(markdown || "").split(/\r?\n/);
     const htmlParts = [];
     const listState = { open: false };
@@ -238,7 +297,9 @@
         if (!isSeparator) {
           const tag = tableHeaderPending ? "th" : "td";
           htmlParts.push(
-            "<tr>" + cells.map((cell) => `<${tag}>${inlineMarkdownToHtml(cell)}</${tag}>`).join("") + "</tr>"
+            "<tr>" +
+              cells.map((cell) => `<${tag}>${inlineMarkdownToHtml(cell, citationMap)}</${tag}>`).join("") +
+              "</tr>"
           );
           tableHeaderPending = false;
         }
@@ -255,22 +316,22 @@
 
       if (/^### /.test(rawLine)) {
         closeList(htmlParts, listState);
-        htmlParts.push(`<h4>${inlineMarkdownToHtml(rawLine.replace(/^### /, ""))}</h4>`);
+        htmlParts.push(`<h4>${inlineMarkdownToHtml(rawLine.replace(/^### /, ""), citationMap)}</h4>`);
       } else if (/^## /.test(rawLine)) {
         closeList(htmlParts, listState);
-        htmlParts.push(`<h3>${inlineMarkdownToHtml(rawLine.replace(/^## /, ""))}</h3>`);
+        htmlParts.push(`<h3>${inlineMarkdownToHtml(rawLine.replace(/^## /, ""), citationMap)}</h3>`);
       } else if (/^# /.test(rawLine)) {
         closeList(htmlParts, listState);
-        htmlParts.push(`<h2>${inlineMarkdownToHtml(rawLine.replace(/^# /, ""))}</h2>`);
+        htmlParts.push(`<h2>${inlineMarkdownToHtml(rawLine.replace(/^# /, ""), citationMap)}</h2>`);
       } else if (/^\s*[-*]\s+/.test(rawLine)) {
         if (!listState.open) {
           htmlParts.push("<ul>");
           listState.open = true;
         }
-        htmlParts.push(`<li>${inlineMarkdownToHtml(rawLine.replace(/^\s*[-*]\s+/, ""))}</li>`);
+        htmlParts.push(`<li>${inlineMarkdownToHtml(rawLine.replace(/^\s*[-*]\s+/, ""), citationMap)}</li>`);
       } else {
         closeList(htmlParts, listState);
-        htmlParts.push(`<p>${inlineMarkdownToHtml(rawLine)}</p>`);
+        htmlParts.push(`<p>${inlineMarkdownToHtml(rawLine, citationMap)}</p>`);
       }
     }
 
@@ -514,7 +575,7 @@
       if (slot === "confidence") {
         const { grade, reason } = splitConfidence(text);
         if (grade) detail.confidence = grade;
-        if (reason) detail.fields.push({ label: "Confidence", value: reason });
+        if (reason) detail.fields.push({ label: "Evidence Coverage", value: reason });
       } else if (slot) {
         if (text) detail[slot].push(...asItems(text));
       } else if (label || text) {
@@ -839,13 +900,59 @@
     return `${elapsedDays}d ago`;
   }
 
+  function normalizedFitScore(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return null;
+    const scaled = numeric <= 1 ? numeric * 100 : numeric;
+    return Math.max(0, Math.min(100, Math.round(scaled)));
+  }
+
+  function metricKey(place) {
+    return normalizeTitle(place);
+  }
+
+  function normalizeCandidateMetric(metric) {
+    if (!metric || typeof metric !== "object") return null;
+    const fitScore = normalizedFitScore(
+      metric.fit_score ?? metric.fitScore ?? metric.total_score ?? metric.totalScore ?? metric.score
+    );
+    const place = metric.place || metric.place_name || metric.city || "";
+    const rank = metric.rank == null ? "" : String(metric.rank);
+    if (fitScore == null && !place && !rank) return null;
+    return {
+      fitScore,
+      place: String(place || ""),
+      rank,
+      evidenceCoverage:
+        metric.evidence_coverage || metric.evidenceCoverage || metric.confidence || metric.confidence_label || "",
+    };
+  }
+
+  function collectCandidateMetrics(steps) {
+    const metrics = [];
+    (steps || []).forEach((step) => {
+      const response = step?.response || {};
+      const candidates = response.candidate_metrics || response.candidateMetrics || response.candidates || [];
+      if (Array.isArray(candidates)) {
+        candidates.map(normalizeCandidateMetric).filter(Boolean).forEach((metric) => metrics.push(metric));
+      }
+    });
+    const byRank = new Map();
+    const byPlace = new Map();
+    metrics.forEach((metric) => {
+      if (metric.rank) byRank.set(metric.rank, metric);
+      if (metric.place) byPlace.set(metricKey(metric.place), metric);
+    });
+    return { byRank, byPlace };
+  }
+
   // Several sections can land in one role -- an answer carries both
   // "## Assumptions" near the top and "## Assumptions and limitations" at the
   // bottom, and both belong in the panel. The first section's own heading
   // names the panel and the rest keep theirs inline, so the writer's wording
   // survives: "Trade-offs across the three" says more than a generic
   // "Trade-offs", and it is their sentence to write, not this layout's.
-  function panelFromSections(sections, fallbackTitle) {
+  function panelFromSections(sections, fallbackTitle, citationMap) {
     const present = (sections || []).filter((section) => sectionBody(section) || section.title);
     if (!present.length) {
       return { title: fallbackTitle, html: "<p>Not specified.</p>", empty: true };
@@ -853,20 +960,20 @@
     const html = present
       .map((section, index) => {
         const heading =
-          index > 0 && section.title ? `<h4>${inlineMarkdownToHtml(section.title)}</h4>` : "";
-        return heading + safeMarkdownToHtml(sectionBody(section));
+          index > 0 && section.title ? `<h4>${inlineMarkdownToHtml(section.title, citationMap)}</h4>` : "";
+        return heading + safeMarkdownToHtml(sectionBody(section), citationMap);
       })
       .join("\n");
     return { title: present[0].title || fallbackTitle, html, empty: false };
   }
 
-  function listHtml(items) {
+  function listHtml(items, citationMap) {
     const values = items.filter(Boolean);
     if (!values.length) return "<p>Not specified.</p>";
-    return `<ul>${values.map((item) => `<li>${inlineMarkdownToHtml(item)}</li>`).join("")}</ul>`;
+    return `<ul>${values.map((item) => `<li>${inlineMarkdownToHtml(item, citationMap)}</li>`).join("")}</ul>`;
   }
 
-  function mergeRecommendationItems(parsed) {
+  function mergeRecommendationItems(parsed, candidateMetrics) {
     const detailsByRank = new Map(parsed.details.map((detail) => [String(detail.rank), detail]));
     const detailsByPlace = new Map(parsed.details.map((detail) => [normalizeTitle(detail.place), detail]));
 
@@ -874,9 +981,14 @@
       const rank = String(match.rank || index + 1);
       const detail = detailsByRank.get(rank) || detailsByPlace.get(normalizeTitle(match.place)) || {};
       const parsedPlace = parsePlaceTitle(`${rank}. ${match.place || detail.place || "Unknown place"}`);
+      const place = detail.place || parsedPlace.place;
+      const metric =
+        candidateMetrics.byRank.get(rank) ||
+        candidateMetrics.byPlace.get(metricKey(place)) ||
+        candidateMetrics.byPlace.get(metricKey(match.place));
       return {
         rank,
-        place: detail.place || parsedPlace.place,
+        place,
         country: detail.country || parsedPlace.country,
         imageUrl: imageUrlFromCandidate(match, detail),
         why: detail.why && detail.why.length ? detail.why : [match.why_it_fits].filter(Boolean),
@@ -885,7 +997,8 @@
         limitations: detail.limitations || [],
         // The ranking table's own cell is the fallback, graded the same way so
         // a cell carrying more than a grade cannot reach the pill either.
-        confidence: detail.confidence || splitConfidence(match.confidence).grade || "Medium",
+        confidence: metric?.evidenceCoverage || detail.confidence || splitConfidence(match.confidence).grade || "Medium",
+        fitScore: metric?.fitScore ?? null,
         fields: detail.fields || [],
       };
     });
@@ -897,15 +1010,19 @@
           normalizeTitle(item.place) === normalizeTitle(detail.place)
       );
       if (!exists) {
+        const rank = detail.rank || String(items.length + 1);
+        const metric =
+          candidateMetrics.byRank.get(String(rank)) || candidateMetrics.byPlace.get(metricKey(detail.place));
         items.push({
-          rank: detail.rank || String(items.length + 1),
+          rank,
           place: detail.place,
           country: detail.country,
           imageUrl: imageUrlFromCandidate({}, detail),
           why: detail.why,
           drawbacks: detail.drawbacks,
           limitations: detail.limitations,
-          confidence: detail.confidence || "Medium",
+          confidence: metric?.evidenceCoverage || detail.confidence || "Medium",
+          fitScore: metric?.fitScore ?? null,
           fields: detail.fields,
         });
       }
@@ -914,7 +1031,7 @@
     return items;
   }
 
-  function renderDetails(items, heading) {
+  function renderDetails(items, heading, citationMap) {
     if (!items.length) return "";
 
     const cards = items
@@ -932,6 +1049,28 @@
             `
           : "";
         const confidence = item.confidence || "Medium";
+        const fitScore =
+          item.fitScore == null
+            ? ""
+            : `<span class="fit-score-pill" aria-label="Fit Score ${item.fitScore} out of 100">Fit ${item.fitScore}</span>`;
+        const detailMetrics =
+          item.fitScore == null
+            ? `
+              <div class="metric-pair">
+                <span>Evidence Coverage</span>
+                <span class="confidence-pill ${confidenceClass(confidence)}">${inlineMarkdownToHtml(confidence)}</span>
+              </div>
+            `
+            : `
+              <div class="metric-pair">
+                <span>Fit Score</span>
+                <strong>${item.fitScore}/100</strong>
+              </div>
+              <div class="metric-pair">
+                <span>Evidence Coverage</span>
+                <span class="confidence-pill ${confidenceClass(confidence)}">${inlineMarkdownToHtml(confidence)}</span>
+              </div>
+            `;
         // Everything the writer said about this place that is not "why it
         // fits", "main drawback" or the confidence -- relevant evidence,
         // budget fit, the verdict, whatever else they chose to write. Each
@@ -943,7 +1082,7 @@
             (field) => `
               <div class="detail-group detail-group-wide">
                 ${field.label ? `<h4>${inlineMarkdownToHtml(field.label)}</h4>` : ""}
-                <div class="markdown-body">${safeMarkdownToHtml(field.value)}</div>
+                <div class="markdown-body">${safeMarkdownToHtml(field.value, citationMap)}</div>
               </div>
             `
           )
@@ -953,9 +1092,10 @@
           <details class="place-card" ${index === 0 ? "open" : ""}>
             <summary>
               ${thumbMarkup(item)}
-              <span class="place-card-title">
-                ${inlineMarkdownToHtml(title)}
-              </span>
+                <span class="place-card-title">
+                  ${inlineMarkdownToHtml(title)}
+                </span>
+              ${fitScore}
               <span class="confidence-pill ${confidenceClass(confidence)}">${inlineMarkdownToHtml(confidence)}</span>
               <span class="chevron" aria-hidden="true">
                 <svg viewBox="0 0 24 24" focusable="false"><path d="m6 9 6 6 6-6" /></svg>
@@ -964,15 +1104,14 @@
             <div class="place-detail-grid">
               <div class="detail-group">
                 <h4>Why it fits</h4>
-                ${listHtml(item.why)}
+                ${listHtml(item.why, citationMap)}
               </div>
               <div class="detail-group">
                 <h4>Main drawback</h4>
-                ${listHtml(drawbacks)}
+                ${listHtml(drawbacks, citationMap)}
               </div>
-              <div class="confidence-panel">
-                <span>Confidence</span>
-                <span class="confidence-pill ${confidenceClass(confidence)}">${inlineMarkdownToHtml(confidence)}</span>
+              <div class="metric-panel">
+                ${detailMetrics}
               </div>
               ${limitations}
               ${extra}
@@ -992,9 +1131,9 @@
 
   // The deterministic disclosures that _assemble() puts above the answer.
   // They are the reader's warning that the comparison narrowed, that a
-  // requirement could not be checked, or that what they asked for is outside
+  // requirement has no usable evidence, or that what they asked for is outside
   // what the agent can do -- so they lead, rather than being dropped.
-  function renderDisclosures(blocks, variant) {
+  function renderDisclosures(blocks, variant, citationMap) {
     const body = (blocks || []).filter(Boolean).join("\n\n");
     if (!body) return "";
     const footnote = variant === "footnote";
@@ -1008,13 +1147,13 @@
             <path d="M12 10v4M12 17h.01" />
           </svg>
         </span>
-        <div class="markdown-body">${safeMarkdownToHtml(body)}</div>
+        <div class="markdown-body">${safeMarkdownToHtml(body, citationMap)}</div>
       </section>
     `;
   }
 
-  function renderInterpretation(sections) {
-    const panel = panelFromSections(sections, "How your request was read");
+  function renderInterpretation(sections, citationMap) {
+    const panel = panelFromSections(sections, "How your request was read", citationMap);
     if (panel.empty) return "";
     return `
       <section class="interpretation-panel">
@@ -1024,34 +1163,45 @@
     `;
   }
 
+  function renderRankingExplanation() {
+    return `
+      <section class="ranking-explanation-panel" aria-label="How ranking works">
+        <h3>How ranking works</h3>
+        <p><strong>Fit Score</strong> — how well the city matches your priorities based on the available evidence.</p>
+        <p><strong>Evidence Coverage</strong> — how much of the important information you asked about was actually verified.</p>
+        <p>Hard requirements are prioritized before preference scores.</p>
+      </section>
+    `;
+  }
+
   // Whatever the writer wrote that this UI has no dedicated slot for. It is
   // rendered in document order with its own heading rather than discarded --
   // the point of the rewrite: the layout decides how text is presented, never
   // whether it survives.
-  function renderOtherSections(sections) {
+  function renderOtherSections(sections, citationMap) {
     const blocks = (sections || [])
       .map((section) => {
         const body = sectionBody(section);
         if (!body && !section.title) return "";
         const heading = section.title
-          ? `<h3>${inlineMarkdownToHtml(section.title)}</h3>`
+          ? `<h3>${inlineMarkdownToHtml(section.title, citationMap)}</h3>`
           : "";
         return body || heading
-          ? `<section class="extra-panel markdown-body">${heading}${safeMarkdownToHtml(body)}</section>`
+          ? `<section class="extra-panel markdown-body">${heading}${safeMarkdownToHtml(body, citationMap)}</section>`
           : "";
       })
       .filter(Boolean);
     return blocks.join("\n");
   }
 
-  function renderInfoPanels(parsed) {
-    const tradeoffs = panelFromSections(parsed.tradeoffs, "Trade-offs");
+  function renderInfoPanels(parsed, citationMap) {
+    const tradeoffs = panelFromSections(parsed.tradeoffs, "Trade-offs", citationMap);
     // This panel keeps a fixed name. The writers' own headings for it are
     // "Trade-offs discussion" and "Trade-offs across the three", which say
     // nothing the panel does not already say by being the trade-offs panel.
     tradeoffs.title = "Trade-offs";
-    const assumptions = panelFromSections(parsed.assumptions, "Assumptions and limitations");
-    const sources = panelFromSections(parsed.sources, "Sources");
+    const assumptions = panelFromSections(parsed.assumptions, "Assumptions and limitations", citationMap);
+    const sources = panelFromSections(parsed.sources, "Sources", citationMap);
 
     const sourcesHtml = sources.empty
       ? ""
@@ -1090,20 +1240,22 @@
           </div>
         </article>
       </div>
-      ${renderDisclosures(parsed.footnotes, "footnote")}
+      ${renderDisclosures(parsed.footnotes, "footnote", citationMap)}
       ${sourcesHtml}
     `;
   }
 
-  function renderStructuredRecommendation(markdown, prompt) {
+  function renderStructuredRecommendation(markdown, prompt, steps) {
+    const citationMap = citationMapFromMarkdown(markdown);
+    const candidateMetrics = collectCandidateMetrics(steps);
     const parsed = parseRecommendationMarkdown(markdown);
     if (!parsed) {
-      return `<div class="recommendation-board markdown-body">${safeMarkdownToHtml(markdown)}</div>`;
+      return `<div class="recommendation-board markdown-body">${safeMarkdownToHtml(markdown, citationMap)}</div>`;
     }
 
-    const items = mergeRecommendationItems(parsed);
+    const items = mergeRecommendationItems(parsed, candidateMetrics);
     if (!items.length && !parsed.preamble.length && !parsed.other.length) {
-      return `<div class="recommendation-board markdown-body">${safeMarkdownToHtml(markdown)}</div>`;
+      return `<div class="recommendation-board markdown-body">${safeMarkdownToHtml(markdown, citationMap)}</div>`;
     }
 
     // Every section the answer contains reaches one of these six calls: the
@@ -1111,11 +1263,12 @@
     // Nothing is filtered out along the way.
     return `
       <div class="recommendation-board">
-        ${renderDisclosures(parsed.preamble)}
-        ${renderInterpretation(parsed.interpretation)}
-        ${renderDetails(items, parsed.detailsHeading)}
-        ${renderOtherSections(parsed.other)}
-        ${renderInfoPanels(parsed)}
+        ${renderDisclosures(parsed.preamble, undefined, citationMap)}
+        ${renderInterpretation(parsed.interpretation, citationMap)}
+        ${renderRankingExplanation()}
+        ${renderDetails(items, parsed.detailsHeading, citationMap)}
+        ${renderOtherSections(parsed.other, citationMap)}
+        ${renderInfoPanels(parsed, citationMap)}
       </div>
     `;
   }
@@ -1274,7 +1427,7 @@
     }
     resultsContent.innerHTML = isClarificationSteps(steps)
       ? renderClarificationPrompt(markdown || "")
-      : renderStructuredRecommendation(markdown || "", prompt);
+      : renderStructuredRecommendation(markdown || "", prompt, steps);
     hydratePlaceImages();
     renderSteps(steps);
     homeView.hidden = true;
@@ -1692,6 +1845,15 @@
     if (!detail) return;
     runExecute(`${currentPrompt}\n\nAdditional details: ${detail}`);
   });
+
+  if (window.__DIGITAL_NOMAD_AGENT_TEST_HOOKS__) {
+    window.__DIGITAL_NOMAD_AGENT_TEST_HOOKS__ = {
+      citationMapFromMarkdown,
+      inlineMarkdownToHtml,
+      safeMarkdownToHtml,
+      renderStructuredRecommendation,
+    };
+  }
 
   initializeTheme();
   initializeSidebar();

@@ -14,7 +14,12 @@ then ranked the eight places by budget fit and car-free living.
 import pytest
 
 from app.agent.dynamic_evaluation import _check_hard_constraints, criteria_for_constraint
-from app.agent.models import CandidatePlace, PlaceRequestProfile
+from app.agent.models import (
+    HARD_CONSTRAINT_NO_EVIDENCE,
+    HARD_CONSTRAINT_VERIFIED,
+    CandidatePlace,
+    PlaceRequestProfile,
+)
 
 CANDIDATE = CandidatePlace(place_name="Seville", country="Spain", reason_for_inclusion="x")
 
@@ -47,7 +52,10 @@ def test_measured_limits_are_not_reported_as_uncheckable():
         profile, {"cost": 0.9, "transportation": 0.85}, CANDIDATE, []
     )
 
-    assert results == {"cost": True, "transportation": True}
+    assert results == {
+        "cost": HARD_CONSTRAINT_VERIFIED,
+        "transportation": HARD_CONSTRAINT_VERIFIED,
+    }
 
 
 def test_an_underscored_requirement_nothing_measures_is_still_recorded():
@@ -56,7 +64,7 @@ def test_an_underscored_requirement_nothing_measures_is_still_recorded():
 
     _, _, results = _check_hard_constraints(profile, {"cost": 0.9}, CANDIDATE, [])
 
-    assert results.get("quick access to a hospital") is None
+    assert results.get("quick access to a hospital") == HARD_CONSTRAINT_NO_EVIDENCE
 
 
 def test_the_recorded_wording_carries_no_identifiers():
@@ -97,4 +105,7 @@ def test_a_travel_time_cap_with_no_measurement_is_still_recorded():
 
     _, _, results = _check_hard_constraints(profile, {"cost": 0.8}, CANDIDATE, [])
 
-    assert results.get("travel time should not exceed 5 hours") is None
+    assert (
+        results.get("travel time should not exceed 5 hours")
+        == HARD_CONSTRAINT_NO_EVIDENCE
+    )

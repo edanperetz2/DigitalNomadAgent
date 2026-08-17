@@ -14,7 +14,7 @@ reasoning backwards from drawbacks it had been handed.
 import json
 
 from app.agent.models import CandidateEvaluation, PlaceRequestProfile, ValidationResult
-from app.agent.recommendation_generator import _build_payload, _llm_payload, _priorities_in_order
+from app.agent.recommendation_generator import _build_payload, _candidate_metrics, _llm_payload, _priorities_in_order
 
 P02_TEXT = (
     "We're a family of four flying out of Tel Aviv for two weeks in August. Our kids are "
@@ -150,3 +150,35 @@ def test_the_numbering_matches_the_deterministic_renderer():
 
     assert [s["number"] for s in presented] == list(range(1, len(sources) + 1))
     assert [s["source_name"] for s in presented] == [s["source_name"] for s in payload["sources"]]
+
+
+def test_fit_score_metadata_is_available_without_reaching_the_model_prompt():
+    payload = _build_payload(
+        P02_PROFILE,
+        [
+            CandidateEvaluation(
+                place="Rhodes",
+                country="Greece",
+                total_score=0.893,
+                confidence_score=0.61,
+            )
+        ],
+        ValidationResult(approved=True),
+        [],
+        3,
+        P02_TEXT,
+    )
+
+    presented = json.dumps(_llm_payload(payload))
+    metrics = _candidate_metrics(payload)
+
+    assert "total_score" not in presented
+    assert metrics == [
+        {
+            "rank": 1,
+            "place": "Rhodes",
+            "country": "Greece",
+            "total_score": 0.893,
+            "evidence_coverage": "Medium",
+        }
+    ]

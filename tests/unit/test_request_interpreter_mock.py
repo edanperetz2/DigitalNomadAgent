@@ -67,6 +67,70 @@ def test_an_unrelated_period_word_cannot_hijack_the_budget():
     assert budget["period"] == "monthly"
 
 
+def test_budget_scope_accommodation_only_phrasings():
+    for prompt in (
+        "student housing I can afford on about €700 a month",
+        "€900 a month for accommodation",
+    ):
+        budget = interpret_prompt(prompt)["budget"]
+        assert budget["budget_scope"] == "accommodation_only", prompt
+
+
+def test_budget_scope_total_living_cost_phrasing():
+    budget = interpret_prompt("no more than €1,800 a month all-in including rent")["budget"]
+
+    assert budget["amount"] == 1800.0
+    assert budget["currency"] == "EUR"
+    assert budget["period"] == "monthly"
+    assert budget["budget_scope"] == "total_living_cost"
+
+
+def test_budget_scope_living_cost_excluding_accommodation_phrasing():
+    budget = interpret_prompt("€800/month excluding rent")["budget"]
+
+    assert budget["amount"] == 800.0
+    assert budget["currency"] == "EUR"
+    assert budget["period"] == "monthly"
+    assert budget["budget_scope"] == "living_cost_excluding_accommodation"
+
+
+def test_ambiguous_budget_scope_stays_unspecified():
+    budget = interpret_prompt("my budget is €1,000/month")["budget"]
+
+    assert budget["amount"] == 1000.0
+    assert budget["currency"] == "EUR"
+    assert budget["period"] == "monthly"
+    assert budget["budget_scope"] == "unspecified"
+    assert budget["includes_accommodation"] is None
+
+
+def test_exchange_student_housing_prompt_is_accommodation_only():
+    prompt = (
+        "I'm a third-year computer science undergrad and I've been accepted for a one-semester "
+        "exchange next spring, but I get to pick from a fairly open list of partner universities "
+        "— so really I'm choosing a city. What matters, roughly in order: a genuinely active "
+        "student scene so I'm not isolated, public transport good enough that I don't have to live "
+        "right next to campus, feeling safe walking home late, and student housing I can afford on "
+        "about €700 a month. English-taught courses are a must — my language skills are nonexistent."
+    )
+
+    budget = interpret_prompt(prompt)["budget"]
+
+    assert budget["amount"] == 700.0
+    assert budget["currency"] == "EUR"
+    assert budget["period"] == "monthly"
+    assert budget["budget_scope"] == "accommodation_only"
+    assert interpret_prompt(prompt)["student_housing_requested"] is True
+
+
+def test_student_housing_requested_requires_student_specific_wording():
+    explicit = interpret_prompt("I need student housing under €700 a month.")
+    generic = interpret_prompt("I'm a student and want accommodation for €700 a month.")
+
+    assert explicit["student_housing_requested"] is True
+    assert generic["student_housing_requested"] is False
+
+
 def test_a_named_destination_is_captured_separately_from_regions():
     """"Is Lisbon a good fit?" previously put the city in preferred_regions,
     which is only matched against a candidate's country -- so it matched

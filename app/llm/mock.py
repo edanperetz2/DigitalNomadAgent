@@ -164,6 +164,47 @@ _BUDGET_PERIOD_PATTERNS: tuple[tuple[str, str], ...] = (
 )
 
 
+def _budget_scope_from_text(scope: str) -> str:
+    """Classify what the stated budget covers, without guessing ambiguous amounts."""
+    if re.search(
+        r"\b(?:excluding|not including|without)\s+(?:rent|housing|accommodation)\b"
+        r"|\b(?:expenses?|costs?|spending)\s+(?:besides|apart from|other than)\s+"
+        r"(?:rent|housing|accommodation)\b",
+        scope,
+        re.IGNORECASE,
+    ):
+        return "living_cost_excluding_accommodation"
+    if re.search(
+        r"\ball[- ]?in\b|\btotal\s+(?:monthly\s+)?(?:budget|spending|costs?)\b|"
+        r"\b(?:including|incl\.?)\s+(?:rent|housing|accommodation)\b",
+        scope,
+        re.IGNORECASE,
+    ):
+        return "total_living_cost"
+    if re.search(
+        r"\b(?:for|towards?)\s+(?:rent|housing|accommodation)\b|"
+        r"\b(?:rent|housing|accommodation)\s+(?:under|below|less than|no more than|"
+        r"around|about|budget|limit)\b|"
+        r"\bstudent\s+housing\b[^.?!]*(?:afford|budget|under|below|less than|no more than|"
+        r"around|about)",
+        scope,
+        re.IGNORECASE,
+    ):
+        return "accommodation_only"
+    return "unspecified"
+
+
+_STUDENT_HOUSING_REQUEST_PATTERN = re.compile(
+    r"\b(?:student[-\s]+(?:housing|accommodations?|residences?|dorms?)|"
+    r"housing[-\s]+for[-\s]+students?)\b",
+    re.IGNORECASE,
+)
+
+
+def _student_housing_requested(text: str) -> bool:
+    return _STUDENT_HOUSING_REQUEST_PATTERN.search(text) is not None
+
+
 def _extract_budget(text: str) -> dict:
     amount = None
     currency = None
@@ -191,16 +232,18 @@ def _extract_budget(text: str) -> dict:
             confidence = "high"
             break
 
-    includes_accommodation = None
-    if re.search(r"excluding accommodation|not including accommodation|excluding rent", text, re.IGNORECASE):
-        includes_accommodation = False
-    elif re.search(r"including rent|including accommodation", text, re.IGNORECASE):
-        includes_accommodation = True
+    budget_scope = _budget_scope_from_text(scope)
+    includes_accommodation = {
+        "accommodation_only": True,
+        "total_living_cost": True,
+        "living_cost_excluding_accommodation": False,
+    }.get(budget_scope)
 
     return {
         "amount": amount,
         "currency": currency,
         "period": period,
+        "budget_scope": budget_scope,
         "includes_accommodation": includes_accommodation,
         "confidence": confidence,
     }
@@ -569,10 +612,6 @@ def interpret_prompt(prompt: str) -> dict:
         inferred_period = "total" if purpose == "vacation" else "monthly"
         budget_info["period"] = inferred_period
         assumptions.append(f"Assumed the stated budget of {budget_info['amount']} is a {inferred_period} amount.")
-    if budget_info["includes_accommodation"] is None and budget_info["amount"] is not None:
-        budget_info["includes_accommodation"] = True
-        assumptions.append("Assumed the budget includes accommodation unless stated otherwise.")
-
     duration = _extract_duration(text)
     target_months, month_assumption = _extract_target_months(text)
     if month_assumption:
@@ -684,6 +723,7 @@ def interpret_prompt(prompt: str) -> dict:
         "climate_preferences": climate_preferences,
         "activity_preferences": activity_preferences,
         "amenity_preferences": amenity_preferences,
+        "student_housing_requested": _student_housing_requested(lowered),
         "budget": budget_info,
         "max_flight_hours": max_flight_hours,
         "min_timezone_overlap_hours": min_timezone_overlap_hours,
@@ -1443,14 +1483,42 @@ def _score_from_prose(evidence: dict, subject: str) -> tuple[float, str] | None:
 def _cost_rationale(evidence: dict) -> str:
     comparison = budget_comparison(evidence)
     if comparison is None:
-        status = (evidence.get("budget_context") or {}).get("status")
+        budget_context = evidence.get("budget_context") or {}
+        status = budget_context.get("status")
         if status in (None, "not_provided"):
             return "No budget was stated, so cost is not counted against this place."
+        if evidence.get("scoring_status") in {
+            "no_compatible_budget_evidence",
+            "budget_scope_unspecified",
+            "budget_not_comparable",
+        }:
+            scope = budget_context.get("budget_scope") or "unspecified"
+            return f"Affordability could not be verified from cost evidence compatible with a {scope} budget."
         return "Cost evidence was collected but could not be compared with the stated budget."
 
     monthly, remaining, currency = comparison
     unit = f" {currency}" if currency else ""
     budget = monthly + remaining
+    selected = evidence.get("compatible_budget_comparison") or {}
+    budget_context = evidence.get("budget_context") or {}
+    is_accommodation = (
+        isinstance(selected, dict)
+        and selected.get("cost_scope") == "accommodation_only"
+        and budget_context.get("budget_scope") == "accommodation_only"
+    )
+    description = selected.get("housing_evidence_description") if isinstance(selected, dict) else None
+    if is_accommodation:
+        subject = description or "the available accommodation estimate"
+        if remaining >= 0:
+            return (
+                f"About {monthly:,.0f}{unit} a month for {subject} against a "
+                f"{budget:,.0f}{unit} accommodation budget — {remaining:,.0f}{unit} to spare."
+            )
+        over = -remaining
+        return (
+            f"About {monthly:,.0f}{unit} a month for {subject} against a "
+            f"{budget:,.0f}{unit} accommodation budget — over by {over:,.0f}{unit}."
+        )
     if remaining >= 0:
         return (
             f"About {monthly:,.0f}{unit} a month against a {budget:,.0f}{unit} budget — "

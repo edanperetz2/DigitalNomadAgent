@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 from urllib.parse import quote
 
-from app.agent.models import CandidatePlace, PlaceRequestProfile
+from app.agent.models import BudgetScope, CandidatePlace, PlaceRequestProfile
 from app.evidence.cache import ToolCache
 from app.evidence.models import EvidenceItem, EvidenceSource, ToolResult
 from app.tools.http_client import JsonHttpClient
@@ -51,6 +51,7 @@ class BudgetComparison:
     original_amount: float | None
     original_currency: str | None
     period: str
+    budget_scope: BudgetScope = "unspecified"
     comparison_amount: float | None = None
     comparison_currency: str | None = None
     fx: CachedPayload | None = None
@@ -62,6 +63,7 @@ class BudgetComparison:
             "original_amount": self.original_amount,
             "original_currency": self.original_currency,
             "period": self.period,
+            "budget_scope": self.budget_scope,
             "comparison_amount": self.comparison_amount,
             "comparison_currency": self.comparison_currency,
         }
@@ -69,6 +71,93 @@ class BudgetComparison:
             data["exchange_rate"] = self.fx.payload
             data["exchange_rate_stale"] = self.fx.stale
         return data
+
+
+def _effective_budget_scope(profile: PlaceRequestProfile) -> BudgetScope:
+    scope = profile.budget.budget_scope
+    if scope == "unspecified" and profile.budget.includes_accommodation is False:
+        return "living_cost_excluding_accommodation"
+    return scope
+
+
+def _budget_remaining_payload(
+    comparison: BudgetComparison,
+    *,
+    cost_scope: BudgetScope,
+    label: str,
+    local_currency: str,
+    amount_local: float,
+    amount_usd: float,
+    included_items: list[dict[str, Any]],
+    housing_evidence_kind: str | None = None,
+    housing_evidence_description: str | None = None,
+    student_housing_directly_verified: bool | None = None,
+) -> dict[str, Any] | None:
+    if comparison.budget_scope != cost_scope:
+        return None
+    if comparison.status not in {"converted_to_usd", "comparable_without_conversion"}:
+        return None
+    if comparison.comparison_amount is None or comparison.comparison_currency is None:
+        return None
+
+    if comparison.comparison_currency == local_currency:
+        cost = round(amount_local, 2)
+    elif comparison.comparison_currency == "USD":
+        cost = round(amount_usd, 2)
+    else:
+        return None
+
+    remaining = round(comparison.comparison_amount - cost, 2)
+    payload = {
+        "cost_scope": cost_scope,
+        "evidence_label": label,
+        "comparison_cost": {"amount": cost, "currency": comparison.comparison_currency},
+        "budget_remaining": {"amount": remaining, "currency": comparison.comparison_currency},
+        "monthly_total_local": round(amount_local, 2),
+        "local_currency": local_currency,
+        "monthly_total_usd": round(amount_usd, 2),
+        "included_items": included_items,
+    }
+    if housing_evidence_kind is not None:
+        payload["housing_evidence_kind"] = housing_evidence_kind
+    if housing_evidence_description is not None:
+        payload["housing_evidence_description"] = housing_evidence_description
+    if student_housing_directly_verified is not None:
+        payload["student_housing_directly_verified"] = student_housing_directly_verified
+    return payload
+
+
+def _first_scope_comparison(
+    comparisons: dict[str, dict[str, Any]], budget_scope: BudgetScope
+) -> dict[str, Any] | None:
+    scoped = comparisons.get(budget_scope) or {}
+    if budget_scope == "accommodation_only":
+        accommodation = [comparison for comparison in scoped.values() if isinstance(comparison, dict)]
+        if accommodation:
+            return min(
+                accommodation,
+                key=lambda comparison: (
+                    (comparison.get("comparison_cost") or {}).get("amount") is None,
+                    (comparison.get("comparison_cost") or {}).get("amount") or 0,
+                ),
+            )
+    for label in ("center", "outside_center", "non_housing"):
+        comparison = scoped.get(label)
+        if comparison is not None:
+            return comparison
+    return None
+
+
+def _scoring_status(comparison: BudgetComparison, compatible: dict[str, Any] | None) -> str:
+    if comparison.status == "not_provided":
+        return "unresolved_pending_llm"
+    if compatible is not None:
+        return "unresolved_pending_llm"
+    if comparison.budget_scope == "unspecified":
+        return "budget_scope_unspecified"
+    if comparison.status not in {"converted_to_usd", "comparable_without_conversion"}:
+        return "budget_not_comparable"
+    return "no_compatible_budget_evidence"
 
 
 def _normalize_text(value: str) -> str:
@@ -374,7 +463,7 @@ def build_fixed_cost_scenarios(
     prices: list[dict[str, Any]],
     local_currency: str,
     comparison: BudgetComparison,
-) -> tuple[dict[str, Any], list[str]]:
+) -> tuple[dict[str, Any], list[str], dict[str, dict[str, Any]]]:
     found = {
         "one_bedroom_center": _find_price(prices, _SCENARIO_ITEMS["one_bedroom_center"]),
         "one_bedroom_outside": _find_price(prices, _SCENARIO_ITEMS["one_bedroom_outside"]),
@@ -384,8 +473,57 @@ def build_fixed_cost_scenarios(
     }
     common_names = ("utilities", "internet", "monthly_transit")
     scenarios: dict[str, Any] = {}
+    scope_comparisons: dict[str, dict[str, Any]] = {
+        "accommodation_only": {},
+        "total_living_cost": {},
+        "living_cost_excluding_accommodation": {},
+    }
     missing: list[str] = []
+
+    common_absent = [name for name in common_names if found[name] is None]
+    if common_absent:
+        missing.extend(common_absent)
+    else:
+        non_housing_items = [found[name] for name in common_names if found[name] is not None]
+        non_housing_local = round(sum(item["price_local"] for item in non_housing_items), 2)
+        non_housing_usd = round(sum(item["price_usd"] for item in non_housing_items), 2)
+        non_housing_comparison = _budget_remaining_payload(
+            comparison,
+            cost_scope="living_cost_excluding_accommodation",
+            label="non_housing",
+            local_currency=local_currency,
+            amount_local=non_housing_local,
+            amount_usd=non_housing_usd,
+            included_items=non_housing_items,
+        )
+        if non_housing_comparison is not None:
+            scope_comparisons["living_cost_excluding_accommodation"]["non_housing"] = non_housing_comparison
+
     for label, housing_name in (("center", "one_bedroom_center"), ("outside_center", "one_bedroom_outside")):
+        housing_item = found[housing_name]
+        if housing_item is None:
+            missing.append(housing_name)
+        else:
+            description = (
+                "generic one-bedroom apartment in the city center"
+                if label == "center"
+                else "generic one-bedroom apartment outside the city center"
+            )
+            housing_comparison = _budget_remaining_payload(
+                comparison,
+                cost_scope="accommodation_only",
+                label=label,
+                local_currency=local_currency,
+                amount_local=round(housing_item["price_local"], 2),
+                amount_usd=round(housing_item["price_usd"], 2),
+                included_items=[housing_item],
+                housing_evidence_kind="generic_apartment",
+                housing_evidence_description=description,
+                student_housing_directly_verified=False,
+            )
+            if housing_comparison is not None:
+                scope_comparisons["accommodation_only"][label] = housing_comparison
+
         item_names = (housing_name, *common_names)
         absent = [name for name in item_names if found[name] is None]
         if absent:
@@ -394,26 +532,30 @@ def build_fixed_cost_scenarios(
         included = [found[name] for name in item_names]
         total_local = round(sum(item["price_local"] for item in included if item), 2)
         total_usd = round(sum(item["price_usd"] for item in included if item), 2)
-        budget_remaining = None
-        if comparison.comparison_amount is not None:
-            if comparison.comparison_currency == local_currency:
-                budget_remaining = {
-                    "amount": round(comparison.comparison_amount - total_local, 2),
-                    "currency": local_currency,
-                }
-            elif comparison.comparison_currency == "USD":
-                budget_remaining = {
-                    "amount": round(comparison.comparison_amount - total_usd, 2),
-                    "currency": "USD",
-                }
+        total_comparison = _budget_remaining_payload(
+            comparison,
+            cost_scope="total_living_cost",
+            label=label,
+            local_currency=local_currency,
+            amount_local=total_local,
+            amount_usd=total_usd,
+            included_items=[item for item in included if item is not None],
+        )
+        if total_comparison is not None:
+            scope_comparisons["total_living_cost"][label] = total_comparison
         scenarios[label] = {
             "monthly_total_local": total_local,
             "local_currency": local_currency,
             "monthly_total_usd": total_usd,
             "included_items": included,
-            "budget_remaining_after_named_items": budget_remaining,
+            "budget_remaining_after_named_items": (
+                total_comparison["budget_remaining"] if total_comparison is not None else None
+            ),
+            "budget_comparison": total_comparison,
         }
-    return scenarios, sorted(set(missing))
+    return scenarios, sorted(set(missing)), {
+        scope: values for scope, values in scope_comparisons.items() if values
+    }
 
 
 def _exception_text(exc: BaseException) -> str:
@@ -442,16 +584,18 @@ class BudgetFitTool:
         direct_currency: str,
     ) -> BudgetComparison:
         budget = profile.budget
+        budget_scope = _effective_budget_scope(profile)
         original_currency = budget.currency.strip().upper() if budget.currency else None
         currency = _currency_code(original_currency)
         if budget.amount is None:
-            return BudgetComparison("not_provided", None, original_currency, budget.period)
+            return BudgetComparison("not_provided", None, original_currency, budget.period, budget_scope)
         if not math.isfinite(budget.amount) or budget.amount <= 0:
             return BudgetComparison(
                 "invalid_amount",
                 budget.amount,
                 original_currency,
                 budget.period,
+                budget_scope,
                 warning="The stated budget amount must be finite and greater than zero.",
             )
         if budget.period != "monthly":
@@ -460,17 +604,19 @@ class BudgetFitTool:
                 budget.amount,
                 original_currency,
                 budget.period,
+                budget_scope,
                 warning="Fixed-cost scenarios are monthly and cannot be compared with a non-monthly budget.",
             )
-        if budget.includes_accommodation is False:
+        if budget_scope == "unspecified":
             return BudgetComparison(
-                "excludes_accommodation",
+                "scope_unspecified",
                 budget.amount,
                 original_currency,
                 budget.period,
+                budget_scope,
                 warning=(
-                    "The stated budget excludes accommodation, so it cannot be compared with rent-inclusive "
-                    "fixed-cost scenarios."
+                    "The stated budget does not specify whether it covers accommodation, total living costs, "
+                    "or non-housing expenses, so it is not used for a hard affordability comparison."
                 ),
             )
         if currency is None:
@@ -479,6 +625,7 @@ class BudgetFitTool:
                 budget.amount,
                 original_currency,
                 budget.period,
+                budget_scope,
                 warning="The stated budget has no valid three-letter currency code.",
             )
         if currency in {direct_currency, "USD"}:
@@ -487,6 +634,7 @@ class BudgetFitTool:
                 budget.amount,
                 original_currency,
                 budget.period,
+                budget_scope,
                 comparison_amount=budget.amount,
                 comparison_currency=currency,
             )
@@ -498,6 +646,7 @@ class BudgetFitTool:
                 budget.amount,
                 original_currency,
                 budget.period,
+                budget_scope,
                 warning=f"Budget currency conversion is unavailable: {_exception_text(exc)}",
             )
         return BudgetComparison(
@@ -505,6 +654,7 @@ class BudgetFitTool:
             budget.amount,
             original_currency,
             budget.period,
+            budget_scope,
             comparison_amount=round(budget.amount * fx.payload["rate"], 2),
             comparison_currency="USD",
             fx=fx,
@@ -567,9 +717,10 @@ class BudgetFitTool:
             metadata = city_data.payload["metadata"]
             local_currency = str(metadata["currency"]).upper()
             comparison = await self._budget_comparison(profile, local_currency)
-            scenarios, missing_scenario_items = build_fixed_cost_scenarios(
+            scenarios, missing_scenario_items, scope_comparisons = build_fixed_cost_scenarios(
                 city_data.payload["prices"], local_currency, comparison
             )
+            compatible_budget_comparison = _first_scope_comparison(scope_comparisons, comparison.budget_scope)
             if comparison.warning:
                 warnings.append(comparison.warning)
             if missing_scenario_items:
@@ -601,6 +752,8 @@ class BudgetFitTool:
                         "dataset_metadata": metadata,
                         "prices": city_data.payload["prices"],
                         "fixed_cost_scenarios": scenarios,
+                        "budget_scope_comparisons": scope_comparisons,
+                        "compatible_budget_comparison": compatible_budget_comparison,
                         "missing_fixed_cost_items": missing_scenario_items,
                     },
                     source=EvidenceSource(
@@ -643,12 +796,14 @@ class BudgetFitTool:
                 "dataset_metadata": metadata,
                 "price_basket": city_data.payload["prices"],
                 "fixed_cost_scenarios": scenarios,
+                "budget_scope_comparisons": scope_comparisons,
+                "compatible_budget_comparison": compatible_budget_comparison,
                 "missing_fixed_cost_items": missing_scenario_items,
                 "budget_context": {
                     **comparison.normalized_data(),
                     "includes_accommodation": profile.budget.includes_accommodation,
                 },
-                "scoring_status": "unresolved_pending_llm",
+                "scoring_status": _scoring_status(comparison, compatible_budget_comparison),
             }
             stale = city_data.stale or bool(comparison.fx and comparison.fx.stale)
             confidence: Literal["medium", "low"] = "low" if stale else "medium"
@@ -679,6 +834,15 @@ class BudgetFitTool:
                     error="No city or country cost evidence is available for this destination.",
                 )
             comparison = await self._budget_comparison(profile, "USD")
+            compatible_budget_comparison = _budget_remaining_payload(
+                comparison,
+                cost_scope="total_living_cost",
+                label="country_monthly_estimate",
+                local_currency="USD",
+                amount_local=round(country_row["monthly_estimate_usd"], 2),
+                amount_usd=round(country_row["monthly_estimate_usd"], 2),
+                included_items=[],
+            )
             if comparison.warning:
                 warnings.append(comparison.warning)
             if country_data.payload["invalid_country_count"]:
@@ -697,6 +861,7 @@ class BudgetFitTool:
                         "evidence_level": "country",
                         "dataset_metadata": metadata,
                         "country_context": country_row,
+                        "compatible_budget_comparison": compatible_budget_comparison,
                     },
                     source=EvidenceSource(
                         source_name=str(metadata["source"]),
@@ -739,11 +904,13 @@ class BudgetFitTool:
                 "country_context": country_row,
                 "price_basket": [],
                 "fixed_cost_scenarios": {},
+                "budget_scope_comparisons": {},
+                "compatible_budget_comparison": compatible_budget_comparison,
                 "budget_context": {
                     **comparison.normalized_data(),
                     "includes_accommodation": profile.budget.includes_accommodation,
                 },
-                "scoring_status": "unresolved_pending_llm",
+                "scoring_status": _scoring_status(comparison, compatible_budget_comparison),
             }
             stale = country_data.stale or bool(comparison.fx and comparison.fx.stale)
             confidence = "low"

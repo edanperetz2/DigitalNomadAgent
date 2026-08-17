@@ -13,6 +13,13 @@ from app.agent.models import CandidatePlace, PlaceRequestProfile
 from app.climate_scoring import requested_climate_dimensions
 from app.evidence.models import EvidenceItem, EvidenceSource, ToolResult
 from app.tools.activities import CATEGORY_RADII_M, select_activity_categories
+from app.tools.budget_fit import (
+    BudgetComparison,
+    _effective_budget_scope,
+    _first_scope_comparison,
+    _scoring_status,
+    build_fixed_cost_scenarios,
+)
 
 _KNOWN_COORDS: dict[str, tuple[float, float, str]] = {
     "lisbon": (38.7223, -9.1393, "PT"),
@@ -274,45 +281,31 @@ class FakeBudgetFitTool:
             {"category": "Transport", "item": "Monthly transit pass", "price_local": transit, "price_usd": transit},
             {"category": "Groceries", "item": "Loaf of bread (500g)", "price_local": 2.0, "price_usd": 2.0},
         ]
-        budget_comparable = (
-            profile.budget.amount is not None
-            and profile.budget.period == "monthly"
-            and profile.budget.includes_accommodation is not False
-            and profile.budget.currency == "USD"
-        )
-        budget_amount = profile.budget.amount if budget_comparable else None
+        budget_scope = _effective_budget_scope(profile)
         if profile.budget.amount is None:
             budget_status = "not_provided"
         elif profile.budget.period != "monthly":
             budget_status = "unsupported_period"
-        elif profile.budget.includes_accommodation is False:
-            budget_status = "excludes_accommodation"
+        elif budget_scope == "unspecified":
+            budget_status = "scope_unspecified"
         elif profile.budget.currency != "USD":
             budget_status = "conversion_unavailable"
         else:
             budget_status = "comparable_without_conversion"
-        scenarios = {
-            "center": {
-                "monthly_total_local": rent_center + utilities + internet + transit,
-                "local_currency": "USD",
-                "monthly_total_usd": rent_center + utilities + internet + transit,
-                "budget_remaining_after_named_items": (
-                    {"amount": budget_amount - rent_center - utilities - internet - transit, "currency": "USD"}
-                    if budget_amount is not None and profile.budget.currency == "USD"
-                    else None
-                ),
-            },
-            "outside_center": {
-                "monthly_total_local": rent_outside + utilities + internet + transit,
-                "local_currency": "USD",
-                "monthly_total_usd": rent_outside + utilities + internet + transit,
-                "budget_remaining_after_named_items": (
-                    {"amount": budget_amount - rent_outside - utilities - internet - transit, "currency": "USD"}
-                    if budget_amount is not None and profile.budget.currency == "USD"
-                    else None
-                ),
-            },
-        }
+        budget_amount = profile.budget.amount if budget_status == "comparable_without_conversion" else None
+        comparison = BudgetComparison(
+            budget_status,
+            profile.budget.amount,
+            profile.budget.currency,
+            profile.budget.period,
+            budget_scope,
+            comparison_amount=budget_amount,
+            comparison_currency="USD" if budget_amount is not None else None,
+        )
+        scenarios, missing_scenario_items, scope_comparisons = build_fixed_cost_scenarios(
+            prices, "USD", comparison
+        )
+        compatible_budget_comparison = _first_scope_comparison(scope_comparisons, comparison.budget_scope)
         now = datetime.now(UTC)
         metadata = {
             "title": f"Item-level prices in {candidate.place_name} (fake)",
@@ -332,17 +325,20 @@ class FakeBudgetFitTool:
                 "dataset_metadata": metadata,
                 "price_basket": prices,
                 "fixed_cost_scenarios": scenarios,
-                "missing_fixed_cost_items": [],
+                "budget_scope_comparisons": scope_comparisons,
+                "compatible_budget_comparison": compatible_budget_comparison,
+                "missing_fixed_cost_items": missing_scenario_items,
                 "budget_context": {
                     "status": budget_status,
                     "original_amount": profile.budget.amount,
                     "original_currency": profile.budget.currency,
                     "period": profile.budget.period,
+                    "budget_scope": budget_scope,
                     "includes_accommodation": profile.budget.includes_accommodation,
                     "comparison_amount": budget_amount,
                     "comparison_currency": "USD" if budget_amount is not None else None,
                 },
-                "scoring_status": "unresolved_pending_llm",
+                "scoring_status": _scoring_status(comparison, compatible_budget_comparison),
             },
             source_name="WhereNext City Price Dataset (fake)",
             source_url=f"https://getwherenext.com/api/data/city-prices?city=XX-{candidate.place_name}",
@@ -359,6 +355,8 @@ class FakeBudgetFitTool:
                         "dataset_metadata": metadata,
                         "prices": prices,
                         "fixed_cost_scenarios": scenarios,
+                        "budget_scope_comparisons": scope_comparisons,
+                        "compatible_budget_comparison": compatible_budget_comparison,
                     },
                     source=EvidenceSource(
                         source_name="WhereNext City Price Dataset (fake)",

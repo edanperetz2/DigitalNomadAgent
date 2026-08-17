@@ -221,7 +221,7 @@ def test_the_model_is_handed_labels_not_internal_scores():
     assert "confidence_score" not in presented
     assert presented["confidence"] == "High"
     assert presented["criterion_strength"] == {"cost": "strong", "transportation": "weak"}
-    assert presented["hard_constraints"] == {"cost": "met", "timezone": "could not be checked"}
+    assert presented["hard_constraints"] == {"cost": "Verified", "timezone": "No Evidence"}
     assert presented["rank"] == 1
     assert "8 coworking, 300 cafe nearby." in presented["advantages"]
 
@@ -249,6 +249,15 @@ def test_the_field_name_is_absent_from_the_prompt_when_nothing_was_named():
 
     assert "named_destinations" not in SYSTEM_PROMPT
     assert "named_destinations" not in NAMED_DESTINATION_PROMPT
+
+
+def test_accommodation_over_budget_instruction_avoids_vague_verification_wording():
+    from app.agent.recommendation_generator import SYSTEM_PROMPT
+
+    assert "approximate accommodation estimate" in SYSTEM_PROMPT
+    assert "roughly how far over budget" in SYSTEM_PROMPT
+    assert "housing requirement is not verified from this evidence" not in SYSTEM_PROMPT
+    assert "student-specific housing was not directly verified" in SYSTEM_PROMPT
 
 
 def test_the_named_destination_instruction_exists_for_when_one_was_named():

@@ -11,11 +11,13 @@ def test_budget_defaults():
     b = Budget()
     assert b.amount is None
     assert b.period == "unknown"
+    assert b.budget_scope == "unspecified"
     assert b.confidence == "medium"
 
 
 def test_place_request_profile_required_fields_present():
     profile = PlaceRequestProfile(purpose="remote_work")
+    assert profile.student_housing_requested is False
     for field in (
         "purpose",
         "secondary_purposes",
@@ -31,6 +33,7 @@ def test_place_request_profile_required_fields_present():
         "climate_preferences",
         "activity_preferences",
         "amenity_preferences",
+        "student_housing_requested",
         "budget",
         "hard_constraints",
         "soft_preferences",

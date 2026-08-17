@@ -27,14 +27,36 @@ null), preferred_regions (list), \
 excluded_regions (list), named_destinations (list), preferred_languages (list), \
 mobility_requirements (list), \
 climate_preferences (list), activity_preferences (list), amenity_preferences (list), \
+student_housing_requested (bool), \
 budget (object: amount, currency, period one of \
 "total"/"monthly"/\
-"weekly"/"daily"/"unknown", includes_accommodation true/false/null, confidence one of "high"/\
+"weekly"/"daily"/"unknown", budget_scope one of "accommodation_only"/\
+"total_living_cost"/"living_cost_excluding_accommodation"/"unspecified", \
+includes_accommodation true/false/null, confidence one of "high"/\
 "medium"/"low"), max_flight_hours (number or null), min_timezone_overlap_hours (number or null), \
 hard_constraints (list), soft_preferences (list), deal_breakers (list), \
 relevant_criteria (list), inferred_weights (object of criterion->weight 0-1), \
 missing_information (list), assumptions (list), clarification_required (bool), \
 clarification_question (string or null).
+
+budget_scope is authoritative and must describe what the user's budget is allowed to be \
+compared against. Use "accommodation_only" for rent/housing/accommodation limits, including \
+"EUR 700/month for accommodation", "student housing I can afford on about EUR 700 a month", \
+"rent under EUR 700", and "EUR 900 a month for accommodation". Use "total_living_cost" only \
+when the user clearly means all monthly spending including rent/accommodation, such as \
+"EUR 1,800/month all-in including rent", "total monthly budget including accommodation", or \
+"all-in spending under EUR 1,600 including rent". Use \
+"living_cost_excluding_accommodation" for expense budgets that explicitly exclude rent/housing, \
+such as "EUR 800/month excluding rent" or "EUR 900/month for expenses besides accommodation". \
+Use "unspecified" when the amount is stated but what it covers is genuinely unclear, such as \
+"my budget is EUR 1,000/month". Do not infer "total_living_cost" merely because rent, housing, \
+or accommodation is mentioned: accommodation_only and total_living_cost are different scopes.
+
+student_housing_requested must be true only when the user's wording explicitly asks for \
+student-specific accommodation, such as "student housing", "student accommodation", \
+"student residence", "student dorm", or "housing for students". Do not set it just because \
+purpose is study, exchange, or the user is a student; "private apartment under EUR 700" is not \
+student-specific housing wording.
 
 target_months must list every calendar month the stay actually covers, worked out from \
 dates_or_season together with duration: "five days in March" -> [3]; "three months from \

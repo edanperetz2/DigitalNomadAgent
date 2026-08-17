@@ -14,7 +14,12 @@ from app.agent.dynamic_evaluation import (
     _check_hard_constraints,
     criteria_for_constraint,
 )
-from app.agent.models import CandidatePlace, PlaceRequestProfile
+from app.agent.models import (
+    HARD_CONSTRAINT_REQUIREMENT_NOT_MET,
+    HARD_CONSTRAINT_VERIFIED,
+    CandidatePlace,
+    PlaceRequestProfile,
+)
 
 CANDIDATE = CandidatePlace(place_name="London", country="United Kingdom", reason_for_inclusion="x")
 
@@ -34,7 +39,7 @@ def test_a_stated_climate_deal_breaker_is_not_reported_as_uncheckable():
 
     _, _, results = _check_hard_constraints(profile, {"climate": 0.8}, CANDIDATE, [])
 
-    assert results["climate"] is True
+    assert results["climate"] == HARD_CONSTRAINT_VERIFIED
     assert not any(key.startswith("avoiding") for key in results)
 
 
@@ -47,7 +52,7 @@ def test_a_poor_climate_match_is_reported_but_never_eliminates():
 
     eliminated, reason, results = _check_hard_constraints(profile, {"climate": 0.05}, CANDIDATE, [])
 
-    assert results["climate"] is False
+    assert results["climate"] == HARD_CONSTRAINT_REQUIREMENT_NOT_MET
     assert eliminated is False
     assert reason is None
 

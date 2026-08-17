@@ -66,7 +66,7 @@ def validate_recommendations(
     should_research_again = bool(missing_research) and not gap_iteration_used
     if missing_research and gap_iteration_used:
         issues.append(
-            "Some high-priority criteria remain unverified after the additional research "
+            "Some high-priority criteria still have no usable evidence after the additional research "
             "iteration; the result is disclosed as limited rather than researched further."
         )
 

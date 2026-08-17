@@ -57,7 +57,7 @@ def test_a_degraded_run_says_so_at_the_top():
 def test_unverified_requirements_are_stated_up_front():
     answer = _answer(unverifiable_requirements=["reliable internet for daily video calls"])
 
-    assert _position(answer, "nothing here could check it") < 0.2
+    assert _position(answer, "no usable evidence was found") < 0.2
 
 
 def test_priorities_the_ranking_could_not_use_are_stated_up_front():

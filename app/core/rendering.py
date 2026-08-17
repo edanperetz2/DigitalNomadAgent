@@ -11,6 +11,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.agent.models import (
+    HARD_CONSTRAINT_BORDERLINE,
+    HARD_CONSTRAINT_DISPLAY_LABELS,
+    HARD_CONSTRAINT_NO_EVIDENCE,
+    HARD_CONSTRAINT_REQUIREMENT_NOT_MET,
+    normalize_hard_constraint_status,
+)
+
 
 def _confidence_label(score: float) -> str:
     if score >= 0.75:
@@ -62,6 +70,16 @@ def _trade_off(candidates: list[dict]) -> str:
     )
 
 
+def _hard_requirement_statuses(candidate: dict) -> str:
+    results = candidate.get("hard_constraint_results") or {}
+    parts = []
+    for criterion, raw_status in sorted(results.items()):
+        status = normalize_hard_constraint_status(raw_status)
+        label = HARD_CONSTRAINT_DISPLAY_LABELS[status]
+        parts.append(f"{criterion.replace('_', ' ')}: {label}")
+    return "; ".join(parts)
+
+
 def _named_destination_verdict(named: list[str], candidates: list[dict]) -> str:
     """Answer the question that was asked, before the ranking that was not.
 
@@ -86,22 +104,32 @@ def _named_destination_verdict(named: list[str], candidates: list[dict]) -> str:
         candidate = candidates[rank]
         drawback = (candidate.get("drawbacks") or [""])[0]
         results = candidate.get("hard_constraint_results") or {}
-        failed = sorted(c for c, passed in results.items() if passed is False)
-        unconfirmed = sorted(c for c, passed in results.items() if passed is None)
+        statuses = {c: normalize_hard_constraint_status(passed) for c, passed in results.items()}
+        not_met = sorted(
+            c for c, status in statuses.items() if status == HARD_CONSTRAINT_REQUIREMENT_NOT_MET
+        )
+        borderline = sorted(c for c, status in statuses.items() if status == HARD_CONSTRAINT_BORDERLINE)
+        no_evidence = sorted(c for c, status in statuses.items() if status == HARD_CONSTRAINT_NO_EVIDENCE)
         # A verdict has to distinguish. "Yes with conditions" was returned for
         # six of eight candidates in P01, seven of eight in P02 and all of them
         # in P07 and P08 -- a label that carries no information (D43). So the
         # condition is named, or there is no condition.
         #
-        # Failed and unconfirmed are different answers and were being given the
-        # same one: evidence that a place *does not* meet a non-negotiable is a
-        # no, not a yes-if (D51).
-        if failed:
-            requirement = ", ".join(failed).replace("_", " ")
-            verdict = f"no — the evidence says it does not meet your requirement on {requirement}"
-        elif unconfirmed:
-            requirement = ", ".join(unconfirmed).replace("_", " ")
-            verdict = f"yes only if you can live with {requirement} being unconfirmed"
+        # Requirement Not Met, Borderline, and No Evidence are different
+        # answers: negative evidence is a no, borderline evidence is a caveat,
+        # and missing evidence is something the traveller would need to verify.
+        if not_met:
+            requirement = ", ".join(not_met).replace("_", " ")
+            verdict = (
+                f"no — available evidence indicates it does not adequately meet "
+                f"your requirement on {requirement}"
+            )
+        elif borderline:
+            requirement = ", ".join(borderline).replace("_", " ")
+            verdict = f"yes only if you accept Borderline evidence on {requirement}"
+        elif no_evidence:
+            requirement = ", ".join(no_evidence).replace("_", " ")
+            verdict = f"yes only if you can confirm {requirement}, where this run found No Evidence"
         elif rank == 0:
             verdict = "yes — it ranks first here on your stated criteria"
         else:
@@ -203,6 +231,9 @@ def render_recommendation_markdown(payload: dict[str, Any]) -> str:
             lines.append(f"- Why it fits: {adv}")
         for draw in c.get("drawbacks", []) or [_main_drawback(c)]:
             lines.append(f"- Main drawback: {draw}")
+        hard_statuses = _hard_requirement_statuses(c)
+        if hard_statuses:
+            lines.append(f"- Hard requirements: {hard_statuses}.")
         if c.get("missing_evidence"):
             missing = ", ".join(c["missing_evidence"])
             lines.append(f"- Evidence limitations: no verified data for {missing}.")

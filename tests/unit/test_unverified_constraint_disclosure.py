@@ -52,7 +52,7 @@ def test_a_requirement_unverified_everywhere_leaves_the_main_drawback_alone():
 
     for evaluation in apply_unmet_constraint_notes(evaluations):
         assert evaluation.drawbacks[0] == REAL_DRAWBACK
-        assert not any("Ranked below" in d for d in evaluation.drawbacks)
+    assert not any("Ranked below" in d for d in evaluation.drawbacks)
 
 
 def test_a_requirement_that_tells_candidates_apart_is_still_a_drawback():
@@ -64,7 +64,7 @@ def test_a_requirement_that_tells_candidates_apart_is_still_a_drawback():
     by_place = {e.place: e for e in apply_unmet_constraint_notes(evaluations)}
 
     assert by_place["Verified"].drawbacks[0] == REAL_DRAWBACK
-    assert "Ranked below places that could be checked" in by_place["Unverified"].drawbacks[0]
+    assert "Ranked below places with usable evidence" in by_place["Unverified"].drawbacks[0]
     # Named in the reader's words, not by the internal criterion key.
     assert _constraint_label("terrain") in by_place["Unverified"].drawbacks[0]
 
@@ -72,7 +72,7 @@ def test_a_requirement_that_tells_candidates_apart_is_still_a_drawback():
 def test_the_shared_requirement_is_still_told_to_the_reader_once():
     """Removed from the rows, not removed from the answer."""
     text = _unverifiable_requirements_disclosure(["decent internet", "travel time under 10 hours"])
-    assert "nothing here could check it" in text
+    assert "no usable evidence was found" in text
     assert "decent internet" in text and "travel time under 10 hours" in text
     assert "did not affect the order" in text, "must not imply a ranking penalty that did not happen"
 
@@ -87,7 +87,7 @@ def test_a_single_surviving_candidate_keeps_its_note():
     """With one place there is no field to be uniform across, so the note still applies."""
     evaluations = [_evaluation("Only", {"terrain": None})]
     assert universally_unverified_constraints(evaluations) == []
-    assert "Ranked below" in apply_unmet_constraint_notes(evaluations)[0].drawbacks[0]
+    assert "Ranked below places with usable evidence" in apply_unmet_constraint_notes(evaluations)[0].drawbacks[0]
 
 
 def test_eliminated_candidates_do_not_mask_a_shared_gap():

@@ -7,6 +7,7 @@ from app.tools.budget_fit import (
     BudgetComparison,
     BudgetDataClient,
     BudgetFitTool,
+    _first_scope_comparison,
     build_fixed_cost_scenarios,
     parse_city_prices,
     parse_country_costs,
@@ -128,7 +129,7 @@ def _prices():
         {"category": "Transport", "item": "Monthly transit pass", "price_usd": 44, "price_local": 40},
         {
             "category": "Utilities & Internet",
-            "item": "Electricity, water, garbage (85m²)",
+            "item": "Electricity, water, garbage (85m2)",
             "price_usd": 120,
             "price_local": 110,
         },
@@ -196,7 +197,13 @@ def _candidate(**overrides):
     return CandidatePlace(**defaults)
 
 
-def _profile(amount=1800.0, currency="EUR", period="monthly", includes_accommodation=True):
+def _profile(
+    amount=1800.0,
+    currency="EUR",
+    period="monthly",
+    includes_accommodation=True,
+    budget_scope="total_living_cost",
+):
     return PlaceRequestProfile(
         purpose="remote_work",
         relevant_criteria=["cost"],
@@ -204,6 +211,7 @@ def _profile(amount=1800.0, currency="EUR", period="monthly", includes_accommoda
             amount=amount,
             currency=currency,
             period=period,
+            budget_scope=budget_scope,
             includes_accommodation=includes_accommodation,
         ),
     )
@@ -273,6 +281,11 @@ async def test_city_result_returns_complete_basket_and_transparent_fixed_costs()
         "amount": 514.0,
         "currency": "EUR",
     }
+    assert result.normalized_data["compatible_budget_comparison"]["cost_scope"] == "total_living_cost"
+    assert result.normalized_data["compatible_budget_comparison"]["comparison_cost"] == {
+        "amount": 1286.0,
+        "currency": "EUR",
+    }
     assert scenarios["outside_center"]["monthly_total_local"] == 918.0
     assert scenarios["outside_center"]["budget_remaining_after_named_items"]["amount"] == 882.0
     assert result.normalized_data["scoring_status"] == "unresolved_pending_llm"
@@ -334,6 +347,10 @@ async def test_country_fallback_is_low_confidence_and_never_city_specific():
     assert result.confidence == "low"
     assert result.normalized_data["evidence_level"] == "country"
     assert result.normalized_data["country_context"]["monthly_estimate_usd"] == 2000
+    assert result.normalized_data["compatible_budget_comparison"]["comparison_cost"] == {
+        "amount": 2000.0,
+        "currency": "USD",
+    }
     assert result.normalized_data["price_basket"] == []
     assert result.normalized_data["fixed_cost_scenarios"] == {}
     assert [item.component for item in result.evidence_items] == ["country_cost_context"]
@@ -408,14 +425,229 @@ async def test_non_monthly_budget_is_not_compared_with_monthly_items():
 async def test_budget_excluding_accommodation_is_not_compared_with_rent_scenario():
     tool, _, _ = _tool()
 
-    result = await tool.run(_candidate(), _profile(includes_accommodation=False))
+    result = await tool.run(
+        _candidate(),
+        _profile(
+            includes_accommodation=False,
+            budget_scope="living_cost_excluding_accommodation",
+        ),
+    )
 
-    assert result.normalized_data["budget_context"]["status"] == "excludes_accommodation"
+    assert result.normalized_data["budget_context"]["status"] == "comparable_without_conversion"
+    assert result.normalized_data["budget_context"]["budget_scope"] == "living_cost_excluding_accommodation"
     assert result.normalized_data["budget_context"]["includes_accommodation"] is False
     assert all(
         scenario["budget_remaining_after_named_items"] is None
         for scenario in result.normalized_data["fixed_cost_scenarios"].values()
     )
+    assert result.normalized_data["compatible_budget_comparison"]["cost_scope"] == (
+        "living_cost_excluding_accommodation"
+    )
+    assert result.normalized_data["compatible_budget_comparison"]["comparison_cost"] == {
+        "amount": 182.0,
+        "currency": "EUR",
+    }
+
+
+def test_accommodation_only_budget_uses_only_housing_component():
+    from app.agent.candidate_funnel import budget_comparison
+
+    prices = [
+        {
+            "category": "Housing",
+            "item": "1-bedroom apartment, outside",
+            "price_usd": 650.0,
+            "price_local": 650.0,
+        },
+        {
+            "category": "Utilities & Internet",
+            "item": "Electricity, water, garbage (85m2)",
+            "price_usd": 115.0,
+            "price_local": 115.0,
+        },
+        {
+            "category": "Utilities & Internet",
+            "item": "Internet (60+ Mbps)",
+            "price_usd": 33.0,
+            "price_local": 33.0,
+        },
+        {"category": "Transport", "item": "Monthly transit pass", "price_usd": 40.0, "price_local": 40.0},
+    ]
+    comparison = BudgetComparison(
+        "comparable_without_conversion",
+        700.0,
+        "USD",
+        "monthly",
+        "accommodation_only",
+        comparison_amount=700.0,
+        comparison_currency="USD",
+    )
+
+    scenarios, _missing, scope_comparisons = build_fixed_cost_scenarios(prices, "USD", comparison)
+    selected = scope_comparisons["accommodation_only"]["outside_center"]
+
+    assert scenarios["outside_center"]["monthly_total_usd"] == 838.0
+    assert budget_comparison(
+        {
+            "budget_context": comparison.normalized_data(),
+            "fixed_cost_scenarios": scenarios,
+            "compatible_budget_comparison": selected,
+        }
+    ) == (650.0, 50.0, "USD")
+
+
+def test_accommodation_only_budget_selects_cheapest_compatible_housing():
+    from app.agent.candidate_funnel import budget_comparison
+
+    prices = [
+        {
+            "category": "Housing",
+            "item": "1-bedroom apartment, center",
+            "price_usd": 850.0,
+            "price_local": 850.0,
+        },
+        {
+            "category": "Housing",
+            "item": "1-bedroom apartment, outside",
+            "price_usd": 650.0,
+            "price_local": 650.0,
+        },
+    ]
+    comparison = BudgetComparison(
+        "comparable_without_conversion",
+        700.0,
+        "EUR",
+        "monthly",
+        "accommodation_only",
+        comparison_amount=700.0,
+        comparison_currency="EUR",
+    )
+
+    scenarios, _missing, scope_comparisons = build_fixed_cost_scenarios(prices, "EUR", comparison)
+    selected = _first_scope_comparison(scope_comparisons, "accommodation_only")
+
+    assert selected is not None
+    assert selected["evidence_label"] == "outside_center"
+    assert selected["comparison_cost"] == {"amount": 650.0, "currency": "EUR"}
+    assert selected["budget_remaining"] == {"amount": 50.0, "currency": "EUR"}
+    assert budget_comparison(
+        {
+            "budget_context": comparison.normalized_data(),
+            "fixed_cost_scenarios": scenarios,
+            "compatible_budget_comparison": selected,
+        }
+    ) == (650.0, 50.0, "EUR")
+
+
+def test_accommodation_only_budget_selects_cheapest_housing_when_all_options_are_over():
+    prices = [
+        {
+            "category": "Housing",
+            "item": "1-bedroom apartment, center",
+            "price_usd": 900.0,
+            "price_local": 900.0,
+        },
+        {
+            "category": "Housing",
+            "item": "1-bedroom apartment, outside",
+            "price_usd": 780.0,
+            "price_local": 780.0,
+        },
+    ]
+    comparison = BudgetComparison(
+        "comparable_without_conversion",
+        700.0,
+        "EUR",
+        "monthly",
+        "accommodation_only",
+        comparison_amount=700.0,
+        comparison_currency="EUR",
+    )
+
+    _scenarios, _missing, scope_comparisons = build_fixed_cost_scenarios(prices, "EUR", comparison)
+    selected = _first_scope_comparison(scope_comparisons, "accommodation_only")
+
+    assert selected is not None
+    assert selected["evidence_label"] == "outside_center"
+    assert selected["comparison_cost"] == {"amount": 780.0, "currency": "EUR"}
+    assert selected["budget_remaining"] == {"amount": -80.0, "currency": "EUR"}
+
+
+def test_generic_apartment_evidence_is_not_marked_as_verified_student_housing():
+    prices = [
+        {
+            "category": "Housing",
+            "item": "1-bedroom apartment, outside",
+            "price_usd": 650.0,
+            "price_local": 650.0,
+        },
+    ]
+    comparison = BudgetComparison(
+        "comparable_without_conversion",
+        700.0,
+        "EUR",
+        "monthly",
+        "accommodation_only",
+        comparison_amount=700.0,
+        comparison_currency="EUR",
+    )
+
+    _scenarios, _missing, scope_comparisons = build_fixed_cost_scenarios(prices, "EUR", comparison)
+    selected = _first_scope_comparison(scope_comparisons, "accommodation_only")
+
+    assert selected is not None
+    assert selected["comparison_cost"] == {"amount": 650.0, "currency": "EUR"}
+    assert selected["housing_evidence_kind"] == "generic_apartment"
+    assert selected["housing_evidence_description"] == (
+        "generic one-bedroom apartment outside the city center"
+    )
+    assert selected["student_housing_directly_verified"] is False
+
+
+def test_total_living_cost_budget_can_use_combined_monthly_scenario():
+    from app.agent.candidate_funnel import budget_comparison
+
+    prices = [
+        {
+            "category": "Housing",
+            "item": "1-bedroom apartment, outside",
+            "price_usd": 650.0,
+            "price_local": 650.0,
+        },
+        {
+            "category": "Utilities & Internet",
+            "item": "Electricity, water, garbage (85m²)",
+            "price_usd": 115.0,
+            "price_local": 115.0,
+        },
+        {
+            "category": "Utilities & Internet",
+            "item": "Internet (60+ Mbps)",
+            "price_usd": 33.0,
+            "price_local": 33.0,
+        },
+        {"category": "Transport", "item": "Monthly transit pass", "price_usd": 40.0, "price_local": 40.0},
+    ]
+    comparison = BudgetComparison(
+        "comparable_without_conversion",
+        1800.0,
+        "USD",
+        "monthly",
+        "total_living_cost",
+        comparison_amount=1800.0,
+        comparison_currency="USD",
+    )
+
+    scenarios, _missing, scope_comparisons = build_fixed_cost_scenarios(prices, "USD", comparison)
+    selected = scope_comparisons["total_living_cost"]["outside_center"]
+
+    assert budget_comparison(
+        {
+            "budget_context": comparison.normalized_data(),
+            "fixed_cost_scenarios": scenarios,
+            "compatible_budget_comparison": selected,
+        }
+    ) == (838.0, 962.0, "USD")
 
 
 @pytest.mark.asyncio
@@ -504,11 +736,12 @@ async def test_fresh_raw_cache_skips_provider_and_stale_cache_is_disclosed_on_fa
 def test_fixed_cost_builder_does_not_infer_missing_values():
     parsed = parse_city_prices(_city_payload(prices=_prices()[:1]))
 
-    scenarios, missing = build_fixed_cost_scenarios(
+    scenarios, missing, scope_comparisons = build_fixed_cost_scenarios(
         parsed["prices"],
         "EUR",
         BudgetComparison("not_provided", None, None, "unknown"),
     )
 
     assert scenarios == {}
+    assert scope_comparisons == {}
     assert "one_bedroom_center" in missing

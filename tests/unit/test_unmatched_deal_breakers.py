@@ -9,7 +9,7 @@ That is the silent drop D61 closed for hard constraints, left open on this side.
 """
 
 from app.agent.dynamic_evaluation import _check_hard_constraints, criteria_for_constraint
-from app.agent.models import CandidatePlace, PlaceRequestProfile
+from app.agent.models import HARD_CONSTRAINT_NO_EVIDENCE, CandidatePlace, PlaceRequestProfile
 
 CANDIDATE = CandidatePlace(
     place_name="Barcelona", country="Spain", reason_for_inclusion="lively coastal city"
@@ -30,7 +30,7 @@ def test_the_p04_deal_breaker_still_matches_nothing():
 def test_an_unmatched_deal_breaker_is_recorded_as_unchecked():
     profile = PlaceRequestProfile(purpose="vacation", deal_breakers=["big party destinations"])
 
-    assert _results(profile).get("avoiding big party destinations") is None
+    assert _results(profile).get("avoiding big party destinations") == HARD_CONSTRAINT_NO_EVIDENCE
     assert "avoiding big party destinations" in _results(profile)
 
 

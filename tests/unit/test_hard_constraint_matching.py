@@ -24,7 +24,12 @@ from app.agent.dynamic_evaluation import (
     criteria_for_constraint,
     unmet_constraint_note,
 )
-from app.agent.models import CandidatePlace, PlaceRequestProfile
+from app.agent.models import (
+    HARD_CONSTRAINT_NO_EVIDENCE,
+    HARD_CONSTRAINT_REQUIREMENT_NOT_MET,
+    CandidatePlace,
+    PlaceRequestProfile,
+)
 
 
 def _candidate(name: str = "Somewhere") -> CandidatePlace:
@@ -115,9 +120,9 @@ def test_an_unmatched_requirement_is_disclosed_rather_than_dropped():
     eliminated, _, results = _check_hard_constraints(profile, {"cost": 0.9}, _candidate(), [])
 
     assert set(results) == {"clean air is the deciding factor", "quick access to a hospital"}
-    assert all(value is None for value in results.values())
+    assert all(value == HARD_CONSTRAINT_NO_EVIDENCE for value in results.values())
     assert not eliminated, "an unmeasurable requirement must never eliminate a place"
-    assert constraint_tier(results) == 1, "unverified ranks below verified, above failed"
+    assert constraint_tier(results) == 2, "No Evidence ranks below Borderline, above Requirement Not Met"
 
     note = unmet_constraint_note(results)
     assert note and "clean air" in note and "quick access to a hospital" in note
@@ -197,5 +202,5 @@ def test_a_measured_requirement_still_eliminates_when_the_evidence_fails_it():
     eliminated, reason, results = _check_hard_constraints(
         profile, {"terrain": 0.05}, _candidate("Steepville"), []
     )
-    assert results["terrain"] is False
+    assert results["terrain"] == HARD_CONSTRAINT_REQUIREMENT_NOT_MET
     assert eliminated and reason and "Steepville" in reason

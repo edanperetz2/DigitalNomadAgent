@@ -12,10 +12,18 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import unicodedata
+from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict
 
-from app.agent.models import CandidateEvaluation, PlaceRequestProfile, ValidationResult
+from app.agent.models import (
+    HARD_CONSTRAINT_DISPLAY_LABELS,
+    CandidateEvaluation,
+    PlaceRequestProfile,
+    ValidationResult,
+    normalize_hard_constraint_status,
+)
 from app.core.exceptions import BudgetExceededError, LLMOutputError
 from app.core.module_names import RECOMMENDATION_GENERATOR
 from app.core.rendering import _confidence_label, render_recommendation_markdown
@@ -91,7 +99,22 @@ is not reassurance.
 
 Anything listed under `priorities_no_evidence_could_be_found_for` was not measured. Do not use it \
 to rank, compare, praise, criticize, or infer anything about a place, even from a seemingly related \
-proxy. State only that it remains unverified.
+proxy. State only that no usable evidence was found for it.
+
+Budget scope matters. If the traveller's budget is accommodation-only, do not compare it with \
+total monthly living-cost evidence. If the budget excludes accommodation, do not compare it with \
+rent-inclusive evidence. If budget affordability has no usable evidence or is not comparable in the evaluated \
+data, say that plainly; never rewrite incompatible evidence as "over budget" or "not affordable."
+
+If the traveler asked for student housing/accommodation/residence and the evaluated cost evidence \
+is marked as generic apartment or one-bedroom evidence, present it only as a generic accommodation \
+proxy. Do not write that student housing itself costs that amount unless the evidence says \
+student-specific housing was directly verified.
+
+When compatible accommodation evidence is over an accommodation-only budget, state the approximate \
+accommodation estimate, the user's budget, and roughly how far over budget it is. Do not replace \
+that with vague verification-language about the requirement being unproven by the evidence. If \
+student-specific housing was not directly verified, say that separately from the budget conclusion.
 
 Never present something the traveller asked to avoid as a reason to go. A trait they ruled out \
 does not become a selling point by being reframed; name what it costs them instead.
@@ -152,9 +175,6 @@ def _strength_label(score: float) -> str:
     return "weak"
 
 
-_CONSTRAINT_LABELS = {True: "met", False: "not met", None: "could not be checked"}
-
-
 def _present_candidate(candidate: dict, rank: int, number_by_name: dict[str, int]) -> dict:
     """A candidate as the reader should meet it: labels, not internal numbers.
 
@@ -194,7 +214,7 @@ def _present_candidate(candidate: dict, rank: int, number_by_name: dict[str, int
             }
         ),
         "hard_constraints": {
-            criterion: _CONSTRAINT_LABELS[passed]
+            criterion: HARD_CONSTRAINT_DISPLAY_LABELS[normalize_hard_constraint_status(passed)]
             for criterion, passed in sorted(
                 (candidate.get("hard_constraint_results") or {}).items(),
                 key=lambda item: item[0],
@@ -344,6 +364,29 @@ def _llm_payload(payload: dict) -> dict:
     return presented
 
 
+def _candidate_metrics(payload: dict) -> list[dict]:
+    """Reader-facing score metadata for the UI, kept out of the model prompt."""
+    metrics = []
+    for rank, candidate in enumerate(payload.get("candidates", []), start=1):
+        metrics.append(
+            {
+                "rank": rank,
+                "place": candidate.get("place"),
+                "country": candidate.get("country", ""),
+                "total_score": candidate.get("total_score", 0.0),
+                "evidence_coverage": _confidence_label(candidate.get("confidence_score", 0.0)),
+            }
+        )
+    return metrics
+
+
+def _attach_candidate_metrics(execution_trace: list[dict], payload: dict) -> None:
+    for step in reversed(execution_trace):
+        if step.get("module") == RECOMMENDATION_GENERATOR:
+            step.setdefault("response", {})["candidate_metrics"] = _candidate_metrics(payload)
+            return
+
+
 def _distinct(items: list[str]) -> list[str]:
     """De-duplicate on what the reader sees, not on the exact characters.
 
@@ -415,9 +458,9 @@ def _collapse_disclosure(researched: int, viable: int, proposed: int) -> str:
 
 
 def _unverifiable_requirements_disclosure(requirements: list[str]) -> str:
-    """State once, up front, which requirements nothing could be checked against.
+    """State once, up front, which requirements have no usable evidence.
 
-    A requirement no candidate could be checked against is a fact about the
+    A requirement no candidate has evidence for is a fact about the
     ranking, not a drawback of any place in it -- the same rule D36 applies to
     unmeasured priorities. Said per candidate it becomes eight identical rows in
     the column meant to tell them apart, claiming each was "ranked below places
@@ -427,8 +470,8 @@ def _unverifiable_requirements_disclosure(requirements: list[str]) -> str:
         return ""
     lines = "\n".join(f"- {item}" for item in _distinct(requirements))
     return (
-        "\n\n**Stated as a requirement, but nothing here could check it:**\n"
-        f"{lines}\n\nEvery place below is equally unverified on this, so it did not "
+        "\n\n**Stated as a requirement, but no usable evidence was found:**\n"
+        f"{lines}\n\nEvery place below has No Evidence for this, so it did not "
         "affect the order — you would need to confirm it yourself."
     )
 
@@ -501,6 +544,20 @@ def _unresearched_named_disclosure(names: list[str]) -> str:
 _SOURCES_HEADING = re.compile(r"^#{1,6}\s*(?:sources|references|sources used)\b.*$", re.I | re.M)
 _CITATION = re.compile(r"\[(\d{1,3})\]")
 _RANKING_ROW = re.compile(r"^\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|", re.M)
+_DETAIL_HEADING = re.compile(r"^(?P<marks>#{2,6})\s*(?P<rank>\d{1,2})[.)]\s+(?P<title>.+?)\s*$", re.M)
+_TAIL_HEADING = re.compile(
+    r"^#{1,6}\s*(?:trade[-\s]?offs?|assumptions?|limitations?|sources|references|summary|conclusion)\b.*$",
+    re.I | re.M,
+)
+
+
+@dataclass(frozen=True)
+class _CandidateDetailSection:
+    rank: int
+    title: str
+    start: int
+    end: int
+    valid: bool
 
 
 def _ranking_matches_payload(body: str, payload: dict) -> bool:
@@ -516,6 +573,149 @@ def _ranking_matches_payload(body: str, payload: dict) -> bool:
     return [int(rank) for rank, _ in rows] == list(range(1, len(expected) + 1)) and [
         clean(place) for _, place in rows
     ] == [clean(place) for place in expected]
+
+
+def _clean_heading_title(title: str) -> str:
+    title = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", title)
+    title = re.sub(r"[*_`~]", "", title)
+    title = re.sub(r"\s+#+\s*$", "", title)
+    return title.strip(" \t:-")
+
+
+def _name_fingerprint(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value)
+    without_accents = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return " ".join(re.findall(r"[a-z0-9]+", without_accents.casefold()))
+
+
+def _heading_matches_candidate(title: str, candidate: dict) -> bool:
+    heading = _name_fingerprint(_clean_heading_title(title))
+    place = _name_fingerprint(str(candidate.get("place") or ""))
+    return bool(place and (heading == place or heading.startswith(f"{place} ")))
+
+
+def _heading_matches_any_candidate(title: str, payload: dict) -> bool:
+    return any(_heading_matches_candidate(title, candidate) for candidate in payload.get("candidates", []))
+
+
+def _ranking_table_end(body: str) -> int:
+    end = 0
+    for match in _RANKING_ROW.finditer(body):
+        end = max(end, match.end())
+    if not end:
+        return 0
+    line_end = body.find("\n", end)
+    return len(body) if line_end == -1 else line_end + 1
+
+
+def _first_tail_heading(body: str, start: int) -> re.Match[str] | None:
+    return next(_TAIL_HEADING.finditer(body, start), None)
+
+
+def _candidate_heading_matches(
+    body: str, payload: dict, start: int, end: int | None = None
+) -> list[re.Match[str]]:
+    """Numbered headings that look like candidate detail sections.
+
+    Rank-3 headings are accepted even when the city is wrong so an LLM section
+    such as "### 4. Hamburg" can be removed and replaced when rank 4 is Vienna.
+    Deeper headings only count if they name one of the expected places; this
+    keeps nested "#### 1. Why it fits" subsections from splitting a city block.
+    """
+    expected_count = len(payload.get("candidates", []))
+    if not expected_count:
+        return []
+
+    matches = []
+    for match in _DETAIL_HEADING.finditer(body, start, len(body) if end is None else end):
+        rank = int(match.group("rank"))
+        level = len(match.group("marks"))
+        if 1 <= rank <= expected_count and (
+            level <= 3 or _heading_matches_any_candidate(match.group("title"), payload)
+        ):
+            matches.append(match)
+    return matches
+
+
+def _candidate_detail_block(
+    body: str, payload: dict
+) -> tuple[int, int, list[_CandidateDetailSection]]:
+    search_start = _ranking_table_end(body)
+    headings = _candidate_heading_matches(body, payload, search_start)
+    if not headings:
+        tail = _first_tail_heading(body, search_start)
+        insertion = tail.start() if tail else len(body)
+        return insertion, insertion, []
+
+    first = headings[0]
+    tail = _first_tail_heading(body, first.start())
+    block_end = tail.start() if tail else len(body)
+    block_headings = [heading for heading in headings if heading.start() < block_end]
+    candidates = payload.get("candidates", [])
+    sections: list[_CandidateDetailSection] = []
+    for index, heading in enumerate(block_headings):
+        rank = int(heading.group("rank"))
+        end = block_headings[index + 1].start() if index + 1 < len(block_headings) else block_end
+        expected = candidates[rank - 1] if 1 <= rank <= len(candidates) else {}
+        sections.append(
+            _CandidateDetailSection(
+                rank=rank,
+                title=heading.group("title"),
+                start=heading.start(),
+                end=end,
+                valid=_heading_matches_candidate(heading.group("title"), expected),
+            )
+        )
+    return first.start(), block_end, sections
+
+
+def _valid_candidate_detail_sections(body: str, payload: dict) -> dict[int, str]:
+    _, _, sections = _candidate_detail_block(body, payload)
+    valid: dict[int, str] = {}
+    for section in sections:
+        if section.valid and section.rank not in valid:
+            valid[section.rank] = body[section.start : section.end].strip("\n")
+    return valid
+
+
+def _candidate_detail_sections_complete(body: str, payload: dict) -> bool:
+    expected_count = len(payload.get("candidates", []))
+    if not expected_count:
+        return True
+    _, _, sections = _candidate_detail_block(body, payload)
+    valid_count = sum(1 for section in sections if section.valid)
+    valid_ranks = {section.rank for section in sections if section.valid}
+    return valid_count == expected_count and valid_ranks == set(range(1, expected_count + 1))
+
+
+def _deterministic_candidate_detail_sections(payload: dict) -> dict[int, str]:
+    deterministic = render_recommendation_markdown(payload)
+    return _valid_candidate_detail_sections(deterministic, payload)
+
+
+def _complete_candidate_detail_sections(body: str, payload: dict) -> str:
+    """Fill only missing per-candidate sections from the deterministic renderer."""
+    expected_count = len(payload.get("candidates", []))
+    if not expected_count or _candidate_detail_sections_complete(body, payload):
+        return body
+
+    block_start, block_end, _ = _candidate_detail_block(body, payload)
+    llm_sections = _valid_candidate_detail_sections(body, payload)
+    deterministic_sections = _deterministic_candidate_detail_sections(payload)
+
+    repaired_sections: list[str] = []
+    for rank in range(1, expected_count + 1):
+        section = llm_sections.get(rank) or deterministic_sections.get(rank)
+        if not section:
+            raise LLMOutputError("Deterministic candidate-section repair could not render every rank")
+        repaired_sections.append(section.strip("\n"))
+
+    prefix = body[:block_start].rstrip()
+    suffix = body[block_end:].lstrip("\n")
+    repaired = "\n\n".join(part for part in (prefix, "\n\n".join(repaired_sections), suffix) if part)
+    if not _ranking_matches_payload(repaired, payload) or not _candidate_detail_sections_complete(repaired, payload):
+        raise LLMOutputError("Deterministic candidate-section repair did not validate")
+    return repaired
 
 
 def _strip_model_sources(body: str) -> str:
@@ -691,9 +891,11 @@ async def generate_recommendation(
             response_model=_RecommendationOutput,
         )
         response = await asyncio.wait_for(call, timeout=llm_timeout_seconds) if llm_timeout_seconds else await call
+        _attach_candidate_metrics(execution_trace, payload)
         answer = _strip_model_sources(response["markdown"])
         if not _ranking_matches_payload(answer, payload):
             raise LLMOutputError("Recommendation writer changed the authoritative candidate ranking")
+        answer = _complete_candidate_detail_sections(answer, payload)
         return _assemble(
             answer,
             disclosures=[
