@@ -55,6 +55,7 @@ async def generate_candidates(
     execution_trace: list[dict],
     max_output_tokens: int,
     max_bulk_candidates: int = 30,
+    max_repair_attempts: int = 1,
 ) -> list[CandidatePlace]:
     payload: dict = {"profile": profile.model_dump(mode="json")}
     # Naming the member countries removes the ambiguity that let a "Scandinavia"
@@ -79,6 +80,7 @@ async def generate_candidates(
         request_id=request_id,
         max_output_tokens=max_output_tokens,
         response_model=_CandidateGenerationOutput,
+        max_repair_attempts=max_repair_attempts,
     )
     output = _CandidateGenerationOutput.model_validate(response)
 

@@ -150,6 +150,7 @@ async def interpret_request(
     request_id: str,
     execution_trace: list[dict],
     max_output_tokens: int,
+    max_repair_attempts: int = 1,
 ) -> PlaceRequestProfile:
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -164,5 +165,6 @@ async def interpret_request(
         request_id=request_id,
         max_output_tokens=max_output_tokens,
         response_model=PlaceRequestProfile,
+        max_repair_attempts=max_repair_attempts,
     )
     return PlaceRequestProfile.model_validate(response)

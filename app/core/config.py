@@ -56,8 +56,13 @@ class Settings(BaseSettings):
     # deterministic template. P08 -- eight candidates, four evidence bullets
     # each, 59 sources -- lost its written answer that way in the 2026-08-06
     # run, and P01/P03/P05 needed a retry for the same reason the day before.
-    # Only the answers that need the room pay for it (D54).
-    llm_max_output_tokens: int = 8000
+    # Only the answers that need the room pay for it (D54). Raised again from
+    # 8000 on 2026-08-17: a full live 22-prompt production run still showed one
+    # first-attempt truncation (P15) that only survived because the repair
+    # attempt happened to fit -- the same failure D54 describes was one repair
+    # away from recurring. 12000 leaves 50% more headroom before the same
+    # ceiling problem hits both the original call and its repair.
+    llm_max_output_tokens: int = 12000
     llm_input_cost_per_1m: float = 0.0
     llm_output_cost_per_1m: float = 0.0
 
@@ -108,7 +113,15 @@ class Settings(BaseSettings):
     max_finalists: int = 8
     max_final_recommendations: int = 8
     max_research_iterations: int = 1
-    max_json_repair_attempts: int = 1
+    # Was set but never actually wired to the 4 LLM-calling modules until
+    # 2026-08-17 -- every traced_llm_call() site relied on its own hardcoded
+    # default of 1 regardless of this value. Now threaded through
+    # Orchestrator -> {interpret_request, generate_candidates,
+    # score_unresolved_criteria, generate_recommendation}. Raised to 2: a
+    # second repair attempt costs nothing unless the first one is also
+    # malformed, and gives one more chance before a request falls back to the
+    # deterministic template (see the llm_max_output_tokens note above, D54).
+    max_json_repair_attempts: int = 2
 
     # --- Testing ------------------------------------------------------------------------
     run_live_tests: bool = False

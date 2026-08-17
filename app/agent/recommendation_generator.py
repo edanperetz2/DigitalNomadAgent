@@ -845,6 +845,7 @@ async def generate_recommendation(
     request_id: str,
     execution_trace: list[dict],
     max_output_tokens: int,
+    max_repair_attempts: int = 1,
     max_final_recommendations: int = 3,
     llm_timeout_seconds: float | None = None,
     service_notices: list[str] | None = None,
@@ -889,6 +890,7 @@ async def generate_recommendation(
             request_id=request_id,
             max_output_tokens=max_output_tokens,
             response_model=_RecommendationOutput,
+            max_repair_attempts=max_repair_attempts,
         )
         response = await asyncio.wait_for(call, timeout=llm_timeout_seconds) if llm_timeout_seconds else await call
         _attach_candidate_metrics(execution_trace, payload)

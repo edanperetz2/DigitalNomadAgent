@@ -2185,6 +2185,7 @@ async def score_unresolved_criteria(
     request_id: str,
     execution_trace: list[dict],
     max_output_tokens: int,
+    max_repair_attempts: int = 1,
 ) -> dict[str, dict[str, tuple[float, str]]]:
     """The one Dynamic Evaluation LLM call: scores every unresolved criterion for
     every viable finalist in a single batched request."""
@@ -2205,6 +2206,7 @@ async def score_unresolved_criteria(
         request_id=request_id,
         max_output_tokens=max_output_tokens,
         response_model=_BatchScoringOutput,
+        max_repair_attempts=max_repair_attempts,
     )
     output = _BatchScoringOutput.model_validate(response)
 

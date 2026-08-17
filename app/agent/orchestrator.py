@@ -343,12 +343,14 @@ class Orchestrator:
         max_prompt_length: int,
         execution_timeout_seconds: float,
         recommendation_reserve_seconds: float = 60.0,
+        max_repair_attempts: int = 1,
     ):
         self._tools = tool_registry
         self._evidence = evidence_memory
         self._llm = llm_client
         self._budget = budget
         self._max_output_tokens = max_output_tokens
+        self._max_repair_attempts = max_repair_attempts
         self._max_bulk_candidates = max_bulk_candidates
         self._max_finalists = max_finalists
         self._max_final_recommendations = max_final_recommendations
@@ -478,6 +480,7 @@ class Orchestrator:
                 request_id=request_id,
                 execution_trace=execution_trace,
                 max_output_tokens=self._max_output_tokens,
+                max_repair_attempts=self._max_repair_attempts,
             )
         except (BudgetExceededError, LLMOutputError):
             return evaluations
@@ -655,6 +658,7 @@ class Orchestrator:
                             request_id=request_id,
                             execution_trace=execution_trace,
                             max_output_tokens=self._max_output_tokens,
+                            max_repair_attempts=self._max_repair_attempts,
                         )
                     except (BudgetExceededError, LLMOutputError):
                         profile = PlaceRequestProfile.model_validate(interpret_prompt_fallback(prompt))
@@ -698,6 +702,7 @@ class Orchestrator:
                             execution_trace=execution_trace,
                             max_output_tokens=self._max_output_tokens,
                             max_bulk_candidates=self._max_bulk_candidates,
+                            max_repair_attempts=self._max_repair_attempts,
                         )
                     except (BudgetExceededError, LLMOutputError):
                         candidates = [
@@ -921,6 +926,7 @@ class Orchestrator:
                             request_id=request_id,
                             execution_trace=execution_trace,
                             max_output_tokens=self._max_output_tokens,
+                            max_repair_attempts=self._max_repair_attempts,
                             max_final_recommendations=self._max_final_recommendations,
                             llm_timeout_seconds=remaining_hard_time - 1.0,
                             service_notices=checkpoint.service_notices,

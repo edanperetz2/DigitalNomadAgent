@@ -210,6 +210,7 @@ async def lifespan(app: FastAPI):
         llm_client,
         budget_manager,
         max_output_tokens=settings.llm_max_output_tokens,
+        max_repair_attempts=settings.max_json_repair_attempts,
         max_bulk_candidates=settings.max_bulk_candidates,
         max_finalists=settings.max_finalists,
         max_final_recommendations=settings.max_final_recommendations,
