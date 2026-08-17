@@ -126,6 +126,58 @@ recommendation above. Both are disclosed, neither is a silent defect. Whether to
 a team decision that also depends on Shani's and Ilay's own review, which is outside what this audit
 can confirm.
 
+#### Addendum — same day, two more fixes plus a final dress-rehearsal check
+
+Two more commits landed on `main` after the audit above, both already pushed and live:
+
+- `56b609a` — raised `llm_max_output_tokens` 8000→12000 and wired up `max_json_repair_attempts`
+  (defined in `Settings` but never actually threaded through to any of the 4 LLM-calling modules
+  until this commit — every `traced_llm_call()` site silently used its own hardcoded default of 1
+  regardless of the setting), raising it 1→2. Trigger: the live 22-prompt run above showed one
+  first-attempt truncation (P15) that only survived because the single allowed repair happened to
+  fit under the old ceiling — the same failure D54 already describes once causing a real answer
+  loss (P08, 2026-08-06).
+- `9aa403d` — the recommendation-fallback disclosure (`render_recommendation_fallback`'s caller in
+  `recommendation_generator.py`) used one generic message — "due to a budget, availability, or time
+  limitation" — for three unrelated causes (`BudgetExceededError`, `LLMOutputError`, `TimeoutError`).
+  A malformed/truncated model response is not a budget problem, but the old message could read as
+  one. Now names the actual cause per exception type, with two new regression tests locking in that
+  a non-budget fallback never mentions "budget".
+
+**Considered and explicitly declined**: setting a key-level LLMod.ai budget cap (the recommendation
+just above). User's reasoning, recorded for future reference so it isn't re-raised as if new: the
+remaining balance is already bounded by the account-level $13 cap regardless of any key-level
+setting; a shared-key dollar cap can't distinguish a grader's own automated endpoint-checking script
+from abusive traffic, so tightening it risks blocking the grader without actually protecting against
+what it's meant to protect against; and rate limiting was considered and also rejected for the same
+reason (can't tell a grader's compliance-check script apart from abuse by request pattern alone). No
+code or account changes made for this; not a gap, a decision.
+
+**Final dress-rehearsal check**, run after both fixes were live, spend capped at $0.50: full
+`pytest -q` (979 passed, 1 skipped, 0 failed) and `ruff check .` (clean); GitHub state re-confirmed
+(still public, `main`/`origin/main` in sync, no secrets in either new commit's diff); all 4 live
+endpoints `200` with `app.js`/`styles.css` hash-matching current `main` (confirms both pushes
+actually redeployed); all 7 API contract checks still correct. Then exactly 3 live prompts against
+the real provider, chosen to stress the two fixes specifically rather than repeat the earlier
+20+2-prompt sweep:
+
+1. **P15's exact original text rerun** — the prompt that needed a repair retry earlier in the day.
+   This time: 3 steps, **zero repair needed**, clean 25,253-character answer on the first attempt.
+2. **A deliberately harder prompt than anything tested today** (explicit "full list of finalists,"
+   five stacked constraints), sent through the actual live browser UI rather than `curl` specifically
+   to also confirm the frontend renders a longer real answer correctly (markdown, citations, the
+   candidate-detail-section repair logic, Fit Score panel) — nothing tested earlier in the day used
+   real model output long enough to exercise this. Result: 4 clean steps, no repair, no fallback,
+   rendered correctly end to end, `Step 4: Recommendation Generator`'s raw response confirmed as a
+   valid `{"markdown": ...}` payload via the trace panel.
+3. **P07 (the ambiguous prompt), sent non-interactively** — direct real-provider reconfirmation of
+   one-prompt-one-answer: `status:"ok"`, 4 steps, 14,695-character complete answer, not a bare
+   clarification question.
+
+Real cost, confirmed by a fresh balance probe bracketing the run: **$0.105** (account spend
+$9.6322→$9.7375; $3.2625 of $13.00 remains). All three results support the same conclusion: both
+fixes work correctly against the real production model, not just in unit tests and local mock runs.
+
 ### Update — 2026-08-11
 
 The 2026-08-08 handover below (still present, unedited, for the record) called for one confirmation
