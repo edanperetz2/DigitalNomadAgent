@@ -13,7 +13,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ ./app/
 COPY config/ ./config/
 COPY assets/ ./assets/
-COPY scripts/ ./scripts/
 COPY main.py ./
 
 # Non-root user.
@@ -26,7 +25,7 @@ USER appuser
 ENV MOCK_LLM=true \
     SQLITE_PATH=/app/data/digitalnomadagent.db \
     APP_PORT=8000 \
-    AGENT_EXECUTION_TIMEOUT_SECONDS=285 \
+    AGENT_EXECUTION_TIMEOUT_SECONDS=270 \
     RECOMMENDATION_RESERVE_SECONDS=60 \
     TOOL_EXECUTION_TIMEOUT_SECONDS=50 \
     MAX_CONCURRENT_TOOL_REQUESTS=10
