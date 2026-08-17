@@ -95,6 +95,12 @@
   let savedSearchSessions = [];
   let selectedHistoryIds = new Set();
   let currentPrompt = "";
+  // Counts clarification questions asked in the current thread. Nothing on the
+  // backend tracks this -- each /api/execute call is stateless -- so after 2
+  // questions the 3rd reply is sent non-interactively instead, forcing the
+  // same auto-resolve-and-answer behavior a plain API caller always gets,
+  // rather than asking indefinitely.
+  let clarificationRoundCount = 0;
 
   function getStoredTheme() {
     try {
@@ -1277,6 +1283,15 @@
   // that ever returns after exactly one Request Interpreter step -- a reliable
   // signal to show a reply box instead of trying to parse the question as a
   // recommendation table.
+  // 2 questions max per thread. Nothing on the backend tracks rounds -- every
+  // /api/execute call is stateless -- so once this returns false the caller
+  // must send the next reply non-interactively (no X-Interactive-Mode header),
+  // forcing the same auto-resolve-and-answer behavior a plain API caller
+  // always gets, rather than asking a 3rd time.
+  function canStillAskClarification(roundCount) {
+    return roundCount < 2;
+  }
+
   function isClarificationSteps(steps) {
     return Array.isArray(steps) && steps.length === 1 && steps[0] && steps[0].module === "Request Interpreter";
   }
@@ -1425,7 +1440,9 @@
     if (window.location.hash === "#conversations") {
       window.history.replaceState({}, "", window.location.pathname);
     }
-    resultsContent.innerHTML = isClarificationSteps(steps)
+    const isClarification = isClarificationSteps(steps);
+    clarificationRoundCount = isClarification ? clarificationRoundCount + 1 : 0;
+    resultsContent.innerHTML = isClarification
       ? renderClarificationPrompt(markdown || "")
       : renderStructuredRecommendation(markdown || "", prompt, steps);
     hydratePlaceImages();
@@ -1781,7 +1798,7 @@
     }
   });
 
-  async function runExecute(promptText) {
+  async function runExecute(promptText, interactive = true) {
     // Always return to the home view first -- the loading indicator lives
     // there. Without this, submitting from the results view (e.g. the
     // clarification reply form) would set loadingIndicator.hidden = false
@@ -1800,9 +1817,11 @@
     const controller = new AbortController();
     const requestTimeout = setTimeout(() => controller.abort(), EXECUTE_TIMEOUT_MS);
     try {
+      const headers = { "Content-Type": "application/json" };
+      if (interactive) headers["X-Interactive-Mode"] = "true";
       const response = await fetch("/api/execute", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-Interactive-Mode": "true" },
+        headers,
         body: JSON.stringify({ prompt }),
         signal: controller.signal,
       });
@@ -1829,6 +1848,7 @@
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
+    clarificationRoundCount = 0;
     runExecute(promptInput.value);
   });
 
@@ -1843,7 +1863,10 @@
     const input = replyForm.querySelector("#clarification-reply-input");
     const detail = input ? input.value.trim() : "";
     if (!detail) return;
-    runExecute(`${currentPrompt}\n\nAdditional details: ${detail}`);
+    runExecute(
+      `${currentPrompt}\n\nAdditional details: ${detail}`,
+      canStillAskClarification(clarificationRoundCount)
+    );
   });
 
   if (window.__DIGITAL_NOMAD_AGENT_TEST_HOOKS__) {
@@ -1852,6 +1875,7 @@
       inlineMarkdownToHtml,
       safeMarkdownToHtml,
       renderStructuredRecommendation,
+      canStillAskClarification,
     };
   }
 
