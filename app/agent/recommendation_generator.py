@@ -914,7 +914,7 @@ async def generate_recommendation(
             bibliography=_bibliography(answer, sources),
             footer=_mode_disclosure_line(client),
         )
-    except (BudgetExceededError, LLMOutputError, TimeoutError):
+    except (BudgetExceededError, LLMOutputError, TimeoutError) as exc:
         fallback = render_recommendation_fallback(
             profile,
             evaluations,
@@ -928,8 +928,18 @@ async def generate_recommendation(
             candidates_proposed=candidates_proposed,
             unverifiable_requirements=unverifiable_requirements,
         )
+        # Named per cause rather than one catch-all: a truncated/malformed
+        # response is a model-output problem, not a budget problem, and a
+        # reader who sees "due to a budget ... limitation" on a run that never
+        # touched the budget cap has no way to tell the two apart.
+        if isinstance(exc, BudgetExceededError):
+            reason = "the project's LLM budget limit was reached"
+        elif isinstance(exc, TimeoutError):
+            reason = "generating the full recommendation did not finish in time"
+        else:
+            reason = "the recommendation-writing model's response could not be used, even after a repair attempt"
         return (
             fallback
             + "\n\n**Note:** this is a limited automated summary generated without the "
-            "recommendation-writing model, due to a budget, availability, or time limitation."
+            f"recommendation-writing model, because {reason}."
         )

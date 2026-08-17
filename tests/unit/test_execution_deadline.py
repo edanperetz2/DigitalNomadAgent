@@ -220,4 +220,85 @@ async def test_slow_recommendation_llm_uses_deterministic_renderer(monkeypatch):
 
     assert "## Best matches" in response
     assert "Fast City" in response
-    assert "time limitation" in response
+    assert "did not finish in time" in response
+    # The disclosure must name the actual cause (timeout), never the budget --
+    # a reader has no way to tell them apart from a generic message, and this
+    # run never touched the budget cap.
+    assert "budget" not in response.lower()
+
+
+@pytest.mark.asyncio
+async def test_budget_exceeded_recommendation_fallback_names_the_budget(monkeypatch):
+    from app.agent import recommendation_generator as generator_module
+    from app.agent.models import CandidateEvaluation, ValidationResult
+    from app.core.exceptions import BudgetExceededError
+
+    async def refused_llm_call(**kwargs):
+        raise BudgetExceededError("project budget exhausted")
+
+    monkeypatch.setattr(generator_module, "traced_llm_call", refused_llm_call)
+
+    response = await generator_module.generate_recommendation(
+        PlaceRequestProfile(purpose="vacation"),
+        [
+            CandidateEvaluation(
+                place="Fast City",
+                country="X",
+                advantages=["Completed evidence supports this option."],
+                drawbacks=["Some evidence is missing."],
+                confidence_score=0.5,
+            )
+        ],
+        ValidationResult(approved=True),
+        [],
+        client=object(),
+        budget=object(),
+        request_id="test",
+        execution_trace=[],
+        max_output_tokens=100,
+    )
+
+    assert "## Best matches" in response
+    assert "budget limit was reached" in response
+    # This is the one cause where the word *should* appear -- unlike the
+    # timeout and malformed-output cases, this genuinely is a budget problem.
+    assert "did not finish in time" not in response
+
+
+@pytest.mark.asyncio
+async def test_malformed_output_recommendation_fallback_never_blames_the_budget(monkeypatch):
+    from app.agent import recommendation_generator as generator_module
+    from app.agent.models import CandidateEvaluation, ValidationResult
+    from app.core.exceptions import LLMOutputError
+
+    async def unparseable_llm_call(**kwargs):
+        raise LLMOutputError("could not be parsed even after 2 repair attempt(s)")
+
+    monkeypatch.setattr(generator_module, "traced_llm_call", unparseable_llm_call)
+
+    response = await generator_module.generate_recommendation(
+        PlaceRequestProfile(purpose="vacation"),
+        [
+            CandidateEvaluation(
+                place="Fast City",
+                country="X",
+                advantages=["Completed evidence supports this option."],
+                drawbacks=["Some evidence is missing."],
+                confidence_score=0.5,
+            )
+        ],
+        ValidationResult(approved=True),
+        [],
+        client=object(),
+        budget=object(),
+        request_id="test",
+        execution_trace=[],
+        max_output_tokens=100,
+    )
+
+    assert "## Best matches" in response
+    assert "could not be used, even after a repair attempt" in response
+    # A malformed/truncated model response is not a budget problem -- the
+    # disclosure must not let a reader conflate the two.
+    assert "budget" not in response.lower()
+    assert "did not finish in time" not in response
