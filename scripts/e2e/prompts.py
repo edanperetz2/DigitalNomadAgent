@@ -398,6 +398,42 @@ E2E_PROMPTS: list[E2EPrompt] = [
             "touristy' no measure. Tests whether assumptions are disclosed rather than invented."
         ),
     ),
+    E2EPrompt(
+        id="P21",
+        title="Budget stated as excluding accommodation, added 2026-08-17",
+        category="edge",
+        prompt=(
+            "I'm moving to a new city for six months of remote work. My company is covering my "
+            "apartment through a corporate lease, so I don't need to think about rent at all -- I "
+            "just need to know if I can live comfortably on about $900 a month for food, "
+            "transport, and going out, not including accommodation."
+        ),
+        focus=(
+            "Targets the budget_scope='living_cost_excluding_accommodation' path added today "
+            "(app/agent/models.py, app/tools/budget_fit.py) -- accommodation is explicitly out of "
+            "scope for the stated figure, which none of P01-P20 exercise deliberately. Should "
+            "compare $900 against non-housing cost evidence only, never against a rent-inclusive "
+            "figure, and never call the place 'unaffordable' from a broader comparison."
+        ),
+    ),
+    E2EPrompt(
+        id="P22",
+        title="Student housing, total living cost stated, added 2026-08-17",
+        category="edge",
+        prompt=(
+            "I'm starting a master's program abroad for a year and want to live in student "
+            "housing. All-in, including my room in student accommodation, I don't want to spend "
+            "more than €1,100 a month total -- rent, food, transport, everything combined."
+        ),
+        focus=(
+            "Targets budget_scope='total_living_cost' combined with student_housing_requested=True "
+            "(app/agent/request_interpreter.py, app/agent/dynamic_evaluation.py) -- the opposite "
+            "combination from P03, which pairs student housing with accommodation_only. Since "
+            "compatible cost evidence is generic one-bedroom pricing, not student-specific, the "
+            "answer should disclose that student housing itself was never directly verified, "
+            "while still comparing the all-in figure correctly against rent-inclusive evidence."
+        ),
+    ),
 ]
 
 # Protocol-level checks, not part of the evaluated set. Every one must come back

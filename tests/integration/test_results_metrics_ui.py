@@ -1,6 +1,5 @@
 from tests.integration.test_clickable_citations_ui import _run_app_js_assertions
 
-
 MARKDOWN = r"""
 ## Brief interpretation
 
@@ -93,7 +92,8 @@ def test_how_ranking_works_explanation_is_rendered():
         assert(html.includes("How ranking works"), "results should explain the two metrics");
         assert(html.includes("Fit Score"), "explanation should define Fit Score");
         assert(html.includes("Evidence Coverage"), "explanation should define Evidence Coverage");
-        assert(html.includes("Hard requirements are prioritized before preference scores."), "hard requirement caveat is required");
+        const hasHardRequirementCaveat = html.includes("Hard requirements are prioritized before preference scores.");
+        assert(hasHardRequirementCaveat, "hard requirement caveat is required");
         """
     )
 

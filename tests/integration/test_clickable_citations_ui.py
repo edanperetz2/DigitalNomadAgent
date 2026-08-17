@@ -1,11 +1,9 @@
 import json
 import shutil
 import subprocess
-import textwrap
 from pathlib import Path
 
 import pytest
-
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -179,7 +177,8 @@ def test_adjacent_citations_render_independently():
         const html = hooks.safeMarkdownToHtml("Evidence [40][41][42].", hooks.citationMapFromMarkdown(markdown));
         const links = html.match(/class="citation-link"/g) || [];
         assert(links.length === 3, "all adjacent citations should be separate links");
-        assert(html.includes("[40]") && html.includes("[41]") && html.includes("[42]"), "all labels should remain visible");
+        const allLabelsPresent = html.includes("[40]") && html.includes("[41]") && html.includes("[42]");
+        assert(allLabelsPresent, "all labels should remain visible");
         """
     )
 

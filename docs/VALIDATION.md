@@ -4,8 +4,8 @@ How DigitalNomadAgent has been validated, what the end-to-end runs found, and wh
 fixing. Two things are kept deliberately separate: **defects** (it does not work as intended) and
 **enhancements** (it works, but could be better). Correctness comes first.
 
-Last updated: **2026-08-11** (see "Update — 2026-08-11" at the top of section 0 for what changed
-since the 2026-08-08 handover below it; that handover's own content is left as-is for the record).
+Last updated: **2026-08-17** (see "Update — 2026-08-17" at the top of section 0 for what changed
+since the 2026-08-11 update below it; that update's own content is left as-is for the record).
 
 > **Reading order.** Section 0 is the current status, including the results of all three
 > real-provider runs — the post-fix verification run (2026-08-04), the subset re-validation and
@@ -18,6 +18,113 @@ since the 2026-08-08 handover below it; that handover's own content is left as-i
 ---
 
 ## 0. Current status and next steps
+
+### Update — 2026-08-17
+
+Two things happened this session, in order: (1) a teammate's feature branch (`ilay-latest-agent-
+updates`, commit `49a8708`) was merged into `main`, and (2) a full final pre-submission audit was
+run end-to-end against the result. Both are recorded here together since the audit was specifically
+designed to validate the merge before calling the project submission-ready again.
+
+**The merge** added budget-scope-aware affordability (`accommodation_only` /
+`total_living_cost` / `living_cost_excluding_accommodation` / `unspecified`, replacing a binary
+`includes_accommodation` flag), a 4-state hard-constraint evidence model (`Verified` / `Borderline` /
+`No Evidence` / `Requirement Not Met`, replacing a 3-state `True`/`False`/`None`), a student-housing
+generic-apartment-proxy disclosure, deterministic repair of malformed per-candidate sections in the
+LLM's written recommendation, and a frontend overhaul (clickable citation links, a Fit Score /
+Evidence Coverage split on result cards). It was merged via a patch applied to a fresh branch off
+`main` rather than a raw `git merge`, since the source commit had no shared git history with `main`
+(a root commit) and a real merge would have produced spurious add/add conflicts on every changed
+file despite the underlying diff being clean. Three issues found in the incoming branch were fixed
+before merging: `seed_example_sessions` had been flipped from its documented default of `False` to
+`True` (breaking the "every test starts with an empty database" guarantee — reverted), a stray
+Python-syntax line had been pasted into `.env.example` (removed), and `.claude/launch.json` had been
+deleted incidentally (restored). Confirmed unchanged by the merge: all 4 API endpoints, request/
+response schemas, the 270s timeout, and the `x-interactive-mode` one-prompt-one-answer switch.
+
+**The audit**, run after the merge, covered five phases:
+- **Static/offline** (free): full `pytest -q` — 973 passed, 1 skipped, 0 failed; `ruff check .` —
+  clean (5 trivial lint issues in the two new frontend test files fixed: an unused import, import
+  ordering, two over-length lines inside embedded JS template strings — no behavior change). GitHub
+  repo confirmed **public** (a stale 3-week-old note had it as private — corrected). Full git history
+  swept for the string `sk-` and for `.env` ever being tracked — clean on both. `.gitignore` and
+  tracked-file sizes checked — clean, largest tracked file is a 2MB hero image. Local `.venv`
+  (Python 3.11.4) confirmed to match `pyproject.toml`'s `>=3.11`; a from-scratch throwaway venv +
+  `pip install -r requirements.txt` + full test run reproduced the identical 973/1/0 result, so
+  nothing is silently relying on long-lived local state.
+- **Backend/fallback, live-but-free** (mock LLM, local): all 7 API contract checks
+  (`scripts/e2e/prompts.py`'s `CONTRACT_CHECKS`) return the exact spec-required 4-field envelope at
+  the correct status code, no leaked FastAPI `detail` key. The no-clarification-for-API-calls switch
+  was re-confirmed live in both directions on the same ambiguous prompt: no `x-interactive-mode`
+  header → full resolved answer (`status:"ok"`, 4 steps); header set to `true` → bare clarification
+  question (1 step). Budget-cap exhaustion (`MAX_LLM_CALLS_PER_REQUEST=1` for one throwaway run)
+  correctly degrades every module past the cap to its deterministic fallback with an honest
+  disclosure, never a crash. The soft internal research-cutoff path (`agent_execution_timeout`
+  lowered to 0.4–5s for two throwaway runs) was live-triggered and confirmed to degrade gracefully
+  with a "Reduced-capability run" disclosure; the deeper hard-timeout `_best_effort_result` path
+  remains verified by precise code tracing only (single call site in `orchestrator.py`) rather than
+  live-triggered, since under the free mock LLM nothing is slow enough to reach it without
+  artificially injecting delay. Two separate attempts to trigger the orchestrator-level
+  `status:"error"` path (an over-constrained prompt, an unresolvable named destination) both
+  degraded gracefully instead — confirms the "candidate list cannot empty" design guarantee holds,
+  rather than surfacing a gap.
+- **Frontend/UI** (real browser, free): textarea, exact "Run Agent" label, full response and steps
+  rendering, no auth guards anywhere — all confirmed by direct inspection. The interactive
+  clarification reply flow was exercised end-to-end through the actual browser UI (not just the
+  header simulation) and works correctly. One real finding: under the **mock** LLM specifically, a
+  clear follow-up reply to a clarification question sometimes still re-asks the same question
+  instead of resolving (reproduced cleanly via a direct API call with the exact same text, so it's a
+  mock keyword-parser limitation, not an `app.js` wiring bug) — re-tested against the **real**
+  provider in the live phase below and confirmed **not** to reproduce there.
+- **Live production** (real LLMod.ai spend): account balance probed fresh before and after (never
+  assumed) — $4.1977 → $3.3987 remaining of $13.00, a real, expected ~$0.80 spent across 24 real
+  calls (the 22-prompt suite plus 2 extra calls for the clarification-loop re-test), confirming
+  production is genuinely calling the real model, not silently serving mock (this is also explicit
+  in `vercel.json`'s committed `env` block: `MOCK_LLM: "false"`). Two new prompts were added to the
+  20-prompt set — **P21** (budget stated as excluding accommodation entirely) and **P22** (student
+  housing with an all-in total budget) — closing a real gap: none of the original 20 deliberately
+  exercised `living_cost_excluding_accommodation`, and only one (P03) incidentally touched
+  `accommodation_only`. Both new prompts were sanity-checked for free against mock first (P22's
+  original phrasing, "EUR 1,100 a month", didn't parse under the mock's number-before-currency regex
+  — reworded to "€1,100" and reconfirmed before spending real money on it). All 22 prompts ran live
+  against `https://digitalnomadagent.vercel.app` — **22/22 `status:"ok"`, HTTP 200**, elapsed
+  76.4–228.8s (P09 slowest), comfortably under the 270s/300s limits. P21 and P22 were read in full
+  against the real model: both correctly scope-limit their cost comparisons exactly as designed
+  (P21: "compared only to non-housing living costs"; P22: apartment evidence explicitly disclosed as
+  "an accommodation proxy, not... direct proof of student-room costs"). P07 (ambiguous, sent
+  non-interactively) still resolved to a full 20,019-character answer against the real model, and the
+  clarification round-trip (ambiguous → question → clear reply) resolved correctly on the second
+  turn against the real model, confirming the mock-only finding above. P08/P10/P18 re-read for
+  regression — all three still match previously documented behavior exactly (self-contradiction
+  quantified rather than silently dropped; prompt-injection/out-of-scope demands refused with an
+  honest disclosure; unmeasurable constraints reported as No Evidence rather than fabricated).
+
+**New standing item, not a code defect — needs an external action**: the free account probe
+(`scripts/probe_llmod_account.py --json`) shows the LLMod.ai **key-level** `max_budget` is still
+unset (`None`) on both registered keys — only the **account-level** $13 cap (`/user/info`) provides
+any protection against runaway spend. This was first noted as D19 and has not been addressed since.
+With the URL now live and public for the days between submission and grading, an unset key-level cap
+means repeated automated hits (crawlers, bots, or just enthusiastic testing) could drain the
+remaining ~$3.40 with nothing stopping it short of the account cap tripping. This cannot be fixed
+from the repo — it requires setting a key-level budget cap in the LLMod.ai dashboard. Recommended,
+not yet done.
+
+**Stale-claim correction**: this document's own Section 2 (2026-08-08 handover) and Section 8 state
+"no frontend test tooling" / "no frontend tests despite `app/static/app.js` being ~1,400 lines" —
+true when written, but no longer true as of today's merge: `tests/integration/test_ui.py` (7 tests,
+predates today) plus two new files added today, `test_clickable_citations_ui.py` (5 tests) and
+`test_results_metrics_ui.py` (5 tests), both of which load the real `app.js` in a Node subprocess and
+assert on actual rendered HTML. Left those older sections' text unedited per this document's own
+stated convention (historical sections describe the state at the time they were written); noting the
+correction here instead. The **no-CI** claim in those same sections is still accurate — confirmed no
+`.github/` or other CI config exists anywhere in the repo.
+
+**Net assessment**: main is submission-ready on every checkable technical/compliance dimension. The
+one remaining known gap is the same one already accepted on 2026-08-11 (Supabase/Pinecone → SQLite,
+disclosed in README, team decision to keep accepting it) plus the newly-surfaced key-level-budget-cap
+recommendation above. Both are disclosed, neither is a silent defect. Whether to actually submit is
+a team decision that also depends on Shani's and Ilay's own review, which is outside what this audit
+can confirm.
 
 ### Update — 2026-08-11
 
