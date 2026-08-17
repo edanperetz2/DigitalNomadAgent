@@ -936,8 +936,15 @@ async def generate_recommendation(
             reason = "the project's LLM budget limit was reached"
         elif isinstance(exc, TimeoutError):
             reason = "generating the full recommendation did not finish in time"
-        else:
+        elif "repair attempt" in str(exc):
+            # traced_client.py's repair-exhausted message names the attempt
+            # count -- a response was received but stayed unusable.
             reason = "the recommendation-writing model's response could not be used, even after a repair attempt"
+        else:
+            # traced_client.py's other LLMOutputError path (a raw provider/
+            # connection failure) never reaches the repair loop at all -- it
+            # fails before any response exists to repair.
+            reason = "the recommendation-writing model could not be reached"
         return (
             fallback
             + "\n\n**Note:** this is a limited automated summary generated without the "

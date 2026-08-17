@@ -32,8 +32,10 @@ Given a prompt like:
 > "I want to spend three months somewhere in Europe where I can work remotely, live without a car,
 > and stay within €1,800 per month."
 
-DigitalNomadAgent interprets the request, extracts hard constraints (budget cap, car-free) and soft
-preferences, then runs a 3-stage candidate-discovery funnel: one LLM call proposes up to 30 broad
+DigitalNomadAgent interprets the request, extracts hard constraints (a budget cap — scoped to what
+it actually covers, e.g. accommodation-only vs. total monthly living costs, so it's never compared
+against the wrong kind of cost evidence — car-free) and soft preferences, then runs a 3-stage
+candidate-discovery funnel: one LLM call proposes up to 30 broad
 candidates, a cheap deterministic filter (geocoding verification, region checks, budget ranking —
 no LLM, no expensive tools) narrows these down, and up to 8 finalists proceed to full research.
 DigitalNomadAgent decides *which* research tools are actually relevant to this request (not a fixed list —
@@ -176,10 +178,17 @@ the frontend. The browser also aborts after 295 seconds as a final client-side g
 40-110+ seconds (serial geocoding plus external tool calls); the loading state shows a live elapsed
 timer plus a "still thinking" note after 15 seconds so this doesn't read as a hung page.
 
+Each ranked place shows a **Fit Score** (the backend's own ranking score, for reference only — the
+UI never re-sorts by it, the backend's hard-constraint-aware order always wins) and an **Evidence
+Coverage** label, and `[N]`-style citation markers in the answer text become clickable links back to
+the matching entry in the Sources section (a plain chip, not a link, if no URL is available for it).
+
 If the interactive path (the deployed frontend always sends `X-Interactive-Mode: true`, see
 "Required API endpoints" below) hits a clarification question, the results view shows an inline
 reply box instead of a dead end — the extra detail you type gets appended to the original prompt
-and resubmitted automatically.
+and resubmitted automatically. Since the backend has no memory of prior turns, this is capped at
+2 questions per thread; the reply to a 3rd would-be question is sent non-interactively instead, so
+the conversation always resolves to a real answer rather than looping indefinitely.
 
 The sidebar's conversation history can be filtered (All / LLM / Fallback, based on each response's
 `**Generated using:**` disclosure line — a real LLM call counts as "LLM", both mock and the

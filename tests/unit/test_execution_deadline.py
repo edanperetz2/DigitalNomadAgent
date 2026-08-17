@@ -302,3 +302,47 @@ async def test_malformed_output_recommendation_fallback_never_blames_the_budget(
     # disclosure must not let a reader conflate the two.
     assert "budget" not in response.lower()
     assert "did not finish in time" not in response
+
+
+@pytest.mark.asyncio
+async def test_unreachable_provider_fallback_does_not_claim_a_repair_was_attempted(monkeypatch):
+    from app.agent import recommendation_generator as generator_module
+    from app.agent.models import CandidateEvaluation, ValidationResult
+    from app.core.exceptions import LLMOutputError
+
+    async def unreachable_llm_call(**kwargs):
+        # Matches traced_client.py's wording for a raw provider/connection
+        # failure (app/llm/traced_client.py:182) -- distinct from the
+        # repair-exhausted message above, since no response ever existed to
+        # repair in the first place.
+        raise LLMOutputError("The LLM call for Recommendation Generator failed: Connection refused")
+
+    monkeypatch.setattr(generator_module, "traced_llm_call", unreachable_llm_call)
+
+    response = await generator_module.generate_recommendation(
+        PlaceRequestProfile(purpose="vacation"),
+        [
+            CandidateEvaluation(
+                place="Fast City",
+                country="X",
+                advantages=["Completed evidence supports this option."],
+                drawbacks=["Some evidence is missing."],
+                confidence_score=0.5,
+            )
+        ],
+        ValidationResult(approved=True),
+        [],
+        client=object(),
+        budget=object(),
+        request_id="test",
+        execution_trace=[],
+        max_output_tokens=100,
+    )
+
+    assert "## Best matches" in response
+    assert "could not be reached" in response
+    # No repair loop runs for a connection failure -- the wording must not
+    # claim one was attempted, and this is still not a budget problem.
+    assert "repair attempt" not in response
+    assert "budget" not in response.lower()
+    assert "did not finish in time" not in response

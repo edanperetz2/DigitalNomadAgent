@@ -118,9 +118,9 @@ A hard cap (`MAX_STATE_TRANSITIONS = 30`) prevents runaway loops regardless of a
 transition logic above.
 
 The complete state-machine task is also wrapped by a hard wall-clock deadline. The backend default
-and allowed maximum are 285 seconds (`AGENT_EXECUTION_TIMEOUT_SECONDS`), reserving 15 seconds for
-API and client overhead so the end-to-end interaction remains under 300 seconds. The normal
-research cutoff is 225 seconds, leaving `RECOMMENDATION_RESERVE_SECONDS=60` for deterministic
+and allowed maximum are 270 seconds (`AGENT_EXECUTION_TIMEOUT_SECONDS`), reserving 30 seconds for
+API and client overhead so the end-to-end interaction remains under Vercel's 300-second hard kill.
+The normal research cutoff is 210 seconds, leaving `RECOMMENDATION_RESERVE_SECONDS=60` for deterministic
 evaluation and response generation. At that cutoff, pending calls are cancelled but completed
 results are retained and scored. If the recommendation LLM exceeds its remaining allowance, the
 deterministic renderer returns the same evidence-backed structure. The hard cutoff is an emergency
@@ -186,10 +186,23 @@ gap-research round), batching every viable finalist × all four criteria into a 
 identity alone, so it's available even before any criterion is scored) plus keyword-triggered
 score-threshold checks — a criterion is only judged if it's both actually scored and textually
 referenced as a hard constraint or deal-breaker, so missing or incomparable evidence never produces
-a false elimination.
+a false elimination. Each hard requirement's evidence is recorded as one of four states
+(`HardConstraintStatus`: `verified`, `borderline`, `no_evidence`, `requirement_not_met`, in
+`app/agent/models.py`) rather than a flat pass/fail, so a place with weak-but-present evidence ranks
+below one with strong evidence but above one with none at all, and each status gets its own
+disclosure wording.
 
-This is deterministic and extensively unit-tested (`tests/unit/test_dynamic_evaluation.py`) — the
-same inputs always produce the same score.
+Cost comparisons follow the same evidence-honesty principle: `BudgetFitTool` tags the traveller's
+stated budget with a `budget_scope` (`accommodation_only`, `total_living_cost`,
+`living_cost_excluding_accommodation`, or `unspecified`) and only compares it against cost evidence
+of the matching scope — an accommodation-only budget is never judged against a rent-inclusive total,
+or vice versa. If the compatible evidence is a generic apartment price rather than a directly
+verified student-housing figure, the answer discloses that distinction explicitly rather than
+presenting the proxy as confirmed.
+
+This is deterministic and extensively unit-tested (`tests/unit/test_dynamic_evaluation.py`,
+`tests/unit/test_hard_constraint_bands.py`, `tests/unit/test_budget_fit_tool.py`) — the same inputs
+always produce the same score.
 
 ## 5. Recommendation Validator
 
@@ -215,9 +228,9 @@ claims to know the real provider-side balance (see README "Budget control").
 
 ## 7. Failure handling and graceful degradation
 
-- The 285-second agent deadline bounds the entire state machine, including all LLM calls, provider
+- The 270-second agent deadline bounds the entire state machine, including all LLM calls, provider
   retries, rate-limit waits, tool calls, persistence, gap research, and response generation. It is
-  not reset between states or retries, and configuration validation prevents raising it above 285.
+  not reset between states or retries, and configuration validation prevents raising it above 270.
 - Independent non-geocoding `(tool, candidate)` jobs are created together and run concurrently up
   to `MAX_CONCURRENT_TOOL_REQUESTS=10`. Provider-specific controls override that general cap:
   Nominatim candidate verification remains serial to honor its one-request-per-second policy, and
@@ -228,7 +241,7 @@ claims to know the real provider-side balance (see README "Budget control").
 - Tool scheduling is deterministic: tools supporting hard constraints run first, followed by
   higher `inferred_weights`, with each priority applied across all candidates before lower-priority
   work begins. The cutoff therefore preserves the most decision-relevant evidence first.
-- When the 225-second research cutoff is reached, the registry returns completed results plus
+- When the 210-second research cutoff is reached, the registry returns completed results plus
   explicit timeout results for cancelled jobs. Dynamic Evaluation treats those as missing evidence,
   reduces confidence, and continues to the recommendation instead of failing the entire request.
 - Timing logs record queue/run duration and outcome for every tool, duration for every agent state,
@@ -240,8 +253,11 @@ claims to know the real provider-side balance (see README "Budget control").
   protection around every tool call.
 - Cached data is preferred; if a live call fails and only stale cache is available, the stale
   result is returned with `stale=True` explicitly set, never silently presented as current.
-- LLM failures (malformed JSON, schema-invalid output) get one repair attempt
-  (`MAX_JSON_REPAIR_ATTEMPTS=1`) inside `TracedLLMClient`; if that also fails, the orchestrator
+- Malformed or schema-invalid output gets up to two repair attempts
+  (`MAX_JSON_REPAIR_ATTEMPTS=2`) inside `TracedLLMClient`, asking the model to retry. A genuinely
+  unreachable provider (connection refused, DNS failure) is not retried the same way -- it fails
+  immediately and is normalized to the same `LLMOutputError` the repair loop raises on exhaustion,
+  so both failure kinds reach the orchestrator identically. Either way, if recovery fails, the orchestrator
   either continues with a deterministic fallback (Recommendation Generator) or surfaces a clean
   `status="error"` response while preserving every already-completed `steps` entry.
 
@@ -278,7 +294,17 @@ endpoints (`DELETE /api/history`, `POST /api/history/delete`) back the sidebar's
 controls; neither is part of the 4 required course-spec endpoints. Markdown from the response is
 rendered client-side through a small, whitelist-only transform (`safeMarkdownToHtml` in `app.js`)
 that HTML-escapes all text *before* applying any structural formatting, so raw LLM output is never
-inserted as live HTML.
+inserted as live HTML. The same rendering pass turns `[N]`-style citation markers into clickable
+links against a source map parsed from the answer's own "Sources" section (a chip, not a link, when
+no URL is found), and each candidate card shows a Fit Score (the backend's own ranking score,
+displayed but never used to re-sort the UI — the backend's hard-constraint-aware order is always
+preserved) alongside an Evidence Coverage label.
+
+Since nothing on the backend tracks conversation turns — every `/api/execute` call is stateless, and
+"continuing" a clarification reply is purely a client-side trick of concatenating the reply onto the
+prompt and resending it — the UI caps the interactive clarification loop at 2 questions per thread.
+After that, the 3rd reply is sent without `X-Interactive-Mode`, forcing the same auto-resolve-and-
+answer behavior a non-interactive caller always gets, rather than risking an unbounded loop.
 
 ## 11. Why this is autonomous, not a fixed pipeline
 

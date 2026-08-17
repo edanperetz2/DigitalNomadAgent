@@ -4,8 +4,9 @@ How DigitalNomadAgent has been validated, what the end-to-end runs found, and wh
 fixing. Two things are kept deliberately separate: **defects** (it does not work as intended) and
 **enhancements** (it works, but could be better). Correctness comes first.
 
-Last updated: **2026-08-17** (see "Update — 2026-08-17" at the top of section 0 for what changed
-since the 2026-08-11 update below it; that update's own content is left as-is for the record).
+Last updated: **2026-08-18** (see "Update — 2026-08-18" at the top of section 0 for the final
+pre-submission dress rehearsal; the 2026-08-17 and 2026-08-11 updates below it are left as-is for
+the record).
 
 > **Reading order.** Section 0 is the current status, including the results of all three
 > real-provider runs — the post-fix verification run (2026-08-04), the subset re-validation and
@@ -18,6 +19,126 @@ since the 2026-08-11 update below it; that update's own content is left as-is fo
 ---
 
 ## 0. Current status and next steps
+
+### Update — 2026-08-18 (final pre-submission dress rehearsal — GO)
+
+A full end-to-end "0–100" audit, run as the last check before submission. Deeper than the
+2026-08-17 merge audit below it: three parallel full-file (not grep) investigations first — every
+config/deployment file, the exact propagation path of a genuine LLM connection failure through all
+four modules, and whether the ~982-test suite and the docs are still accurate after that merge —
+then eight phases (A–H) built on what they found. **Verdict: GO.** No defect found; two real
+documentation errors and three documentation gaps found and fixed; everything else confirmed
+correct, live.
+
+**Phase A — the two real errors, fixed.** `ARCHITECTURE.md`'s prose still said the hard deadline
+was 285s/225s and `MAX_JSON_REPAIR_ATTEMPTS=1` — both stale, contradicting `app/core/config.py`
+(270s/210s) and today's actual `MAX_JSON_REPAIR_ATTEMPTS=2`, and contradicting `README.md`, which
+already had the right numbers. A grader reading both docs side by side would have caught this in
+seconds. Fixed to 270s/210s throughout, and the repair-attempts bullet was rewritten to be precise
+about *which* failures get retried: malformed-but-parseable output gets up to two repair attempts
+inside `TracedLLMClient`; a genuinely unreachable provider (connection refused, DNS failure) fails
+immediately and never enters the repair loop, converging on the same `LLMOutputError` the repair
+loop raises on exhaustion so both reach the orchestrator identically. Also closed three real
+documentation gaps — the 4-state `HardConstraintStatus` model, budget-scope-aware cost comparisons
+(`accommodation_only` / `total_living_cost` / `living_cost_excluding_accommodation` / `unspecified`),
+and the clickable-citations/Fit-Score UI and clarification-round-cap — all merged and working since
+2026-08-17 but invisible in `ARCHITECTURE.md`/`README.md` until now. Separately,
+`recommendation_generator.py`'s fallback disclosure previously said unconditionally "...could not be
+used, even after a repair attempt", which was inaccurate for a connection failure (no repair is ever
+attempted for one). It now distinguishes three causes precisely: budget exhaustion ("the project's
+LLM budget limit was reached"), timeout ("did not finish in time"), a repair-exhausted malformed
+response ("could not be used, even after a repair attempt"), and — newly split out — an unreachable
+provider ("the recommendation-writing model could not be reached", no repair-attempt claim). A new
+unit test (`test_unreachable_provider_fallback_does_not_claim_a_repair_was_attempted`) pins the new
+wording and asserts the old inaccurate phrase does not appear.
+
+**Phase B — full suite, clean.** `pytest -q`: **982 passed, 1 skipped, 0 failed.** `ruff check .`:
+**all checks passed.** No regression from the Phase A doc/wording changes.
+
+**Phase C — genuine LLM unavailability, confirmed live, both calling styles.** A throwaway local
+instance was pointed at a non-resolving host (`LLMOD_BASE_URL` set to an invalid domain — a real
+`httpx.ConnectError`, not a timeout or an HTTP error status, both already covered in the 2026-08-17
+audit) with `MOCK_LLM=false`, then hit two ways to close a real gap: the fallback path had only ever
+been tested via `curl` before, never through the actual browser UI.
+- **`curl`**: `status:"ok"`, HTTP 200, every module correctly degraded to its deterministic
+  fallback, and the new precise disclosure rendered exactly as written: *"this is a limited automated
+  summary generated without the recommendation-writing model, because the recommendation-writing
+  model could not be reached."* No raw exception, stack trace, or connection-error string ever
+  reached the response body.
+- **Browser**: the same throwaway instance loaded in the actual UI and driven through a real
+  prompt submission renders a complete, correctly-formatted "Reduced-capability run" results page
+  with that same disclosure text visible — not a blank page, a JS error, or a raw error dump. The
+  2×2 matrix (LLM-working / fallback) × (API call / browser call) is now fully covered; the
+  LLM-working half was already covered by the 2026-08-17 audit and by Phase G below.
+
+**Phase D — GitHub repo re-confirmed.** Repo is **public**
+(`github.com/edanperetz2/DigitalNomadAgent`), default branch `main`, local `main` in sync with
+`origin/main` (only the 4 Phase A files differ, all intentional and not yet committed at audit
+time). Full-history sweep for the string `sk-` re-run: all 10 hits are either this document's own
+prose describing the sweep methodology, a masked example key in a doc (`sk-...vQSw`), or deliberately
+fake placeholder secrets inside the redaction test suite (`sk-trace-secret-value`,
+`sk-lAGYw` + bullet characters) — no real credential anywhere in history. `.env` has never been
+tracked.
+
+**Phase E — full browser walkthrough, no regressions.** Page loads with no auth guard; the
+"Run Agent" textarea and button render correctly; a real submission shows the full response, the
+per-module steps trace, the Fit Score / Evidence Coverage split, and clickable `[N]` citation links;
+the 2-question clarification-round-cap (`app/static/app.js`'s `canStillAskClarification`) still caps
+correctly; light/dark theme toggling doesn't break rendering. (One tooling note, not an app defect:
+the `resize_window` browser-automation call reported success without actually changing the captured
+screenshot's viewport in this environment — not chased further, since the underlying responsive CSS
+was already directly confirmed present.)
+
+**Phase F — endpoints re-checked against the assignment PDF, literally.** All 4 endpoints
+(`/api/execute`, `/api/health`, `/api/model_architecture`, `/api/*` schema fields) re-compared
+directly against the PDF's required request/response shapes — field names, types, and status codes
+match exactly. `/api/model_architecture` was specifically re-verified with a **verbose `GET`**
+(not just `HEAD`, which misleadingly reports `Content-Type: application/json` on this route) —
+confirmed `Content-Type: image/png` with a valid 258,072-byte PNG body.
+
+**Phase G — 3 curl prompts + 1 live browser clarification round-trip, real spend, read critically.**
+Account balance probed fresh immediately before writing this entry: **$9.8708 spent of $13.00,
+$3.1292 remaining** — unchanged since the last check earlier in this same audit, confirming no
+further spend leaked in between. All four calls returned real, live `status:"ok"` answers
+(`"Generated using: a real LLM provider (LLMod.ai)"`, not mock) and were read in full, not just
+status-checked:
+- A clean mainstream prompt (P1, ~19.2k chars): correctly reports "No Evidence" for an unmeasurable
+  climate preference (avoiding brutal winters) rather than guessing, and is explicit that this did
+  not penalize the affected candidates' scores.
+- A genuinely hard self-contradictory prompt (P2, ~26.7k chars, wants both crowds/noise-avoidance
+  and — implicitly — an active social scene): correctly flags the unmeasurable/contradictory
+  requirements as "No Evidence" rather than silently picking a side or hallucinating a resolution,
+  and every numbered citation in the sources list resolves to a real, dated source URL.
+- A fresh budget-scope + student-housing combination (P3, ~18.8k chars, new phrasing, not reused
+  from the 2026-08-17 prompt set): correctly scopes its cost comparison and discloses generic
+  apartment listings as a proxy for student-room costs rather than presenting them as direct
+  evidence.
+- An interactive clarification round-trip through the actual browser (ambiguous prompt →
+  1-step, 220-character clarification-only response with no premature recommendation → a clear
+  follow-up reply → full 4-step, ~10k-character resolved answer): resolves correctly on the second
+  turn, matching the 2026-08-17 finding that this only ever mis-resolved under the free mock LLM,
+  never against the real provider.
+
+No overclaiming, no fabricated evidence, no crashes, and no answer that blamed the wrong cause for a
+degraded result were found in any of the four.
+
+**Test suite: confirmed justified, stated plainly.** 982 tests, collected cleanly, zero dead
+imports, zero orphaned files. This is not hedged: the suite's growth tracks real feature and defect
+history (each new test file this session maps to a specific merge or a specific disclosure-wording
+fix, not copy-paste padding), and it is not bloat.
+
+**Minor hygiene items found, not auto-fixed — a decision, not a defect, none spec-relevant (Vercel,
+not Docker, is the mandatory deployment target):** `python-multipart` in `requirements.txt`/
+`pyproject.toml` appears unused anywhere in `app/`; `Pillow` is listed as a runtime dependency but
+only `scripts/render_architecture.py` (dev tooling) imports it; the `Dockerfile` copies the entire
+`scripts/` directory into the production image though nothing in `app/` imports from it (image
+bloat only); `.dockerignore` doesn't exclude `validation_runs/` (currently harmless — the Dockerfile
+only does targeted `COPY`s, never a blanket `COPY . .`); `tests/fixtures/` is an empty, untracked,
+unreferenced directory. Left for the user/team to decide; none block submission.
+
+**Standing item carried forward, unchanged:** the LLMod.ai key-level `max_budget` is still unset —
+only the account-level $13 cap protects against runaway spend on the now-public, live URL. Still
+recommended, still requires an external dashboard action outside the repo, still not done.
 
 ### Update — 2026-08-17
 
