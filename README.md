@@ -426,11 +426,6 @@ The course spec requires deploying on **Vercel** specifically (not a general hos
   deployment at some smaller figure, and `MAX_PROJECT_BUDGET_USD` — the only per-deployment
   guard — reads a ledger that lives in `/tmp` and resets on every cold start.
 
-  Before deploying with `MOCK_LLM=false`, set a `max_budget` on the LLMod.ai **key** as well. The
-  account cap will eventually stop runaway spend, but only after the whole $13 is gone; without a
-  key cap, every visitor to the public URL — including crawlers — spends real credit at roughly
-  $0.02 per request until it is.
-
 **To deploy:** connect this GitHub repo to a Vercel project (vercel.com → Add New Project → import
 the repo) and set these environment variables in the Vercel dashboard (secrets — never commit
 them): `LLMOD_API_KEY`, `LLMOD_MODEL`. Everything else needed is already in `vercel.json`. Once
@@ -441,9 +436,6 @@ Vercel account active until the project is graded (per the spec).
 connection and build the orchestrator once) are a relatively recent Vercel Python runtime addition.
 This should work, but — unlike everything else in this README — it genuinely cannot be confirmed
 without an actual live deploy; treat the first real deploy as a verification step, not a formality.
-
-Before deployment, run the offline suite normally. An explicitly opt-in live SLA check exercises
-three representative prompts and targets an observed p95 below 240 seconds:
 
 Before deployment, run the offline suite normally. An explicitly opt-in live SLA check exercises
 three representative prompts and targets an observed p95 below 240 seconds:
