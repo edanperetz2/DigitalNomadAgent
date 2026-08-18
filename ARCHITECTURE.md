@@ -340,7 +340,9 @@ execute*, not just what value flows through them?
     through `generating_response` entirely — five states never run at all, not just a different
     answer from the same five.
   - **Ask instead of answering** (`interpreting → clarification_required`, §2, interactive mode):
-    the same five states are skipped in favor of returning a question.
+    the same five states are skipped in favor of returning a question — the course's own named
+    technique for this exact situation is the **Question Refinement Pattern**: ask a clarifying
+    question when input is incomplete or ambiguous, rather than guessing.
   - **Research again or finalize** (`validating → researching_gap`, §2): an extra state runs only
     when the gathered evidence is insufficient — most requests never enter it.
 
@@ -358,3 +360,15 @@ defines its decision at the level of *what happens next* or *whether to continue
 function runs*. Tool *selection* stays deterministic Python — see §3, and Requirement 1's "avoid
 unnecessary LLM calls" on a $13 shared budget — while tool *relevance* is still read from the
 profile, so a remote-work request and a vacation request never run the same tool set regardless.
+
+The closest named pattern to this design is **Plan-and-Execute**: an LLM plans (Agentic Research
+proposes candidate destinations), the plan is carried out (the deterministic tool suite researches
+each one), and a step decides whether to redo part of the plan or finalize (`validating →
+researching_gap`). Stated precisely rather than claimed as an exact match: in the taught version
+that redo-or-finalize call is made by a "Replan LLM"; here it is deterministic Python reading
+measured evidence coverage against the profile's stated priorities. The course teaches every
+agentic pattern, including this one, with real costs (latency, cost, complexity) alongside its
+benefits, and lists plain pipelines' own advantages (simple, cheap, reliable, easy to debug) without
+treating them as strictly inferior — choosing a deterministic mechanism for a well-defined
+classification problem, under an explicit $13 budget constraint, is consistent with that framing,
+not a deviation from it.
