@@ -67,11 +67,20 @@ and easier to test exhaustively.
 
 ## 2. State machine and conditional flow
 
-`app/agent/state.py` defines the states exactly as specified: `received`, `interpreting`,
+`app/agent/state.py` defines the states this design uses: `received`, `interpreting`,
 `clarification_required`, `planning_research`, `executing_tools`, `evaluating`, `validating`,
 `researching_gap`, `generating_response`, `completed`, `failed`. `app/agent/orchestrator.py` drives
-transitions with structured conditions rather than a fixed sequence:
+transitions with structured conditions rather than a fixed sequence — this, not any single module,
+is what makes the system an agent rather than a linear pipeline: at several points the Orchestrator
+decides what happens next from what it has just learned, the same shape the course spec's own
+reference example uses (its `IntentAnalyzer` module decides `in_scope` before anything else runs):
 
+- **`interpreting → declined` (out of scope)**: the Request Interpreter's single LLM call also
+  decides `in_scope` — `false` only when the raw message is not a travel/relocation request at all
+  (see `app/agent/request_interpreter.py::SYSTEM_PROMPT`). When it is false, the Orchestrator
+  returns a decline immediately, before `planning_research`, `executing_tools`, or any other module
+  ever runs — no candidates generated, no tools called, no evidence stored. This costs no LLM call
+  beyond the Interpreter's own, since it is one more field on the same structured response.
 - **`interpreting → clarification_required`** whenever the Request Interpreter marks
   `clarification_required=True` (e.g. purpose is entirely unclear, or a study request has no
   discernible academic field). What happens next depends on the caller: `POST /api/execute` is
@@ -89,7 +98,7 @@ transitions with structured conditions rather than a fixed sequence:
   funnel (`app/agent/candidate_funnel.py`) — serial geocoding verification, a region-only
   hard-constraint pre-check, and concurrent `BudgetFitTool` ranking — to narrow these down to
   `MAX_FINALISTS` (default 8) before deterministically deciding which of the tools are relevant to
-  *this* request (`select_tools()` in `agentic_research.py`) — see §4 below for why tool selection
+  *this* request (`select_tools()` in `agentic_research.py`) — see §3 below for why tool selection
   is deterministic.
 - **`executing_tools`**: `ToolRegistry.verify_candidates()` runs GeocodingTool first for every
   bulk candidate; unverifiable candidates are dropped. The funnel then narrows the geocoded
@@ -136,8 +145,9 @@ have bounded, disclosed paths to a usable response.
 ## 3. Why tool selection is deterministic, not LLM-driven
 
 `Agentic Research` still needs to decide *which* of the 13 tools matter for a given request. The
-course's optimization requirements (§6 of the spec) explicitly ask for deterministic Python logic
-"whenever an LLM is unnecessary" and a hard cap on LLM calls. Tool relevance is a classification
+course spec's Requirement 1, "Build the agent in an optimized way," explicitly asks the
+implementation to "avoid unnecessary LLM calls" and "stay within the project budget." Tool relevance
+is a classification
 problem cleanly solvable from the interpreted profile (`purpose`, `relevant_criteria`,
 `mobility_requirements`, etc.) — see `select_tools()` in `agentic_research.py` — so it does not need
 an LLM call at all. This is also what makes the system genuinely *not* a fixed pipeline: a
@@ -314,3 +324,23 @@ sets, different scoring weights, and a possible extra research round for one but
 Nothing in the orchestrator hard-codes "always call these N tools" or "always ask these questions" —
 every branch point reads from the interpreted profile. That is what makes this a conditional agent
 rather than a linear script with optional steps.
+
+Concretely, the Orchestrator makes several genuine decide-then-act choices about what to do next,
+each capable of ending the run early or changing its course — not just optional cosmetic steps:
+
+- **Decline out of scope** (`interpreting`, §2): is this even a travel/relocation request? If not,
+  stop here — no candidates, no tools, no evidence.
+- **Ask or proceed** (`interpreting → clarification_required`, §2): is there enough information to
+  give a reliable answer, or does the request need to name what it's missing first?
+- **Research again or finalize** (`validating → researching_gap`, §2): does the current evidence
+  support a confident answer, or is one more bounded research pass warranted?
+- **Degrade or use the primary path** (§2): is a given LLM call available, or does the run fall back
+  to a deterministic substitute and disclose that it did?
+
+This is the same shape of decision the course spec's own reference example uses — its
+`IntentAnalyzer` module decides `in_scope` before an `EmailComposer` module is ever allowed to act.
+The difference from a fixed pipeline is not "does an LLM choose the next tool at every step" (this
+system deliberately keeps tool *selection* deterministic — see §3, and Requirement 1's "avoid
+unnecessary LLM calls" on a $13 shared budget) but "can the system's own read of the request change
+what runs, or even stop the run outright." Here it can, at four separate points, using no more LLM
+calls than a version that made none of these decisions at all.

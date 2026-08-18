@@ -135,6 +135,12 @@ class PlaceRequestProfile(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
     clarification_required: bool = False
     clarification_question: str | None = None
+    # False only when the raw message is not a travel/relocation request at all (general
+    # chat, a recipe, a coding question, anything unrelated) -- distinct from
+    # out_of_scope_requests() in request_interpreter.py, which flags specific unfulfillable
+    # sub-asks (live flight prices, etc.) inside an otherwise legitimate request. Defaults
+    # True so every existing direct construction and the rule-based fallback stay fail-open.
+    in_scope: bool = True
 
 
 class CandidatePlaceSeed(BaseModel):

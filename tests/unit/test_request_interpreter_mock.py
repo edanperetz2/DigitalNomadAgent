@@ -442,3 +442,9 @@ def test_a_bare_season_counts_as_timing():
 
 def test_interpreter_prompt_says_a_bare_season_is_usable_timing():
     assert "A bare season is usable timing" in SYSTEM_PROMPT
+
+
+def test_interpreter_prompt_asks_for_in_scope():
+    assert "in_scope" in SYSTEM_PROMPT
+    assert "Surprise me." in SYSTEM_PROMPT
+    assert "is NOT out of" in SYSTEM_PROMPT

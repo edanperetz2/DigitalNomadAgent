@@ -59,6 +59,13 @@ _PRIMARY_VALUE_FIELDS = (
     "estimated_workday_overlap_hours",
 )
 
+_OUT_OF_SCOPE_RESPONSE = (
+    "This doesn't look like a travel, relocation, or place-recommendation request -- "
+    "DigitalNomadAgent only helps with finding places to work remotely, study, visit, or relocate "
+    "to, based on things like budget, climate, timezone, and similar preferences. If that's what "
+    "you meant, try rephrasing with a bit more of that context."
+)
+
 
 @dataclass
 class AgentResult:
@@ -556,6 +563,10 @@ class Orchestrator:
             profile = checkpoint.profile or PlaceRequestProfile.model_validate(
                 interpret_prompt_fallback(prompt)
             )
+            if not profile.in_scope:
+                return AgentResult(
+                    status="ok", response=_OUT_OF_SCOPE_RESPONSE, error=None, steps=execution_trace
+                )
             if profile.clarification_required:
                 if interactive:
                     response = profile.clarification_question or "Could you clarify your request?"
@@ -669,6 +680,16 @@ class Orchestrator:
                         )
                     profile = _drop_indifferent_deal_breakers(profile)
                     checkpoint.profile = profile
+                    if not profile.in_scope:
+                        logger.info(
+                            "agent_phase request_id=%s phase=%s duration_seconds=%.3f next_state=returned",
+                            request_id,
+                            current_state,
+                            asyncio.get_running_loop().time() - phase_started_at,
+                        )
+                        return AgentResult(
+                            status="ok", response=_OUT_OF_SCOPE_RESPONSE, error=None, steps=execution_trace
+                        )
                     state = (
                         AgentState.CLARIFICATION_REQUIRED
                         if profile.clarification_required

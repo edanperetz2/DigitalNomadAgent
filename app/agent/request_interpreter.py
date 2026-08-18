@@ -37,7 +37,19 @@ includes_accommodation true/false/null, confidence one of "high"/\
 hard_constraints (list), soft_preferences (list), deal_breakers (list), \
 relevant_criteria (list), inferred_weights (object of criterion->weight 0-1), \
 missing_information (list), assumptions (list), clarification_required (bool), \
-clarification_question (string or null).
+clarification_question (string or null), in_scope (bool).
+
+Set in_scope=false ONLY when the message's actual subject matter is clearly something other than \
+travel or relocation -- a recipe, a coding question, a math problem, a joke, or any other topic \
+unrelated to travel or relocation. A short, vague, or content-free message with NO subject matter \
+of its own -- "Surprise me.", "Where should I go?", "I don't know, you decide" -- is NOT out of \
+scope: the user is already talking to a travel-recommendation agent, so an empty or open-ended \
+message is an underspecified travel request, not an off-topic one. Set in_scope=true for these and \
+for any genuine travel/relocation ask however vague -- use clarification_required for vagueness, \
+never in_scope=false. When in_scope is false, still return the complete JSON schema: set \
+purpose to \"unknown\", clarification_required to false, leave every other list/object field at \
+its empty default, and put exactly one sentence in assumptions naming what the message actually \
+seemed to be about.
 
 budget_scope is authoritative and must describe what the user's budget is allowed to be \
 compared against. Use "accommodation_only" for rent/housing/accommodation limits, including \
@@ -109,6 +121,10 @@ activities as short lowercase strings so the tool can report them as unresolved.
 # the answer came back as an ordinary ranked list of cities that never mentioned
 # any of the three. Detected deterministically so the refusal survives both a
 # model failure and a model that would rather answer something easier (D32).
+#
+# Distinct from PlaceRequestProfile.in_scope: this flags specific unfulfillable
+# sub-asks inside an otherwise legitimate travel/relocation request. in_scope
+# flags the entire prompt as not being a travel/relocation request at all.
 _OUT_OF_SCOPE_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(r"\b(?:flight|airfare|plane ticket)s?\b(?=[^.?!]*\b(?:price|cost|fare|cheap|book)\w*)", re.I),

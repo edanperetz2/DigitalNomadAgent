@@ -54,11 +54,13 @@ returns a ranked, explainable, source-cited Markdown recommendation.
 
 ### Why this is autonomous, not a fixed pipeline
 
-The agent does not run the same tools or ask the same questions for every prompt. Which research
-tools run, what criteria are scored, how heavily each is weighted, and whether an extra research
-round is needed are all decided dynamically from the interpreted request. See `ARCHITECTURE.md`
-for the full explanation, including the conditional state machine and the "Agentic Research"
-component (the module explicitly required to have this exact name).
+The agent does not run the same tools or ask the same questions for every prompt. Whether a request
+is even in scope, which research tools run, what criteria are scored, how heavily each is weighted,
+and whether an extra research round is needed are all decided dynamically from the interpreted
+request — a request that isn't about travel or relocation at all is declined before any research
+starts, rather than being force-fit into an answer. See `ARCHITECTURE.md` for the full explanation,
+including the conditional state machine and the "Agentic Research" component (the module explicitly
+required to have this exact name).
 
 ---
 
