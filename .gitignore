@@ -22,3 +22,5 @@ build/
 # Raw end-to-end capture artifacts (scripts/run_e2e_suite.py). Kept locally so
 # runs can be diffed over time; the written analysis lives in docs/VALIDATION.md.
 /validation_runs/
+# Copyrighted course lecture slides, local reference only -- never publish these.
+/class lectures/

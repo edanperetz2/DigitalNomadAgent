@@ -318,29 +318,43 @@ answer behavior a non-interactive caller always gets, rather than risking an unb
 
 ## 11. Why this is autonomous, not a fixed pipeline
 
-Two requests with the same *shape* of prompt but different purposes traverse the *same* state
-machine code but produce materially different behavior: different candidate seeds, different tool
-sets, different scoring weights, and a possible extra research round for one but not the other.
-Nothing in the orchestrator hard-codes "always call these N tools" or "always ask these questions" —
-every branch point reads from the interpreted profile. That is what makes this a conditional agent
-rather than a linear script with optional steps.
+The course's own "Am I an Agent?" checklist tests three things: **Perceive**, **Reason**, **Act
+Autonomously** — and warns explicitly that an LLM call or conditional logic *inside* a step is not
+enough on its own ("Automation != Autonomously"). The lecture's own worked counter-example is an HR
+screening system whose Decision Module already has conditional logic *and* uses RAG, and it still
+fails the checklist — because its module *sequence* never changes: the same four modules run in the
+same order every time, and the conditional logic only changes a value handed to the next fixed
+module. The lecture's own definition of that failing case: "the steps are fixed... the system does
+not make decisions about what to do next... LLMs may be used inside the steps, but the overall flow
+is still fixed." That is the actual test to apply here — does anything change *which states
+execute*, not just what value flows through them?
 
-Concretely, the Orchestrator makes several genuine decide-then-act choices about what to do next,
-each capable of ending the run early or changing its course — not just optional cosmetic steps:
+- **Perceive**: the Request Interpreter turns the raw prompt into a structured profile — purpose,
+  constraints, and whether it is even a travel/relocation request at all.
+- **Reason**: every downstream branch reads from that profile, not the raw prompt or a fixed rule —
+  which tools matter, whether the gathered evidence is sufficient, whether the request is answerable
+  at all.
+- **Act autonomously**: three of those reasoning outputs change the *state sequence itself*, not
+  just a value inside a fixed one:
+  - **Decline out of scope** (`interpreting`, §2): `in_scope=false` skips `planning_research`
+    through `generating_response` entirely — five states never run at all, not just a different
+    answer from the same five.
+  - **Ask instead of answering** (`interpreting → clarification_required`, §2, interactive mode):
+    the same five states are skipped in favor of returning a question.
+  - **Research again or finalize** (`validating → researching_gap`, §2): an extra state runs only
+    when the gathered evidence is insufficient — most requests never enter it.
 
-- **Decline out of scope** (`interpreting`, §2): is this even a travel/relocation request? If not,
-  stop here — no candidates, no tools, no evidence.
-- **Ask or proceed** (`interpreting → clarification_required`, §2): is there enough information to
-  give a reliable answer, or does the request need to name what it's missing first?
-- **Research again or finalize** (`validating → researching_gap`, §2): does the current evidence
-  support a confident answer, or is one more bounded research pass warranted?
-- **Degrade or use the primary path** (§2): is a given LLM call available, or does the run fall back
-  to a deterministic substitute and disclose that it did?
+  Contrast with the lecture's own failing example: its four modules run in the same order every
+  time, regardless of what the Decision Module concludes. Here, the number and order of states
+  actually executed differs by request — an in-scope request with sufficient evidence runs a
+  different set of states than an out-of-scope one, or one that needed a gap-research round.
 
-This is the same shape of decision the course spec's own reference example uses — its
-`IntentAnalyzer` module decides `in_scope` before an `EmailComposer` module is ever allowed to act.
-The difference from a fixed pipeline is not "does an LLM choose the next tool at every step" (this
-system deliberately keeps tool *selection* deterministic — see §3, and Requirement 1's "avoid
-unnecessary LLM calls" on a $13 shared budget) but "can the system's own read of the request change
-what runs, or even stop the run outright." Here it can, at four separate points, using no more LLM
-calls than a version that made none of these decisions at all.
+This is also the shape of decision the course spec's own reference example uses — its
+`IntentAnalyzer` module decides `in_scope` before an `EmailComposer` module is ever allowed to act,
+the same kind of run-ending decision as the first bullet above. What none of this requires — and
+what none of the eight course lectures ask for either — is an LLM choosing which of the 13 research
+tools to call: every architecture that decides at runtime (ReAct, Plan-and-Execute, Supervisor)
+defines its decision at the level of *what happens next* or *whether to continue*, not *which tool
+function runs*. Tool *selection* stays deterministic Python — see §3, and Requirement 1's "avoid
+unnecessary LLM calls" on a $13 shared budget — while tool *relevance* is still read from the
+profile, so a remote-work request and a vacation request never run the same tool set regardless.
