@@ -12,7 +12,7 @@ throughout the code, the diagram, `/api/agent_info`, LLM-call tracing, and this 
 | Canonical name | File | Calls the LLM? |
 |---|---|---|
 | Request Interpreter | `app/agent/request_interpreter.py` | Yes — 1 call |
-| Agentic Research | `app/agent/agentic_research.py` | Yes — 1 call (bulk candidate recall only) |
+| Agentic Research | `app/agent/agentic_research.py` | Yes — 1 call (bulk candidate recall + tool-relevance selection) |
 | Tool Registry | `app/tools/registry.py` | No |
 | Evidence Memory | `app/evidence/memory.py` | No |
 | Dynamic Evaluation | `app/agent/dynamic_evaluation.py` | Yes — 1 batched call (scores cost/transportation/accessibility/activities for all finalists at once) |
@@ -61,9 +61,10 @@ deleted and omitted six that existed, and nothing could detect it.
 Four modules ever produce a `steps` entry in `/api/execute`'s response, because four modules ever
 call an LLM — always exactly once each per request, so the total stays at 4 calls even when a
 gap-research round runs (Dynamic Evaluation's call fires only once, from the state machine's single
-post-gap-resolution branch — see §2). Everything else — tool selection, the candidate-discovery
-funnel, validation — is deterministic Python, which is both cheaper (course budget is $13 total)
-and easier to test exhaustively.
+post-gap-resolution branch — see §2), and even though the Agentic Research call now also decides
+tool relevance (see §3) — that decision is read from the same single call, not a second one.
+Everything else — the candidate-discovery funnel, validation — is deterministic Python, which is
+both cheaper (course budget is $13 total) and easier to test exhaustively.
 
 ## 2. State machine and conditional flow
 
@@ -94,12 +95,13 @@ reference example uses (its `IntentAnalyzer` module decides `in_scope` before an
   tools run, response is simply the clarification question, still wrapped in the required four-field
   envelope.
 - **`planning_research → executing_tools`**: Agentic Research proposes up to `MAX_BULK_CANDIDATES`
-  (default 30) broad candidates in one LLM call, then `executing_tools` runs a cheap, zero-LLM
-  funnel (`app/agent/candidate_funnel.py`) — serial geocoding verification, a region-only
-  hard-constraint pre-check, and concurrent `BudgetFitTool` ranking — to narrow these down to
-  `MAX_FINALISTS` (default 8) before deterministically deciding which of the tools are relevant to
-  *this* request (`select_tools()` in `agentic_research.py`) — see §3 below for why tool selection
-  is deterministic.
+  (default 30) broad candidates *and* the relevant tool set in that same one LLM call, then
+  `executing_tools` runs a cheap, zero-LLM funnel (`app/agent/candidate_funnel.py`) — serial
+  geocoding verification, a region-only hard-constraint pre-check, and concurrent `BudgetFitTool`
+  ranking — to narrow the candidates down to `MAX_FINALISTS` (default 8) before dispatching the
+  tools the same call already selected (`resolve_tool_selection()` in `agentic_research.py`) — see
+  §3 below for how tool relevance is decided and why the deterministic `select_tools()` rules still
+  exist as a fallback.
 - **`executing_tools`**: `ToolRegistry.verify_candidates()` runs GeocodingTool first for every
   bulk candidate; unverifiable candidates are dropped. The funnel then narrows the geocoded
   survivors to the finalist count. Only then are the other selected tools run against the
@@ -142,27 +144,55 @@ candidate seed set. Both substitutions are added to the response assumptions. Th
 timeouts in interpretation, candidate generation, individual tools, or recommendation writing all
 have bounded, disclosed paths to a usable response.
 
-## 3. Why tool selection is deterministic, not LLM-driven
+## 3. Tool selection: LLM-driven, with a deterministic fallback
 
-`Agentic Research` still needs to decide *which* of the 13 tools matter for a given request. The
-course spec's Requirement 1, "Build the agent in an optimized way," explicitly asks the
-implementation to "avoid unnecessary LLM calls" and "stay within the project budget." Tool relevance
-is a classification
-problem cleanly solvable from the interpreted profile (`purpose`, `relevant_criteria`,
-`mobility_requirements`, etc.) — see `select_tools()` in `agentic_research.py` — so it does not need
-an LLM call at all. This is also what makes the system genuinely *not* a fixed pipeline: a
-remote-work prompt and a vacation prompt produce different tool sets by construction (verified by
-`tests/unit/test_tool_selection_rules.py` and `tests/integration/test_agent_autonomy.py`), even
-though the *code path* through the state machine is identical.
+`Agentic Research` decides *which* of the 13 tools matter for a given request. This is decided by
+the same single LLM call that proposes candidate destinations — the model is given the tool catalog
+(name plus a one-line description of what each measures) alongside the interpreted profile, and
+returns a `relevant_tools` list alongside `candidates`. Its output is sanitized against
+`module_names.TOOL_NAMES` (a hallucinated name would otherwise reach `ToolRegistry`'s raw dict
+lookup) and, once non-empty, is authoritative — `resolve_tool_selection()` in `agentic_research.py`
+uses it directly.
 
-The one place an LLM *is* used to shape the search space is candidate generation — deciding *which
-places* to consider — because that benefits from broader world knowledge than a rule table can
-encode. This happens in one bulk call (up to `MAX_BULK_CANDIDATES`, default 30) rather than asking
-the LLM to also pick finalists: narrowing the bulk list down to `MAX_FINALISTS` is a separate,
-deterministic step (`app/agent/candidate_funnel.py`) so the expensive per-candidate tool suite only
-ever runs against a small, cheaply-vetted set. Even the bulk-recall step has a fallback:
-MockLLMClient's curated, purpose-keyed seed list (~30 entries per purpose) so the system remains
-fully testable offline.
+`select_tools()` — the original deterministic, purpose/keyword-driven rule set — still exists
+unchanged and is used only as a fail-open fallback: when the Agentic Research call fails outright
+(`BudgetExceededError`/`LLMOutputError`) or returns nothing usable after sanitization, `Orchestrator`
+resets the LLM's tool set to empty and `resolve_tool_selection()` falls back to the deterministic
+rules (`tests/unit/test_orchestrator_agentic_research_fallback.py`). This costs no extra LLM call
+either way — the decision rides on the request that already proposes candidates, so the total stays
+at 4 calls per request regardless (see §1), consistent with Requirement 1's "avoid unnecessary LLM
+calls" on a $13 shared budget.
+
+Two tools always run unconditionally, regardless of what the model says: `GeocodingTool` (candidate
+verification happens before tool selection is even computed) and `BudgetFitTool` (run once, up
+front, to feed the candidate-discovery funnel in `app/agent/candidate_funnel.py`, before finalists
+are chosen). The prompt tells the model not to list either; if it does anyway, the orchestrator's
+`- {"BudgetFitTool"}` subtraction in `EXECUTING_TOOLS` strips it regardless, so it is never
+dispatched a second time.
+
+Why authoritative rather than only additive on top of the deterministic rules, as a smaller change
+would have allowed: §11 works through the course's own "Am I an Agent?" test in detail, but the
+short version is that an LLM call whose output can only ever broaden a fixed, deterministic
+baseline — never actually decide anything on its own — is the same shape as the course's own
+*failing* worked example (a module with conditional logic and an optional LLM call, where the
+deterministic component still fully determines the outcome regardless). Letting the LLM's judgment
+be the real decision, with the deterministic rules kept only as a failure fallback, is what makes
+this a genuine decision rather than decoration on top of one.
+
+A 12-prompt validation pass across every purpose type and most of the 13 tools, run before this
+merged, never saw the LLM drop a tool the deterministic rules would have required, and it
+consistently added tools the fixed rules cannot reach at all — most notably `PlaceContextTool`,
+registered in the tool suite since inception but unreachable by any deterministic rule until this.
+
+The one place an LLM *is* used to shape the search space beyond tool relevance is candidate
+generation itself — deciding *which places* to consider — because that benefits from broader world
+knowledge than a rule table can encode. This happens in the same one bulk call (up to
+`MAX_BULK_CANDIDATES`, default 30) rather than asking the LLM to also pick finalists: narrowing the
+bulk list down to `MAX_FINALISTS` is a separate, deterministic step (`app/agent/candidate_funnel.py`)
+so the expensive per-candidate tool suite only ever runs against a small, cheaply-vetted set. Even
+the bulk-recall step has a fallback: MockLLMClient's curated, purpose-keyed seed list (~30 entries
+per purpose) so the system remains fully testable offline — the same deterministic seed set and
+`select_tools()` back both the candidate and tool-selection offline/degraded paths together.
 
 ## 4. Evidence Memory and Dynamic Evaluation
 
@@ -353,22 +383,23 @@ execute*, not just what value flows through them?
 
 This is also the shape of decision the course spec's own reference example uses — its
 `IntentAnalyzer` module decides `in_scope` before an `EmailComposer` module is ever allowed to act,
-the same kind of run-ending decision as the first bullet above. What none of this requires — and
-what none of the eight course lectures ask for either — is an LLM choosing which of the 13 research
-tools to call: every architecture that decides at runtime (ReAct, Plan-and-Execute, Supervisor)
-defines its decision at the level of *what happens next* or *whether to continue*, not *which tool
-function runs*. Tool *selection* stays deterministic Python — see §3, and Requirement 1's "avoid
-unnecessary LLM calls" on a $13 shared budget — while tool *relevance* is still read from the
-profile, so a remote-work request and a vacation request never run the same tool set regardless.
+the same kind of run-ending decision as the first bullet above. None of the eight course lectures
+actually require an LLM choosing which of the 13 research tools to call — every architecture that
+decides at runtime (ReAct, Plan-and-Execute, Supervisor) defines its decision at the level of *what
+happens next* or *whether to continue*, not *which tool function runs* — but §3 explains why this
+design makes that decision LLM-driven anyway, once folding it into the Agentic Research call made it
+free to do so: a remote-work request and a vacation request never run the same tool set, and now
+neither does a request phrased in a way no fixed keyword rule anticipated.
 
 The closest named pattern to this design is **Plan-and-Execute**: an LLM plans (Agentic Research
-proposes candidate destinations), the plan is carried out (the deterministic tool suite researches
-each one), and a step decides whether to redo part of the plan or finalize (`validating →
-researching_gap`). Stated precisely rather than claimed as an exact match: in the taught version
-that redo-or-finalize call is made by a "Replan LLM"; here it is deterministic Python reading
-measured evidence coverage against the profile's stated priorities. The course teaches every
-agentic pattern, including this one, with real costs (latency, cost, complexity) alongside its
-benefits, and lists plain pipelines' own advantages (simple, cheap, reliable, easy to debug) without
-treating them as strictly inferior — choosing a deterministic mechanism for a well-defined
-classification problem, under an explicit $13 budget constraint, is consistent with that framing,
-not a deviation from it.
+proposes candidate destinations *and* the relevant tool set together), the plan is carried out (the
+selected tools run via deterministic Python — execution, not selection, stays deterministic), and a
+step decides whether to redo part of the plan or finalize (`validating → researching_gap`). Stated
+precisely rather than claimed as an exact match: in the taught version that redo-or-finalize call is
+made by a "Replan LLM"; here it is deterministic Python reading measured evidence coverage against
+the profile's stated priorities — see §5. The course teaches every agentic pattern, including this
+one, with real costs (latency, cost, complexity) alongside its benefits, and lists plain pipelines'
+own advantages (simple, cheap, reliable, easy to debug) without treating them as strictly inferior —
+keeping this one decision deterministic (§5's gap-research trigger) while making another LLM-driven
+(§3's tool selection) is a per-decision judgment call under an explicit $13 budget constraint, not a
+blanket policy either way.

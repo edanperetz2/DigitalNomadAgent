@@ -115,3 +115,74 @@ async def test_agentic_research_failure_falls_back_candidates_and_tool_selection
     assert llm_tools_passed_in == frozenset()
     assert "SafetyTool" in resolved_tools
     assert "AmenitiesTool" in resolved_tools
+
+
+class _SpyingToolRegistry(ToolRegistry):
+    """Records every tool_names set actually passed to run_tools(), so a test
+    can assert on what really got dispatched -- not just what
+    resolve_tool_selection() returned before the orchestrator's own
+    `- {"BudgetFitTool"}` subtraction runs on top of it."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.run_tools_calls: list[frozenset] = []
+
+    async def run_tools(self, tool_names, *args, **kwargs):
+        self.run_tools_calls.append(frozenset(tool_names))
+        return await super().run_tools(tool_names, *args, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_llm_including_always_on_tools_does_not_double_dispatch_budget_fit(monkeypatch):
+    """The system prompt tells the model never to list GeocodingTool or
+    BudgetFitTool -- but nothing stops it from doing so anyway. The
+    orchestrator's `- {"BudgetFitTool"}` subtraction in EXECUTING_TOOLS must
+    still exclude it from run_tools() regardless, since BudgetFitTool already
+    ran unconditionally earlier in the funnel."""
+
+    async def interpreted(*args, **kwargs):
+        return PlaceRequestProfile(purpose="remote_work")
+
+    async def succeeding_generate_candidates(*args, **kwargs):
+        from app.agent.models import CandidatePlace
+
+        # The LLM ignoring the instruction and listing the always-on tools anyway.
+        return (
+            [CandidatePlace(place_name="Fast City", country="X", reason_for_inclusion="test")],
+            {"GeocodingTool", "BudgetFitTool", "SafetyTool"},
+        )
+
+    async def rendered(profile, evaluations, validation, sources, **kwargs):
+        return "## Best matches\n\nFast City"
+
+    monkeypatch.setattr(orchestrator_module, "interpret_request", interpreted)
+    monkeypatch.setattr(orchestrator_module, "generate_candidates", succeeding_generate_candidates)
+    monkeypatch.setattr(orchestrator_module, "generate_recommendation", rendered)
+
+    registry = _SpyingToolRegistry(
+        {"GeocodingTool": _GeocodingTool(), "BudgetFitTool": _BudgetFitTool(), "SafetyTool": _GeocodingTool()},
+        max_concurrent_requests=10,
+    )
+    orchestrator = Orchestrator(
+        tool_registry=registry,
+        evidence_memory=_RecordingMemory(),
+        llm_client=object(),
+        budget=_Budget(),
+        max_output_tokens=100,
+        max_bulk_candidates=30,
+        max_finalists=5,
+        max_final_recommendations=3,
+        max_prompt_length=4000,
+        execution_timeout_seconds=15.0,
+    )
+
+    result = await orchestrator.run("Find somewhere quiet and safe to work remotely.")
+
+    assert result.status == "ok", result.error
+    # First run_tools() call is always the unconditional BudgetFitTool funnel
+    # pass; the second is the LLM-selected set, which must NOT contain
+    # BudgetFitTool a second time even though the LLM listed it.
+    assert registry.run_tools_calls[0] == frozenset({"BudgetFitTool"})
+    second_call = registry.run_tools_calls[1]
+    assert "BudgetFitTool" not in second_call
+    assert "SafetyTool" in second_call

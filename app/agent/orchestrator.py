@@ -735,8 +735,9 @@ class Orchestrator:
                         ]
                         llm_selected_tools = set()
                         checkpoint.service_notices.append(
-                            "The candidate-generation model was unavailable, so the shortlist was drawn from a "
-                            "fixed seed set rather than researched for your request."
+                            "The Agentic Research model was unavailable, so the shortlist was drawn from a "
+                            "fixed seed set rather than researched for your request, and which research "
+                            "tools to run was decided by fixed rules instead of the model's own judgment."
                         )
                     candidates = _include_named_destinations(profile, candidates)
                     if not candidates:
