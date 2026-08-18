@@ -12,7 +12,7 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 
-from app.agent.agentic_research import generate_candidates, select_tools
+from app.agent.agentic_research import generate_candidates, resolve_tool_selection
 from app.agent.candidate_funnel import budget_comparison, select_finalists
 from app.agent.dynamic_evaluation import (
     apply_llm_scores,
@@ -638,6 +638,7 @@ class Orchestrator:
 
         profile: PlaceRequestProfile | None = None
         candidates: list[CandidatePlace] = []
+        llm_selected_tools: set[str] = set()
         evidence_by_place: dict[str, list[ToolResult]] = {}
         evaluations = []
         validation: ValidationResult | None = None
@@ -715,7 +716,7 @@ class Orchestrator:
 
                 elif state == AgentState.PLANNING_RESEARCH:
                     try:
-                        candidates = await generate_candidates(
+                        candidates, llm_selected_tools = await generate_candidates(
                             profile,
                             client=self._llm,
                             budget=self._budget,
@@ -732,6 +733,7 @@ class Orchestrator:
                                 : self._max_bulk_candidates
                             ]
                         ]
+                        llm_selected_tools = set()
                         checkpoint.service_notices.append(
                             "The candidate-generation model was unavailable, so the shortlist was drawn from a "
                             "fixed seed set rather than researched for your request."
@@ -807,7 +809,7 @@ class Orchestrator:
                     checkpoint.candidates = list(candidates)
                     finalist_names = {c.place_name for c in candidates}
 
-                    tool_names = select_tools(profile) - {"BudgetFitTool"}
+                    tool_names = resolve_tool_selection(profile, llm_selected_tools) - {"BudgetFitTool"}
                     tool_priorities = self._tool_priorities(profile, tool_names)
                     evidence_by_place = {}
                     for result in geocoding_results:

@@ -142,7 +142,7 @@ async def test_research_cutoff_keeps_fast_evidence_and_returns_recommendations(m
         return PlaceRequestProfile(purpose="vacation", relevant_criteria=["activities", "climate"])
 
     async def generated(*args, **kwargs):
-        return [CandidatePlace(place_name="Fast City", country="X", reason_for_inclusion="test")]
+        return [CandidatePlace(place_name="Fast City", country="X", reason_for_inclusion="test")], set()
 
     async def rendered(profile, evaluations, validation, sources, **kwargs):
         assert any("partial evidence" in issue for issue in validation.issues)
