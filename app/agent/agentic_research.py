@@ -29,7 +29,8 @@ from app.llm.traced_client import traced_llm_call
 _SELECTABLE_TOOL_CATALOG = """\
 - WeatherTool: temperature/climate for the requested travel months
 - WikivoyageClimateTool: narrative climate detail (rainy season, humidity, seasonal caveats)
-- AmenitiesTool: nearby coworking spaces, cafes, universities, libraries, parks, pharmacies, supermarkets, fitness centres
+- AmenitiesTool: nearby coworking spaces, cafes, universities, libraries, parks, pharmacies, \
+supermarkets, fitness centres
 - LocalMobilityTool: car-free living, walkability, public transport quality
 - PlaceContextTool: general destination character/overview
 - TimezoneFitTool: working-hours overlap with the traveller's origin or a stated reference timezone

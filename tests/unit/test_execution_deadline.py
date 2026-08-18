@@ -152,8 +152,8 @@ async def test_research_cutoff_keeps_fast_evidence_and_returns_recommendations(m
     monkeypatch.setattr(orchestrator_module, "generate_candidates", generated)
     monkeypatch.setattr(
         orchestrator_module,
-        "select_tools",
-        lambda profile: {"GeocodingTool", "ActivitiesTool", "WeatherTool"},
+        "resolve_tool_selection",
+        lambda profile, llm_tools: {"GeocodingTool", "ActivitiesTool", "WeatherTool"},
     )
     monkeypatch.setattr(orchestrator_module, "generate_recommendation", rendered)
 
