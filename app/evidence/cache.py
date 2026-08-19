@@ -49,6 +49,10 @@ TOOL_TTL_HOURS: dict[str, int] = {
     "TransportAccessTool": 24 * 14,
     "ActivitiesTool": 24 * 14,
     "SafetyTool": 24,
+    # Slow-moving Wikipedia-sourced national medians, same cadence as the other
+    # reference-table tools above -- was previously missing an explicit entry
+    # and silently used the generic default_ttl_hours (168h/7d) instead.
+    "InternetConnectivityTool": 24 * 14,
 }
 
 

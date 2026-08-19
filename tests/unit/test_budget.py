@@ -141,6 +141,27 @@ async def test_failed_calls_still_count_against_the_budget(db):
 
 
 @pytest.mark.asyncio
+async def test_a_modules_own_repair_attempts_do_not_consume_a_later_modules_slot(db):
+    """A module needing JSON-repair retries logs one ledger row per attempt
+    (traced_client.py), all under the same module name. The call-count cap
+    must count distinct modules, not raw rows, so repairs on one module never
+    wrongly refuse a later, different module while the real dollar budget is
+    nowhere close to spent."""
+    manager = _manager(db, max_llm_calls_per_request=4)
+
+    # Request Interpreter needed 2 repair attempts: 3 ledger rows, same module.
+    await manager.check_before_call("req1", "Request Interpreter", 10, 10)
+    await manager.record_call("req1", "Request Interpreter", "m", 10, 10, 0.0, True)
+    await manager.record_call("req1", "Request Interpreter", "m", 10, 10, 0.0, True)
+    await manager.record_call("req1", "Request Interpreter", "m", 10, 10, 0.0, True)
+
+    # The other 3 modules must still each get their own slot.
+    for module in ("Agentic Research", "Dynamic Evaluation", "Recommendation Generator"):
+        await manager.check_before_call("req1", module, 10, 10)
+        await manager.record_call("req1", module, "m", 10, 10, 0.0, True)
+
+
+@pytest.mark.asyncio
 async def test_different_requests_have_independent_call_caps(db):
     manager = _manager(db, max_llm_calls_per_request=1)
     await manager.check_before_call("req1", "Request Interpreter", 10, 10)

@@ -49,7 +49,7 @@ class PlaceContextTool:
             return ToolResult.model_validate(cached)
 
         try:
-            data = await self._fetch(candidate.place_name)
+            data = await self._fetch(title)
         except (httpx.HTTPError, ValueError, KeyError) as exc:
             if cached is not None:
                 stale_result = ToolResult.model_validate(cached)
@@ -83,7 +83,7 @@ class PlaceContextTool:
             )
 
         excerpt = " ".join(extract.split())[:MAX_EXCERPT_CHARS]
-        source_url = f"https://en.wikivoyage.org/wiki/{candidate.place_name.replace(' ', '_')}"
+        source_url = f"https://en.wikivoyage.org/wiki/{title.replace(' ', '_')}"
 
         result = ToolResult(
             tool_name=self.name,

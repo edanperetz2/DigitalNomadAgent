@@ -19,6 +19,7 @@ from app.api.schemas import (
 )
 from app.core.config import REPO_ROOT
 from app.core.exceptions import PlaceMatchError
+from app.core.logging import logger
 from app.evidence.saved_searches import SavedSearchStore
 
 router = APIRouter()
@@ -62,16 +63,22 @@ async def execute(payload: ExecuteRequest, request: Request, response: Response)
     steps = [LLMStep.model_validate(s) for s in result.steps]
 
     if result.status == "ok" and result.response:
-        session = await SavedSearchStore(request.app.state.db).save_session(
-            prompt=prompt,
-            result_data={
-                "status": result.status,
-                "error": result.error,
-                "response": result.response,
-                "steps": [step.model_dump(mode="json") for step in steps],
-            },
-        )
-        response.headers["X-DigitalNomadAgent-Session-Id"] = session["id"]
+        # History is a purely additive convenience feature -- a failure here (DB
+        # lock contention, /tmp pressure on a Vercel cold start) must never turn
+        # an already-computed valid answer into a client-visible error.
+        try:
+            session = await SavedSearchStore(request.app.state.db).save_session(
+                prompt=prompt,
+                result_data={
+                    "status": result.status,
+                    "error": result.error,
+                    "response": result.response,
+                    "steps": [step.model_dump(mode="json") for step in steps],
+                },
+            )
+            response.headers["X-DigitalNomadAgent-Session-Id"] = session["id"]
+        except Exception as exc:  # noqa: BLE001 - history persistence must never fail the request
+            logger.warning("save_session failed, continuing without history: %s", exc)
 
     return ExecuteResponse(
         status=result.status,

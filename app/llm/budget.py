@@ -41,8 +41,17 @@ class BudgetManager:
         return float(row[0] or 0.0)
 
     async def _calls_made_for_request(self, request_id: str) -> int:
+        """Distinct *modules* that have called, not raw ledger rows.
+
+        `max_llm_calls_per_request` is sized for the 4 LLM-calling modules
+        (one call each) -- but a module needing a JSON-repair retry logs one
+        extra row per attempt (see traced_client.py). Counting raw rows let a
+        module's own repairs eat into a later module's budget check, wrongly
+        refusing it with a misleading "budget limit reached" even when the
+        real dollar cap (checked separately, below) is nowhere close to spent.
+        """
         cursor = await self._db.conn.execute(
-            "SELECT COUNT(*) FROM llm_usage WHERE request_id = ?", (request_id,)
+            "SELECT COUNT(DISTINCT module) FROM llm_usage WHERE request_id = ?", (request_id,)
         )
         row = await cursor.fetchone()
         return int(row[0] or 0)

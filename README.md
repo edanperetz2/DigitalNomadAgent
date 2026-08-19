@@ -408,11 +408,13 @@ The course spec requires deploying on **Vercel** specifically (not a general hos
 - **Entrypoint**: the existing `main.py` (`from app.main import app`) is used directly — Vercel's
   Python runtime auto-detects a file named `main.py` at the project root exporting an `app`
   variable, so no separate `api/` wrapper file is needed.
-- **`rewrites`** sends every path (`/`, `/static/*`, `/api/*`) to that one function, so FastAPI's
+- **`routes`** sends every path (`/`, `/static/*`, `/api/*`) to that one function, so FastAPI's
   own router still handles everything internally exactly as it does under Uvicorn.
 - **`functions.main.py.maxDuration = 300`** matches the spec's stated Vercel ceiling exactly — our
   own `AGENT_EXECUTION_TIMEOUT_SECONDS=270` already fits under this with margin.
-- **`env`** sets the same safe non-secret defaults as the Dockerfile (`MOCK_LLM=true`, timeouts).
+- **`env`** sets the deployed defaults, including `MOCK_LLM=false` (the live grading environment
+  uses the real LLMod.ai provider, not the mock — the Dockerfile's own default is `true` instead,
+  since that image is a local/manual-use path, not what's graded) and matching timeout values.
   `SQLITE_PATH=/tmp/digitalnomadagent.db` is set here specifically because **Vercel's filesystem is
   read-only except `/tmp`, and `/tmp` resets on every cold start** — the local cache/evidence/
   budget-ledger SQLite database is not persistent across cold starts under Vercel.

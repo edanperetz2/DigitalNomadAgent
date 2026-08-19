@@ -112,7 +112,6 @@ class Settings(BaseSettings):
     max_bulk_candidates: int = 30
     max_finalists: int = 8
     max_final_recommendations: int = 8
-    max_research_iterations: int = 1
     # Was set but never actually wired to the 4 LLM-calling modules until
     # 2026-08-17 -- every traced_llm_call() site relied on its own hardcoded
     # default of 1 regardless of this value. Now threaded through

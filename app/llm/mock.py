@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 import re
 
+from app.agent.agentic_research import select_tools
 from app.agent.candidate_funnel import budget_comparison, estimate_affordability
+from app.agent.models import PlaceRequestProfile
 from app.core.module_names import (
     AGENTIC_RESEARCH,
     DYNAMIC_EVALUATION,
@@ -1656,7 +1658,17 @@ class MockLLMClient(BaseLLMClient):
             except json.JSONDecodeError:
                 profile = {}
             candidates = generate_candidate_seeds(profile)
-            text = json.dumps({"candidates": candidates})
+            # Mirrors select_tools()'s own deterministic judgment rather than a
+            # second heuristic to maintain -- this exists so MOCK_LLM=true runs
+            # exercise resolve_tool_selection()'s primary (LLM-authoritative)
+            # branch, not just its fallback; a truly empty/malformed profile
+            # still falls through to an empty list, letting the caller's own
+            # fallback-to-select_tools() behavior take over as usual.
+            try:
+                relevant_tools = sorted(select_tools(PlaceRequestProfile.model_validate(profile)))
+            except Exception:  # noqa: BLE001 - a malformed mock payload just yields no tools here
+                relevant_tools = []
+            text = json.dumps({"candidates": candidates, "relevant_tools": relevant_tools})
         elif module == DYNAMIC_EVALUATION:
             try:
                 payload = json.loads(user_content)

@@ -8,8 +8,6 @@ exception) is converted to the exact four-field envelope:
 
 from __future__ import annotations
 
-import json
-
 from fastapi import Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -56,13 +54,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     message = _first_readable_error(exc)
     logger.warning("Validation error on %s: %s", request.url.path, redact(message))
     return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content=_error_envelope(message))
-
-
-async def json_decode_exception_handler(request: Request, exc: json.JSONDecodeError) -> JSONResponse:
-    return JSONResponse(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        content=_error_envelope("The request body is not valid JSON."),
-    )
 
 
 async def budget_exceeded_handler(request: Request, exc: BudgetExceededError) -> JSONResponse:

@@ -179,7 +179,9 @@ async def traced_llm_call(
                 request_id, module_name, None, est_input_tokens, max_output_tokens, None, success=False
             )
             record_failure("provider_call_failed", str(exc))
-            raise LLMOutputError(f"The LLM call for {module_name} failed: {exc}") from exc
+            raise LLMOutputError(
+                f"The LLM call for {module_name} failed: {redact(str(exc))[:300]}"
+            ) from exc
 
         await budget.record_call(
             request_id,
@@ -243,5 +245,5 @@ async def traced_llm_call(
 
     raise LLMOutputError(
         f"The response from {module_name} could not be parsed or validated, "
-        f"even after {max_repair_attempts} repair attempt(s): {last_error}"
+        f"even after {max_repair_attempts} repair attempt(s): {redact(str(last_error))[:300]}"
     )

@@ -675,6 +675,49 @@ class FakeSafetyTool:
         )
 
 
+class FakeLanguageTool:
+    name = "LanguageTool"
+
+    async def run(self, candidate: CandidatePlace, profile: PlaceRequestProfile) -> ToolResult:
+        now = datetime.now(UTC)
+        requested = [language.strip() for language in profile.preferred_languages if language.strip()]
+        spoken_languages = ["English", "Local Language"]
+        matched = [language for language in requested if language.casefold() in {"english"}]
+        normalized_data = {
+            "country": candidate.country or "Testland",
+            "spoken_languages": spoken_languages,
+            "english_reach": "widespread",
+            "english_score": 0.75,
+            "requested_languages": requested,
+            "matched_languages": matched,
+        }
+        return ToolResult(
+            tool_name=self.name,
+            place=candidate.place_name,
+            normalized_data=normalized_data,
+            source_name="DigitalNomadAgent country language reference (fake)",
+            source_url="https://github.com/edanperetz2/DigitalNomadAgent/blob/main/app/languages.py",
+            retrieved_at=now,
+            confidence="medium",
+            warnings=[
+                "English reach is a coarse three-band judgement about getting by in cities, "
+                "not a statistic about the whole country."
+            ],
+            evidence_items=[
+                EvidenceItem(
+                    criterion="language_spoken",
+                    component="country_languages",
+                    normalized_data=normalized_data,
+                    source=EvidenceSource(
+                        source_name="DigitalNomadAgent country language reference (fake)",
+                        retrieved_at=now,
+                        confidence="medium",
+                    ),
+                )
+            ],
+        )
+
+
 class FakeInternetConnectivityTool:
     name = "InternetConnectivityTool"
 
@@ -746,5 +789,6 @@ def build_fake_tool_registry_dict() -> dict[str, object]:
         "LocalMobilityTool": FakeLocalMobilityTool(),
         "ActivitiesTool": FakeActivitiesTool(),
         "SafetyTool": FakeSafetyTool(),
+        "LanguageTool": FakeLanguageTool(),
         "InternetConnectivityTool": FakeInternetConnectivityTool(),
     }

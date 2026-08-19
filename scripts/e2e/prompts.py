@@ -1,6 +1,6 @@
 """The agreed end-to-end evaluation prompt set.
 
-Twenty prompts chosen for behavioral diversity -- each targets a distinct
+22 prompts (P01-P22) chosen for behavioral diversity -- each targets a distinct
 pipeline path, tool subset, or failure mode. They are written at realistic
 length, the way someone actually describes their situation, rather than as tidy
 one-line specs, because prompt shape is itself part of what is being tested.
@@ -10,9 +10,11 @@ the first ten never touched: relocation as a purpose, several named destinations
 compared against each other, a preferred language that is not English, southern-
 hemisphere seasons, an excluded region, a daily budget in a third currency, a
 mixed purpose, a constraint nothing in the tool set can measure, nightlife as a
-thing someone *wants*, and a one-line request. Every one is an ordinary
-place-recommendation request -- the edge cases here are in the shape of the ask,
-not in asking for something the agent is not for.
+thing someone *wants*, and a one-line request. P21-P22 were added on
+2026-08-17 to close a budget_scope coverage gap: a budget stated as excluding
+accommodation, and student housing with a total-living-cost budget. Every one
+is an ordinary place-recommendation request -- the edge cases here are in the
+shape of the ask, not in asking for something the agent is not for.
 
 Unlike scripts/golden_set/cases.py, these carry NO expected values. The golden
 set is an automated structural regression net; this set exists to be read and

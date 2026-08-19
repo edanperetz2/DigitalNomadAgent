@@ -1,9 +1,10 @@
 """End-to-end capture harness. Records what the system produces; judges nothing.
 
-Drives the ten evaluation prompts against a RUNNING server over real HTTP, so
-real research tools, real latency, and the real 285-second deadline are all
-exercised -- unlike scripts/golden_set/runner.py, which uses fake tools and an
-in-process TestClient.
+Drives the evaluation prompts (see scripts/e2e/prompts.py -- 22 as of this
+writing, P01-P22) against a RUNNING server over real HTTP, so real research
+tools, real latency, and the real 270-second deadline are all exercised --
+unlike scripts/golden_set/runner.py, which uses fake tools and an in-process
+TestClient.
 
 Start the server yourself first, so the run configuration is explicit:
 

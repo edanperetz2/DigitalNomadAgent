@@ -4,9 +4,9 @@ How DigitalNomadAgent has been validated, what the end-to-end runs found, and wh
 fixing. Two things are kept deliberately separate: **defects** (it does not work as intended) and
 **enhancements** (it works, but could be better). Correctness comes first.
 
-Last updated: **2026-08-18** (see "Update — 2026-08-18" at the top of section 0 for the final
-pre-submission dress rehearsal; the 2026-08-17 and 2026-08-11 updates below it are left as-is for
-the record).
+Last updated: **2026-08-19** (see "Update — 2026-08-19" at the top of section 0 for the final
+post-submission dress rehearsal, run after the LLM-driven tool-selection merge; earlier updates
+below it are left as-is for the record).
 
 > **Reading order.** Section 0 is the current status, including the results of all three
 > real-provider runs — the post-fix verification run (2026-08-04), the subset re-validation and
@@ -89,12 +89,17 @@ the `resize_window` browser-automation call reported success without actually ch
 screenshot's viewport in this environment — not chased further, since the underlying responsive CSS
 was already directly confirmed present.)
 
-**Phase F — endpoints re-checked against the assignment PDF, literally.** All 4 endpoints
-(`/api/execute`, `/api/health`, `/api/model_architecture`, `/api/*` schema fields) re-compared
+**Phase F — endpoints re-checked against the assignment PDF, literally.** All 4 required endpoints
+(`/api/team_info`, `/api/agent_info`, `/api/model_architecture`, `/api/execute`) re-compared
 directly against the PDF's required request/response shapes — field names, types, and status codes
 match exactly. `/api/model_architecture` was specifically re-verified with a **verbose `GET`**
 (not just `HEAD`, which misleadingly reports `Content-Type: application/json` on this route) —
 confirmed `Content-Type: image/png` with a valid 258,072-byte PNG body.
+
+*Correction, 2026-08-19: this bullet originally listed a non-existent `/api/health` endpoint and
+omitted `/api/team_info`/`/api/agent_info` — a drafting error caught during the final pre-deadline
+audit, not a discrepancy found live at the time. There is no `/api/health` endpoint anywhere in the
+codebase; the 4 real required endpoints are exactly the ones now listed above.*
 
 **Phase G — 3 curl prompts + 1 live browser clarification round-trip, real spend, read critically.**
 Account balance probed fresh immediately before writing this entry: **$9.8708 spent of $13.00,
@@ -127,14 +132,17 @@ imports, zero orphaned files. This is not hedged: the suite's growth tracks real
 history (each new test file this session maps to a specific merge or a specific disclosure-wording
 fix, not copy-paste padding), and it is not bloat.
 
-**Minor hygiene items found, not auto-fixed — a decision, not a defect, none spec-relevant (Vercel,
-not Docker, is the mandatory deployment target):** `python-multipart` in `requirements.txt`/
-`pyproject.toml` appears unused anywhere in `app/`; `Pillow` is listed as a runtime dependency but
-only `scripts/render_architecture.py` (dev tooling) imports it; the `Dockerfile` copies the entire
-`scripts/` directory into the production image though nothing in `app/` imports from it (image
-bloat only); `.dockerignore` doesn't exclude `validation_runs/` (currently harmless — the Dockerfile
-only does targeted `COPY`s, never a blanket `COPY . .`); `tests/fixtures/` is an empty, untracked,
-unreferenced directory. Left for the user/team to decide; none block submission.
+**Minor hygiene items found — and fixed later the same day (`8a07766`), not left open.** At the time
+this entry was first written, five items were flagged as decisions for the user rather than defects:
+`python-multipart` in `requirements.txt`/`pyproject.toml` appeared unused anywhere in `app/`;
+`Pillow` was listed as a runtime dependency though only `scripts/render_architecture.py` (dev
+tooling) imports it; the `Dockerfile` copied the entire `scripts/` directory into the production
+image though nothing in `app/` imports from it; `.dockerignore` didn't exclude `validation_runs/`;
+`tests/fixtures/` was an empty, untracked, unreferenced directory. The user asked for the cleanup the
+same session: `python-multipart` was removed, `Pillow` was commented as dev-tooling-only, `scripts/`
+was dropped from the Dockerfile's `COPY` list, `validation_runs/` was added to `.dockerignore`, and
+`tests/fixtures/` was deleted. None of the five are present in the current tree — this paragraph is
+kept for the historical record of the decision, not as an open item.
 
 **Standing item carried forward, unchanged:** the LLMod.ai key-level `max_budget` is still unset —
 only the account-level $13 cap protects against runaway spend on the now-public, live URL. Still

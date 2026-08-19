@@ -5,11 +5,11 @@ This document is the canonical scope and status tracker for completing the Digit
 ## Non-negotiable end-to-end runtime requirement
 
 - Every current and future unit in this plan must preserve an externally observed end-to-end runtime of **under 300 seconds** for one `/api/execute` request, including interpretation, candidate generation, verification, all selected tools and retries, evidence persistence, optional gap research, recommendation generation, API serialization, transport, and UI handling.
-- The backend agent has one non-renewable wall-clock budget of 285 seconds (`AGENT_EXECUTION_TIMEOUT_SECONDS`, also the allowed maximum). With the normal configuration, unfinished research is stopped after 225 seconds so 60 seconds remain for scoring and response generation (`RECOMMENDATION_RESERVE_SECONDS=60`). The browser stops waiting after 295 seconds.
-- The deadline covers the whole state machine and is never reset by a new state, retry, fallback endpoint, candidate, tool, or gap-research round. At the research cutoff, completed results are retained and pending calls are cancelled. A recommendation is then generated from partial evidence with explicit low-confidence/timing disclosures; if its LLM is slow, the deterministic renderer is used. The 285-second hard cutoff repeats this no-I/O best-effort fallback rather than discarding the recommendation.
+- The backend agent has one non-renewable wall-clock budget of 270 seconds (`AGENT_EXECUTION_TIMEOUT_SECONDS`, also the allowed maximum). With the normal configuration, unfinished research is stopped after 210 seconds so 60 seconds remain for scoring and response generation (`RECOMMENDATION_RESERVE_SECONDS=60`). The browser stops waiting after 295 seconds.
+- The deadline covers the whole state machine and is never reset by a new state, retry, fallback endpoint, candidate, tool, or gap-research round. At the research cutoff, completed results are retained and pending calls are cancelled. A recommendation is then generated from partial evidence with explicit low-confidence/timing disclosures; if its LLM is slow, the deterministic renderer is used. The 270-second hard cutoff repeats this no-I/O best-effort fallback rather than discarding the recommendation.
 - LLM timeout/failure before research must not consume the run: interpretation falls back to the deterministic parser and candidate generation falls back to the curated purpose-specific seed set, with both substitutions disclosed in the response assumptions.
-- Every unit proposal and review must account for worst-case external-call count, per-call timeout, retry/failover behavior, rate-limit waits, candidate count, concurrency, caching, and gap-research duplication. A change that could violate the 285-second backend budget must be redesigned, bounded more tightly, or rejected.
-- Shared defaults remain the first line of control: at most 30 bulk candidates narrowed to at most 8 finalists via the zero-LLM candidate funnel (`app/agent/candidate_funnel.py`), bounded provider retries, 10-second HTTP timeouts unless a smaller tool-specific value is justified, deterministic tool selection, cache-first access, and at most one gap-research round. All independent tool/candidate jobs are scheduled together with an application-wide concurrency cap of 10; provider-specific rules remain stricter where needed (Nominatim serial, Overpass at most two). The hard deadline remains the final safety net.
+- Every unit proposal and review must account for worst-case external-call count, per-call timeout, retry/failover behavior, rate-limit waits, candidate count, concurrency, caching, and gap-research duplication. A change that could violate the 270-second backend budget must be redesigned, bounded more tightly, or rejected.
+- Shared defaults remain the first line of control: at most 30 bulk candidates narrowed to at most 8 finalists via the zero-LLM candidate funnel (`app/agent/candidate_funnel.py`), bounded provider retries, 10-second HTTP timeouts unless a smaller tool-specific value is justified, LLM-driven tool selection with a deterministic fail-open fallback (`app/agent/agentic_research.py::resolve_tool_selection`), cache-first access, and at most one gap-research round. All independent tool/candidate jobs are scheduled together with an application-wide concurrency cap of 10; provider-specific rules remain stricter where needed (Nominatim serial, Overpass at most two). The hard deadline remains the final safety net.
 - Every tool/candidate invocation has a 50-second default execution budget covering its internal retries and failover. Work is scheduled deterministically by hard-constraint relevance, then inferred criterion weight, and applied across candidates before lower-priority tools so timeout degradation preserves the most important evidence.
 
 ## Workflow and commit discipline
@@ -17,7 +17,7 @@ This document is the canonical scope and status tracker for completing the Digit
 Every foundation/tool unit follows this workflow:
 
 1. Start from a clean worktree.
-2. Explain the current implementation, limitations, proposed files, behavior, interfaces, tests, and worst-case contribution to the 285-second backend budget.
+2. Explain the current implementation, limitations, proposed files, behavior, interfaces, tests, and worst-case contribution to the 270-second backend budget.
 3. Wait for approval before implementation.
 4. If scope changes, revise this plan proposal, show the revision, and obtain approval again.
 5. Implement only the approved unit and directly related tests, fakes, selection/scoring integration, and documentation.
@@ -53,7 +53,7 @@ Planned commit: `chore(tools): add shared tool infrastructure and master plan`
 - Add reusable JSON HTTP, MediaWiki, Overpass, rate-limit, response-parsing, and test-injection helpers.
 - Serialize Nominatim candidate requests at one request per second in accordance with its usage policy.
 - Configure the shared Overpass client for at most two application-side concurrent requests and endpoint failover. This is a conservative DigitalNomadAgent default, not a provider-mandated limit.
-- Keep all shared clients, retry waits, semaphores, and persistence operations cancellable under the single 285-second agent deadline; no helper may create a detached request that outlives cancellation.
+- Keep all shared clients, retry waits, semaphores, and persistence operations cancellable under the single 270-second agent deadline; no helper may create a detached request that outlives cancellation.
 - Mark the two production-data tests skipped only when their files are absent. The separate live SLA test is also skipped unless explicitly enabled, yielding three expected skips in a normal offline run until those datasets arrive.
 
 ### 1. GeocodingTool — COMPLETE
@@ -62,7 +62,7 @@ Planned commit: `feat(tools): harden destination geocoding`
 
 - Request multiple Nominatim matches, require country agreement, reject ambiguity, and return canonical name, coordinates, country code, OSM identity, and confidence.
 - Cache for 30 days, process candidates serially, and persist geocoding evidence rather than discarding it.
-- Keep verification bounded by `MAX_BULK_CANDIDATES`; serial Nominatim rate-limit waits and bounded retries count against the same 285-second request deadline.
+- Keep verification bounded by `MAX_BULK_CANDIDATES`; serial Nominatim rate-limit waits and bounded retries count against the same 270-second request deadline.
 - Test ambiguity, country mismatch, low importance, rate limiting, cache fallback, and malformed responses.
 
 ### 2. PlaceContextTool — DEFERRED
@@ -97,7 +97,7 @@ Planned commit: `feat(tools): add Wikivoyage climate corroboration`
 - Combine each available preference component at 80% WeatherTool and 20% WikivoyageClimateTool, renormalizing to WeatherTool alone when Wikivoyage has no relevant evidence.
 - Select the tool only for explicit climate preferences. Treat Wikivoyage-only components as low-confidence secondary soft evidence, ignore stale Wikivoyage evidence for scoring, and never let it alone satisfy or violate a hard constraint.
 - Cap Wikivoyage confidence at medium, expose contradictions and reduce combined confidence, and carry revision dates, confidence, and staleness into stored evidence and final source rendering.
-- Keep resolution, section, and chart retrieval bounded and cache-first; redirect handling may not introduce unbounded request chains or extend the 285-second deadline.
+- Keep resolution, section, and chart retrieval bounded and cache-first; redirect handling may not introduce unbounded request chains or extend the 270-second deadline.
 - Test missing sections, redirects, chart parsing, negation, irrelevant prose, source weighting, contradictions, and missing-source renormalization.
 
 ### 5. TimezoneFitTool — COMPLETE
@@ -124,7 +124,7 @@ Planned commit: `Amenities tool: return category-level evidence`
 - Return independent `counts_by_category` values and deduplicate each category by OSM element type and ID. Remove the aggregate count.
 - Score work infrastructure as 60% coworking (saturating at five results) and 40% cafes (saturating at 25); score student life equally from universities (saturating at three) and libraries (saturating at eight). Stop using AmenitiesTool as transportation or general-activity evidence; those criteria remain unresolved until their dedicated planned tools are implemented.
 - Preserve valid category counts from partial responses with an explicit warning and reduced confidence; use stale cache or missing evidence after a complete provider failure.
-- Keep the one-request-per-candidate design, shared two-request Overpass concurrency cap, bounded endpoint failover, and cache-first behavior; no category may add a separate request that risks the 285-second backend budget.
+- Keep the one-request-per-candidate design, shared two-request Overpass concurrency cap, bounded endpoint failover, and cache-first behavior; no category may add a separate request that risks the 270-second backend budget.
 - Test prompt-to-category inference in both interpreters, purpose defaults, supported and unsupported explicit categories, one-request query generation, independent counts, node/way/relation handling, deduplication, cache behavior, fallback/rate errors, partial results, and criterion-specific scoring.
 
 ### 7. LocalMobilityTool — COMPLETE
@@ -250,10 +250,10 @@ Planned commit: `Official source tool: remove unused curated link lookup`
 - Do not invoke a real LLM or LLMod during this sequence.
 - Use no paid or API-keyed sources.
 - Keep public FastAPI endpoint shapes unchanged.
-- Never raise `AGENT_EXECUTION_TIMEOUT_SECONDS` above 285 or any client wait above 295 seconds; lower deployment-specific limits are allowed.
+- Never raise `AGENT_EXECUTION_TIMEOUT_SECONDS` above 270 (the Pydantic Settings validation ceiling) or any client wait above 295 seconds; lower deployment-specific limits are allowed.
 - No tool, retry helper, fallback, or future plan may reset, bypass, or extend the single end-to-end deadline.
 - Timeouts are graceful-degradation events after candidate generation: they must preserve completed evidence and return a provisional recommendation, not discard the run solely because one provider is slow.
-- Any deployed proxy/load balancer request or idle timeout must exceed the 285-second backend deadline; declare the real value with `UPSTREAM_REQUEST_TIMEOUT_SECONDS` for startup validation and configure the external platform itself.
+- Any deployed proxy/load balancer request or idle timeout must exceed the 270-second backend deadline; declare the real value with `UPSTREAM_REQUEST_TIMEOUT_SECONDS` for startup validation and configure the external platform itself.
 - Disability accessibility is outside these transport tools; they cover reaching a destination and moving locally.
 - For a tool whose criterion has a directly relevant Wikivoyage section, return its structured evidence plus a revision-pinned short preview, heading-aware reasoning chunks, and explicit coverage/truncation metadata as separately attributable evidence. Preserve up to 20,000 cleaned characters per section and distribute a truncated budget across subsections instead of keeping only the beginning. Evidence tools do not translate community-written prose into scores. The future reasoning agent will compare the sources and explain its aggregate judgment; until that backbone exists, the contextual evidence remains visible but numerically unresolved and cannot cause hard elimination.
 - Change the order only through an approved master-plan revision.
