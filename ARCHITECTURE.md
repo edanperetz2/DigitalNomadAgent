@@ -373,6 +373,15 @@ execute*, not just what value flows through them?
     the same five states are skipped in favor of returning a question — the course's own named
     technique for this exact situation is the **Question Refinement Pattern**: ask a clarifying
     question when input is incomplete or ambiguous, rather than guessing.
+
+    Both are dashed in `assets/model_architecture.png`, but in different colours and different
+    shapes, because they end differently: the out-of-scope case (violet) is genuinely terminal for
+    the request — a bypass straight to the final response — while the clarification case (rose) is
+    not: it returns a bare question and stops; nothing is tracked server-side (every `/api/execute`
+    call is stateless), so the caller's follow-up is a brand-new request re-entering at
+    Natural-Language Request, not a continuation of this one. Drawn as a small loop back to that box
+    instead of a bypass forward, so it cannot be misread as also reaching a recommendation in one
+    pass.
   - **Research again or finalize** (`validating → researching_gap`, §2): an extra state runs only
     when the gathered evidence is insufficient — most requests never enter it.
 

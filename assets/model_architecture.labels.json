@@ -25,13 +25,20 @@
     "Internet Connectivity"
   ],
   "all_labels": [
+    "(new request, max 2x)",
+    "(this request ends here)",
+    "-> declined immediately",
+    "-> returns a question,",
+    "AGENTIC",
     "API requests / evidence responses",
     "Activities",
     "Agentic Research",
+    "Ambiguous + interactive",
     "Amenities",
-    "Approved",
+    "Approved ->",
     "Autonomous Evidence-Based Place Recommendation Agent",
     "Budget Fit",
+    "Clarification loop",
     "DigitalNomadAgent module",
     "DigitalNomadAgent — System Architecture",
     "Dynamic Evaluation",
@@ -46,6 +53,8 @@
     "Local Mobility",
     "Missing evidence -> targeted research (max 1 iteration)",
     "Natural-Language Request",
+    "Out of scope",
+    "Out-of-scope shortcut",
     "POST /api/execute",
     "Place Context",
     "Ranked Recommendations",
@@ -61,7 +70,9 @@
     "Weather",
     "Web UI",
     "Wikivoyage Climate",
+    "caller resubmits",
+    "final Dynamic Eval pass",
     "normalized evidence",
-    "tool selection + query planning"
+    "tool selection"
   ]
 }

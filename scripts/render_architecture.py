@@ -65,16 +65,27 @@ DECORATIVE_LABELS: tuple[str, ...] = (
     "Ranked Recommendations",
     "Tool Registry",
     "External Data Sources",
-    "tool selection + query planning",
+    "AGENTIC",
+    "tool selection",
     "normalized evidence",
     "API requests / evidence responses",
     "Missing evidence -> targeted research (max 1 iteration)",
-    "Approved",
+    "Approved ->",
+    "final Dynamic Eval pass",
+    "Out of scope",
+    "-> declined immediately",
+    "(this request ends here)",
+    "Ambiguous + interactive",
+    "-> returns a question,",
+    "caller resubmits",
+    "(new request, max 2x)",
     "Legend",
     "DigitalNomadAgent module",
     "Research tool",
     "External data source",
     "Validator feedback loop (max 1 iteration)",
+    "Out-of-scope shortcut",
+    "Clarification loop",
 )
 
 SCALE = 2
@@ -95,6 +106,10 @@ EXTERNAL_EDGE = (208, 138, 31)
 EXTERNAL_TEXT = (255, 227, 176)
 ARROW = (59, 138, 230)
 FEEDBACK = (224, 86, 74)
+SHORTCUT = (181, 131, 246)
+SHORTCUT_TEXT = (206, 178, 245)
+ASK_LOOP = (233, 121, 178)
+ASK_LOOP_TEXT = (240, 168, 205)
 TITLE_TEXT = (255, 255, 255)
 SUBTITLE_TEXT = (159, 195, 240)
 NOTE_TEXT = (150, 183, 226)
@@ -242,6 +257,7 @@ def render() -> list[str]:
     f_pill = _font("regular", 16)
     f_note = _font("regular", 16)
     f_caption = _font("regular", 13)
+    f_caption_bold = _font("bold", 14)
     f_legend = _font("regular", 16)
     f_entry = _font("bold", 19)
     f_tag = _font("bold", 11)
@@ -298,15 +314,24 @@ def render() -> list[str]:
     _line(draw, [(col_mid, research_top + box_h), (col_mid, memory_top - 10)], ARROW)
     _arrow_head(draw, (col_mid, memory_top - 2), "down", ARROW)
 
+    validator_bottom = centres[RECOMMENDATION_VALIDATOR] + box_h
     _text(
         draw,
-        (col_mid + 14, centres[RECOMMENDATION_VALIDATOR] + box_h + 26),
-        "Approved",
+        (col_mid + 14, validator_bottom + 12),
+        "Approved ->",
         font=f_note,
         fill=APPROVED_TEXT,
         anchor="lm",
     )
-    labels.append("Approved")
+    _text(
+        draw,
+        (col_mid + 14, validator_bottom + 29),
+        "final Dynamic Eval pass",
+        font=f_caption,
+        fill=APPROVED_TEXT,
+        anchor="lm",
+    )
+    labels += ["Approved ->", "final Dynamic Eval pass"]
 
     # --- tool registry ----------------------------------------------------
     panel_x0, panel_x1 = 920, 1620
@@ -363,9 +388,9 @@ def render() -> list[str]:
     research_mid_y = research_top + box_h / 2
     _line(draw, [(col_x1, research_mid_y), (panel_x0 - 10, research_mid_y)], ARROW)
     _arrow_head(draw, (panel_x0 - 2, research_mid_y), "right", ARROW)
-    _text(draw, (gap_mid, research_mid_y - 34), "tool selection +", font=f_caption, fill=NOTE_TEXT)
-    _text(draw, (gap_mid, research_mid_y - 18), "query planning", font=f_caption, fill=NOTE_TEXT)
-    labels.append("tool selection + query planning")
+    _text(draw, (gap_mid, research_mid_y - 32), "AGENTIC", font=f_caption_bold, fill=APPROVED_TEXT)
+    _text(draw, (gap_mid, research_mid_y - 14), "tool selection", font=f_caption, fill=NOTE_TEXT)
+    labels += ["AGENTIC", "tool selection"]
 
     memory_mid_y = memory_top + box_h / 2
     _line(draw, [(panel_x0, memory_mid_y), (col_x1 + 10, memory_mid_y)], ARROW)
@@ -400,9 +425,107 @@ def render() -> list[str]:
         )
     labels.append("Missing evidence -> targeted research (max 1 iteration)")
 
+    # --- out-of-scope shortcut ---------------------------------------------
+    # An out-of-scope request returns straight from the interpreter and never
+    # enters the rest of the pipeline -- genuinely terminal for this request,
+    # so it is drawn as a bypass straight to the final response. Routed
+    # through the empty margin left of the column, clear of the legend
+    # (legend right edge is x=358, column left edge is x=380).
+    #
+    # This shares its source box with the clarification loop below, but the
+    # two must never read as one line (an earlier draft of this diagram did
+    # exactly that): each gets its own colour, its own origin marker at a
+    # clearly different height on Request Interpreter's edge, and its own
+    # caption anchored at ITS origin rather than the midpoint of its route --
+    # centring "Out of scope" on the full run down to Ranked Recommendations
+    # previously landed the caption beside Dynamic Evaluation instead of
+    # beside the module that actually makes the decision.
+    shortcut_x = 368
+    interpreter_top = centres[REQUEST_INTERPRETER]
+    final_mid_y = centres["Ranked Recommendations"] + box_h / 2
+    scope_origin_y = interpreter_top + box_h - 12
+    _dashed(
+        draw,
+        [
+            (col_x0, scope_origin_y),
+            (shortcut_x, scope_origin_y),
+            (shortcut_x, final_mid_y),
+            (col_x0 - 10, final_mid_y),
+        ],
+        SHORTCUT,
+    )
+    _arrow_head(draw, (col_x0 - 2, final_mid_y), "right", SHORTCUT)
+    draw.ellipse(
+        [_s(col_x0 - 4), _s(scope_origin_y - 4), _s(col_x0 + 4), _s(scope_origin_y + 4)],
+        fill=SHORTCUT,
+    )
+    scope_lines: tuple[tuple[str, ImageFont.FreeTypeFont], ...] = (
+        ("Out of scope", f_caption_bold),
+        ("-> declined immediately", f_caption),
+        ("(this request ends here)", f_caption),
+    )
+    for offset, (line, font) in enumerate(scope_lines):
+        _text(
+            draw,
+            (shortcut_x - 18, scope_origin_y + 14 + offset * 19),
+            line,
+            font=font,
+            fill=SHORTCUT_TEXT,
+            anchor="rm",
+        )
+        labels.append(line)
+
+    # --- ambiguous + interactive: NOT a shortcut to an answer --------------
+    # This one must look different from the out-of-scope bypass above: it
+    # returns a bare question and stops -- every /api/execute call is
+    # stateless (no round is tracked server-side), so the follow-up reply is
+    # a brand-new request that re-enters at the top, not a continuation of
+    # this run. Drawn as a small loop back to Natural-Language Request
+    # instead of a bypass forward, so it cannot be misread as also reaching
+    # Ranked Recommendations in one pass. A distinct rose colour (not a
+    # shade of the violet above) plus its own origin marker, near the TOP of
+    # Request Interpreter's edge rather than the bottom, so the two markers
+    # visibly branch apart from the first pixel instead of running parallel.
+    loop_x = 340
+    nlr_mid_y = centres["Natural-Language Request"] + box_h / 2
+    ask_origin_y = interpreter_top + 12
+    _dashed(
+        draw,
+        [
+            (col_x0, ask_origin_y),
+            (loop_x, ask_origin_y),
+            (loop_x, nlr_mid_y),
+            (col_x0 - 10, nlr_mid_y),
+        ],
+        ASK_LOOP,
+    )
+    _arrow_head(draw, (col_x0 - 2, nlr_mid_y), "right", ASK_LOOP)
+    draw.ellipse(
+        [_s(col_x0 - 4), _s(ask_origin_y - 4), _s(col_x0 + 4), _s(ask_origin_y + 4)],
+        fill=ASK_LOOP,
+    )
+    ask_lines: tuple[tuple[str, ImageFont.FreeTypeFont], ...] = (
+        ("Ambiguous + interactive", f_caption_bold),
+        ("-> returns a question,", f_caption),
+        ("caller resubmits", f_caption),
+        ("(new request, max 2x)", f_caption),
+    )
+    ask_caption_mid_y = (ask_origin_y + nlr_mid_y) / 2
+    ask_top = ask_caption_mid_y - (len(ask_lines) - 1) / 2 * 19
+    for offset, (line, font) in enumerate(ask_lines):
+        _text(
+            draw,
+            (loop_x - 18, ask_top + offset * 19),
+            line,
+            font=font,
+            fill=ASK_LOOP_TEXT,
+            anchor="rm",
+        )
+        labels.append(line)
+
     # --- legend -----------------------------------------------------------
-    leg_x0, leg_y0 = 48, 806
-    _box(draw, (leg_x0, leg_y0, leg_x0 + 310, leg_y0 + 154), fill=(10, 20, 44), edge=(46, 76, 128), radius=14)
+    leg_x0, leg_y0 = 48, 750
+    _box(draw, (leg_x0, leg_y0, leg_x0 + 310, leg_y0 + 210), fill=(10, 20, 44), edge=(46, 76, 128), radius=14)
     _text(draw, (leg_x0 + 155, leg_y0 + 26), "Legend", font=_font("bold", 18), fill=MODULE_TEXT)
     labels.append("Legend")
     legend_rows = (
@@ -415,17 +538,16 @@ def render() -> list[str]:
         _box(draw, (leg_x0 + 18, y - 9, leg_x0 + 46, y + 9), fill=fill, edge=edge, radius=5, width=1.5)
         _text(draw, (leg_x0 + 58, y), label, font=f_legend, fill=MODULE_TEXT, anchor="lm")
         labels.append(label)
-    y = leg_y0 + 56 + 3 * 28
-    _dashed(draw, [(leg_x0 + 18, y), (leg_x0 + 46, y)], FEEDBACK, width=2, dash=7, gap=5)
-    _text(
-        draw,
-        (leg_x0 + 58, y),
-        "Validator feedback loop (max 1 iteration)",
-        font=_font("regular", 12),
-        fill=MODULE_TEXT,
-        anchor="lm",
+    dashed_legend_rows = (
+        (FEEDBACK, "Validator feedback loop (max 1 iteration)"),
+        (SHORTCUT, "Out-of-scope shortcut"),
+        (ASK_LOOP, "Clarification loop"),
     )
-    labels.append("Validator feedback loop (max 1 iteration)")
+    for row, (colour, label) in enumerate(dashed_legend_rows):
+        y = leg_y0 + 56 + (3 + row) * 28
+        _dashed(draw, [(leg_x0 + 18, y), (leg_x0 + 46, y)], colour, width=2, dash=7, gap=5)
+        _text(draw, (leg_x0 + 58, y), label, font=_font("regular", 12), fill=MODULE_TEXT, anchor="lm")
+        labels.append(label)
 
     image.resize((WIDTH, HEIGHT), Image.LANCZOS).save(PNG_PATH, "PNG", optimize=True)
     return labels
