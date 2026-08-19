@@ -32,17 +32,18 @@ Given a prompt like:
 > "I want to spend three months somewhere in Europe where I can work remotely, live without a car,
 > and stay within €1,800 per month."
 
-DigitalNomadAgent interprets the request, extracts hard constraints (a budget cap — scoped to what
-it actually covers, e.g. accommodation-only vs. total monthly living costs, so it's never compared
-against the wrong kind of cost evidence — car-free) and soft preferences, then runs a 3-stage
-candidate-discovery funnel: one LLM call proposes up to 30 broad
-candidates, a cheap deterministic filter (geocoding verification, region checks, budget ranking —
-no LLM, no expensive tools) narrows these down, and up to 8 finalists proceed to full research.
-DigitalNomadAgent decides *which* research tools are actually relevant to this request (not a fixed list —
-see `ARCHITECTURE.md` §3), gathers evidence from open data sources, verifies destination identity,
-scores candidates (deterministically for climate/work-infrastructure/timezone/student-life/safety,
-via one batched LLM call for cost/transportation/accessibility/activities), validates them, and
-returns a ranked, explainable, source-cited Markdown recommendation.
+DigitalNomadAgent extracts hard constraints (budget scoped to what it actually covers — e.g.
+accommodation-only vs. total monthly living cost, never compared against the wrong kind of evidence
+— plus things like car-free) and soft preferences, then:
+
+1. **Recall** — one LLM call proposes up to 30 broad candidates.
+2. **Filter** — a cheap deterministic pass (geocoding, region checks, budget ranking; no LLM, no
+   expensive tools) narrows these to up to 8 finalists.
+3. **Research** — the agent decides *which* tools are actually relevant to this request, not a
+   fixed list (see `ARCHITECTURE.md` §3), and gathers evidence from open data sources.
+4. **Score** — climate/work-infrastructure/timezone/student-life/safety are scored deterministically;
+   cost/transportation/accessibility/activities via one batched LLM call.
+5. **Validate and answer** — a ranked, explainable, source-cited Markdown recommendation.
 
 ### Supported request types
 
@@ -54,13 +55,10 @@ returns a ranked, explainable, source-cited Markdown recommendation.
 
 ### Why this is autonomous, not a fixed pipeline
 
-The agent does not run the same tools or ask the same questions for every prompt. Whether a request
-is even in scope, which research tools run, what criteria are scored, how heavily each is weighted,
-and whether an extra research round is needed are all decided dynamically from the interpreted
-request — a request that isn't about travel or relocation at all is declined before any research
-starts, rather than being force-fit into an answer. See `ARCHITECTURE.md` for the full explanation,
-including the conditional state machine and the "Agentic Research" component (the module explicitly
-required to have this exact name).
+Which tools run, how criteria are weighted, and whether an extra research round happens are all
+decided dynamically per request — an off-topic request is declined before any research starts,
+rather than force-fit into an answer. Full explanation, including the conditional state machine:
+`ARCHITECTURE.md`.
 
 ---
 
@@ -142,15 +140,11 @@ Error response (same four fields, never FastAPI's default `{"detail": [...]}`):
 {"status": "error", "error": "The prompt cannot be empty.", "response": null, "steps": []}
 ```
 
-Every `/api/execute` request has a hard 270-second backend execution deadline. Under the default
-configuration, research stops at 210 seconds and retains every completed tool result, leaving 60
-seconds to score the partial evidence and generate the response. Pending calls are cancelled and
-reported as missing evidence. If the recommendation-writing LLM is slow, a deterministic renderer
-sends the recommendation instead. The 270-second emergency cutoff also returns a disclosed,
-best-effort recommendation whenever the request is sufficiently clear, leaving 15 seconds for API,
-transport, and UI overhead before the 300-second user-visible limit. If interpretation or candidate
-generation fails early because the LLM provider times out, deterministic parsing and curated
-candidate seeds keep the pipeline moving and are disclosed in the response.
+Hard backend deadline: **270s** total (research stops at 210s, keeping every completed tool result;
+the remaining 60s score partial evidence and generate the response), inside the course's 300s Vercel
+ceiling. Pending tool calls are cancelled and reported as missing evidence; a slow or unreachable LLM
+falls back to deterministic parsing/rendering at every stage, always disclosed in the response —
+never a raw error or a hang.
 
 The request body is always exactly `{"prompt": "..."}` for every caller, including automated
 grading — a bare call like that always resolves to one final, actionable recommendation and never
@@ -171,34 +165,21 @@ grading purposes.
 
 ## UI
 
-`GET /` serves a small responsive HTML/CSS/vanilla-JS page (no framework, no separate Streamlit
-service) with a prompt field, example buttons for remote work/study/vacation, loading and error
-states, rendered recommendations, and an expandable "Execution steps" section showing every LLM
-call's module/prompt/response. It calls `POST /api/execute` only — no agent logic is duplicated in
-the frontend. The browser also aborts after 295 seconds as a final client-side guard; the backend's
-270-second deadline should normally return a structured error first. Real requests commonly take
-40-110+ seconds (serial geocoding plus external tool calls); the loading state shows a live elapsed
-timer plus a "still thinking" note after 15 seconds so this doesn't read as a hung page.
+`GET /` serves a small responsive HTML/CSS/vanilla-JS page (no framework) with a prompt field,
+purpose example buttons, loading/error states, rendered recommendations, and an expandable
+"Execution steps" section showing every LLM call's module/prompt/response. It calls `POST
+/api/execute` only — no agent logic is duplicated in the frontend. A live elapsed timer plus a
+"still thinking" note after 15s cover the 40-110+ second typical response time; the browser aborts
+after 295s as a final client-side guard, behind the backend's own 270s deadline (see above).
 
-Each ranked place shows a **Fit Score** (the backend's own ranking score, for reference only — the
-UI never re-sorts by it, the backend's hard-constraint-aware order always wins) and an **Evidence
-Coverage** label, and `[N]`-style citation markers in the answer text become clickable links back to
-the matching entry in the Sources section (a plain chip, not a link, if no URL is available for it).
-
-If the interactive path (the deployed frontend always sends `X-Interactive-Mode: true`, see
-"Required API endpoints" below) hits a clarification question, the results view shows an inline
-reply box instead of a dead end — the extra detail you type gets appended to the original prompt
-and resubmitted automatically. Since the backend has no memory of prior turns, this is capped at
-2 questions per thread; the reply to a 3rd would-be question is sent non-interactively instead, so
-the conversation always resolves to a real answer rather than looping indefinitely.
-
-The sidebar's conversation history can be filtered (All / LLM / Fallback, based on each response's
-`**Generated using:**` disclosure line — a real LLM call counts as "LLM", both mock and the
-deterministic fallback template count as "Fallback"), multi-selected and cleared individually, or
-cleared entirely, via two additive endpoints (`DELETE /api/history`, `POST /api/history/delete`) that
-sit alongside but are not part of the 4 required course-spec endpoints. The sidebar itself can be
-collapsed to a narrow icon rail or resized by dragging its edge (260-480px); both preferences persist
-across reloads via `localStorage`.
+Each ranked place shows a **Fit Score** (reference only — the UI never re-sorts by it) and an
+**Evidence Coverage** label; `[N]` citation markers link to their Sources entry (a plain chip if no
+URL exists). The interactive path (see "Required API endpoints" above) shows an inline reply box
+instead of a dead end when a clarification question comes back — capped at 2 questions per thread,
+after which the reply is sent non-interactively so the conversation always resolves to a real
+answer. History can be multi-selected and cleared via `DELETE /api/history` /
+`POST /api/history/delete` (additive, not required endpoints). The sidebar collapses to an icon rail
+or resizes (260-480px); both persist via `localStorage`.
 
 ---
 
@@ -262,12 +243,13 @@ All variables are documented with safe defaults or empty placeholders in `.env.e
 | `MAX_PROJECT_BUDGET_USD` | Local hard cap, default `13` (the course budget) |
 | `MAX_LLM_CALLS_PER_REQUEST` | Default `4` |
 | `LLM_INPUT_COST_PER_1M`, `LLM_OUTPUT_COST_PER_1M` | Used only for conservative local cost *estimation* |
-| `MAX_BULK_CANDIDATES` | Stage-1 bulk candidate-recall size (still one LLM call); default `30` |
-| `MAX_FINALISTS` | Stage-3 finalist count that gets full research + scoring; default `8`, validated against real Overpass/Nominatim latency |
-| `MAX_FINAL_RECOMMENDATIONS` | Candidates actually presented in the response; default `8` |
-| `AGENT_EXECUTION_TIMEOUT_SECONDS` | Complete backend agent deadline; default and maximum `270` seconds |
-| `RECOMMENDATION_RESERVE_SECONDS` | Time reserved after research for scoring/rendering; default `60` seconds |
-| `TOOL_EXECUTION_TIMEOUT_SECONDS` | Complete budget for one tool/candidate invocation; default `50` seconds |
+| `LLM_MAX_OUTPUT_TOKENS` | Default `12000` — too low truncates real recommendation output mid-JSON |
+| `LLM_HTTP_TIMEOUT_SECONDS` | Default `60` — separate from `HTTP_TIMEOUT_SECONDS`, since real generation takes longer than a tool call |
+| `MAX_JSON_REPAIR_ATTEMPTS` | Default `2` — retries for a malformed-but-parseable LLM response before falling back |
+| `MAX_BULK_CANDIDATES` / `MAX_FINALISTS` / `MAX_FINAL_RECOMMENDATIONS` | Funnel sizes: `30` bulk recall → `8` finalists get full research → `8` presented |
+| `AGENT_EXECUTION_TIMEOUT_SECONDS` | Backend deadline; default and maximum `270` seconds |
+| `RECOMMENDATION_RESERVE_SECONDS` | Reserved after research for scoring/rendering; default `60` seconds |
+| `TOOL_EXECUTION_TIMEOUT_SECONDS` | Budget for one tool/candidate invocation; default `50` seconds |
 | `MAX_CONCURRENT_TOOL_REQUESTS` | Independent tool/candidate jobs allowed at once; default `10` |
 | `UPSTREAM_REQUEST_TIMEOUT_SECONDS` | Optional declaration of the real proxy/platform timeout; must exceed `270` |
 | `SQLITE_PATH`, `APP_PORT`, `HTTP_TIMEOUT_SECONDS`, `CACHE_TTL_HOURS` | Infra configuration |
@@ -276,16 +258,11 @@ All variables are documented with safe defaults or empty placeholders in `.env.e
 
 ### LLMod.ai configuration
 
-`LLModClient` (`app/llm/llmod.py`) assumes an OpenAI-compatible chat-completions request/response
-shape by default, since that is the documented default for the course's LLMod.ai integration. If
-the official configuration differs, only this one file needs to change — the rest of the
-application is provider-agnostic via `BaseLLMClient`.
-
-**Re-registration reminder:** the team must re-register for LLMod.ai using the new email requested
-by the course *before* obtaining the project API key. Do this before filling in `.env`.
-
-**Never commit the API key.** It is read only from the environment, registered with the logging
-redaction filter so it can never leak into logs, and never included in exceptions or API responses.
+`LLModClient` (`app/llm/llmod.py`) assumes an OpenAI-compatible chat-completions shape, the course's
+documented default; if that differs, only this one file needs to change — the app is
+provider-agnostic via `BaseLLMClient`. **Re-register at LLMod.ai with the new course-required email
+before** requesting the project API key. **Never commit the key** — it's read only from the
+environment, and the logging redaction filter keeps it out of logs and error responses.
 
 ### Optional connection check
 
@@ -299,15 +276,12 @@ python scripts/check_llmod_connection.py
 
 ### Golden-set evaluation harness
 
-`scripts/golden_set/` is a fixed, representative prompt set (one per purpose plus edge cases: an
-ambiguous prompt that would normally trigger clarification, an unaffordable hard budget, an excluded
-region, a car-free requirement) with a structural comparison scorer — it checks contractual
-properties (right modules ran, no stale placeholder text, no banned claims, finalist count in
-bounds) rather than exact text, since LLM output is non-deterministic. The ambiguous-prompt case is
-run the same way an automated grader calls the API (no `X-Interactive-Mode` header), so it asserts
-the disclosed-assumption behavior described above, not a bare clarification question. It also runs
-as a normal pytest case (`tests/integration/test_golden_set_harness.py`), so a pipeline regression
-fails the test suite too.
+`scripts/golden_set/` is a fixed, representative prompt set (one per purpose plus edge cases —
+ambiguous, unaffordable budget, excluded region, car-free) scored on structural properties (right
+modules ran, no stale placeholders, finalist count in bounds) rather than exact text, since LLM
+output is non-deterministic. The ambiguous case is called the same way an automated grader would (no
+`X-Interactive-Mode`), asserting the disclosed-assumption behavior, not a bare question. Also runs as
+a normal pytest case (`tests/integration/test_golden_set_harness.py`), so a regression fails CI too.
 
 ```powershell
 # Default: MockLLMClient, zero cost, safe anytime.
@@ -337,9 +311,11 @@ python scripts/run_golden_set.py --real
 
 - **Live/network**: OpenStreetMap Nominatim (geocoding/verification), Open-Meteo historical archive
   (climate evidence), OpenStreetMap Overpass (amenities/activities/accessibility density), Wikivoyage
-  MediaWiki API (revision-pinned context), GOV.UK and World Bank (safety), WhereNext (typed city-price
-  and country cost context), and Frankfurter (budget currency conversion).
-- **Local/curated (no network)**: deterministic offline fakes for tests.
+  MediaWiki API (revision-pinned context), GOV.UK and World Bank (safety), Wikipedia (Ookla Speedtest
+  Global Index, internet connectivity), WhereNext (typed city-price and country cost context), and
+  Frankfurter (budget currency conversion).
+- **Local/curated (no network)**: a static language-coverage reference (`app/languages.py`) for the
+  Language tool, plus deterministic offline fakes for tests.
 
 All outbound requests are restricted to an explicit domain allow-list with SSRF protections
 (`app/core/security.py`) — there is no generic URL-fetch tool anywhere in the codebase.
@@ -347,10 +323,10 @@ All outbound requests are restricted to an explicit domain allow-list with SSRF 
 ## Cache behavior
 
 SQLite-backed (`tool_cache` table), cache-first, with per-source TTLs (`app/evidence/cache.py`):
-geocoding, cost datasets, and climate-normal data cached long (30 days / 1 year),
-amenities/place-context medium (2 weeks), official sources medium (1 week), and exchange rates and
-weather forecasts short (1 day). If a live call fails and only expired cache is available, the
-stale value is returned but explicitly marked `stale=True` — never silently presented as current.
+geocoding and climate-normal data cached long (30 days / 1 year), amenities/place-context/mobility
+medium (2 weeks), and safety, exchange rates, and weather forecasts short (1 day). If a live call
+fails and only expired cache is available, the stale value is returned but explicitly marked
+`stale=True` — never silently presented as current.
 
 ---
 
@@ -413,33 +389,20 @@ The course spec requires deploying on **Vercel** specifically (not a general hos
 - **`functions.main.py.maxDuration = 300`** matches the spec's stated Vercel ceiling exactly — our
   own `AGENT_EXECUTION_TIMEOUT_SECONDS=270` already fits under this with margin.
 - **`env`** sets the deployed defaults, including `MOCK_LLM=false` (the live grading environment
-  uses the real LLMod.ai provider, not the mock — the Dockerfile's own default is `true` instead,
-  since that image is a local/manual-use path, not what's graded) and matching timeout values.
-  `SQLITE_PATH=/tmp/digitalnomadagent.db` is set here specifically because **Vercel's filesystem is
-  read-only except `/tmp`, and `/tmp` resets on every cold start** — the local cache/evidence/
-  budget-ledger SQLite database is not persistent across cold starts under Vercel.
+  uses the real LLMod.ai provider — the Dockerfile's own default is `true` instead, since that
+  image is a local/manual-use path, not what's graded) and matching timeout values.
+  `SQLITE_PATH=/tmp/digitalnomadagent.db` is set here because **Vercel's filesystem is read-only
+  except `/tmp`, and `/tmp` resets on every cold start** — see "Storage" below for what that means.
 
-  **This matters more than it used to.** The provider-side backstop is real but it is on the
-  **account**, not the key: `GET /key/info` reports `max_budget: null`, while `GET /user/info`
-  reports `max_budget: 13.0`. So there is a hard $13 ceiling, and it is the number that actually
-  binds — but note that account spend runs ahead of this key's spend, because the account is not
-  this key alone. Verify both with `python scripts/probe_llmod_account.py`, which is read-only,
-  costs $0, and now prints the account balance as the authoritative one.
-
-  What that ceiling does *not* give you is granularity. It stops the account at $13 total, not this
-  deployment at some smaller figure, and `MAX_PROJECT_BUDGET_USD` — the only per-deployment
-  guard — reads a ledger that lives in `/tmp` and resets on every cold start.
+**Budget ceiling**: the number that actually binds is the **account**-level cap, not the key —
+`GET /user/info` reports `max_budget: 13.0` while `GET /key/info` reports `null`. Verify with
+`python scripts/probe_llmod_account.py` (read-only, $0). `MAX_PROJECT_BUDGET_USD` is only a local,
+per-deployment guard on top of that, and its ledger resets every cold start (see "Storage").
 
 **To deploy:** connect this GitHub repo to a Vercel project (vercel.com → Add New Project → import
-the repo) and set these environment variables in the Vercel dashboard (secrets — never commit
-them): `LLMOD_API_KEY`, `LLMOD_MODEL`. Everything else needed is already in `vercel.json`. Once
-deployed, replace the Vercel URL placeholder in the Course Submission Checklist above, and keep the
-Vercel account active until the project is graded (per the spec).
-
-**Not yet verified**: FastAPI's `lifespan` startup/shutdown events (used here to open the SQLite
-connection and build the orchestrator once) are a relatively recent Vercel Python runtime addition.
-This should work, but — unlike everything else in this README — it genuinely cannot be confirmed
-without an actual live deploy; treat the first real deploy as a verification step, not a formality.
+the repo) and set `LLMOD_API_KEY`/`LLMOD_MODEL` in the Vercel dashboard (secrets — never commit
+them). Everything else is already in `vercel.json`. Keep the Vercel account active until graded
+(per the spec).
 
 Before deployment, run the offline suite normally. An explicitly opt-in live SLA check exercises
 three representative prompts and targets an observed p95 below 240 seconds:
@@ -483,37 +446,30 @@ the deadline in preference to leaving the four required endpoints untouched.
 
 ## Known limitations
 
-- Detailed typed city prices currently cover 57 cities through a third-party researched/modelled
-  dataset. Other covered countries receive low-confidence country context, never a city estimate.
-  Fixed-cost scenarios include only named rent, utilities, internet, and transit items; they are
-  not complete personal monthly budgets.
-- The origin→timezone mapping (`TimezoneFitTool`) covers a small curated set of common origins; an
-  unmapped origin results in an honest "timezone overlap unknown" rather than a guess.
-- The deterministic keyword-based Request Interpreter used by `MockLLMClient` is a simplified stand-in
-  for the real LLMod.ai model; real LLM output will generally extract richer nuance.
-- Candidate discovery's Stage 1 draws from a curated seed pool per purpose in `MockLLMClient`
-  (~30 entries per purpose, mirroring the real bulk-recall step's target size); it is not an
-  exhaustive global city database, so offline/mock runs see a fixed set of destinations rather
-  than the real model's broader knowledge.
-- Safety evidence combines a current FCDO advisory, the latest available World Bank/UNODC
-  country homicide rate, and revision-pinned Wikivoyage city context. The result requires at
-  least two sources and is presented as comparative evidence, never a universal city-safety rating.
+- Typed city prices cover 57 cities (third-party dataset); other cities get low-confidence country-
+  level context only, never a city estimate, and fixed-cost items (rent/utilities/internet/transit)
+  are not a complete personal budget.
+- `TimezoneFitTool` covers only a curated set of common origins — an unmapped one honestly reports
+  "overlap unknown" rather than guessing.
+- `MockLLMClient`'s keyword-based interpreter and its curated per-purpose candidate seed pool
+  (~30 entries) are simplified offline stand-ins; real LLM output extracts richer nuance and isn't
+  limited to a fixed candidate set.
+- Safety evidence (FCDO advisory + World Bank/UNODC homicide rate + Wikivoyage) requires at least
+  two sources and is comparative, never a universal city-safety rating.
 
 ## Legal and ethical limitations
 
-- DigitalNomadAgent never claims live flight/hotel prices, guaranteed visa eligibility, guaranteed
-  university admission, guaranteed safety, or exact current housing costs/travel times. Visa,
-  entry, and immigration wording is always cautious and directs the user to verify with the
-  relevant official authorities directly.
-- External retrieved content (Wikivoyage excerpts, etc.) is always treated as untrusted evidence,
-  never as instructions — every LLM system prompt explicitly says so.
-- No user data is persisted beyond what is necessary for evidence caching and the local budget
-  ledger; no personal user information is collected by the API.
+- Never claims live flight/hotel prices, guaranteed visa/admission/safety, or exact current
+  costs/travel times — visa and entry wording always directs the user to verify officially.
+- External retrieved content is always treated as untrusted evidence, never instructions — every
+  LLM system prompt says so explicitly.
+- No user data is persisted beyond evidence caching and the local budget ledger; no personal
+  information is collected.
 
 ---
 
 ## Team information
 
 `config/team_info.json` carries the real team name, batch/order number (`2_4`), and each student's
-name and email. It is served verbatim by `GET /api/team_info` and pinned by
-`tests/unit/test_config_team_info.py`.
+name and email. It is served verbatim by `GET /api/team_info`;
+`tests/unit/test_config_team_info.py` pins the `{batch#}_{order#}` format.
