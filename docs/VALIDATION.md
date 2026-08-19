@@ -4,9 +4,9 @@ How DigitalNomadAgent has been validated, what the end-to-end runs found, and wh
 fixing. Two things are kept deliberately separate: **defects** (it does not work as intended) and
 **enhancements** (it works, but could be better). Correctness comes first.
 
-Last updated: **2026-08-19** (see "Update — 2026-08-19" at the top of section 0 for the final
-post-submission dress rehearsal, run after the LLM-driven tool-selection merge; earlier updates
-below it are left as-is for the record).
+Last updated: **2026-08-19** (see "Update — 2026-08-19 (truly final dress rehearsal — GO)" at the
+top of section 0 — the last check before the deadline, no further work planned after it; earlier
+updates below it are left as-is for the record).
 
 > **Reading order.** Section 0 is the current status, including the results of all three
 > real-provider runs — the post-fix verification run (2026-08-04), the subset re-validation and
@@ -19,6 +19,109 @@ below it are left as-is for the record).
 ---
 
 ## 0. Current status and next steps
+
+### Update — 2026-08-19 (truly final dress rehearsal — GO)
+
+The last check before the deadline — no further work is planned on this project after this entry.
+Deliberately more exhaustive than every prior round: three parallel full-file (not grep) audits of
+the entire codebase (agent pipeline/API/core, tools/evidence/LLM layer, docs/scripts/config/frontend
+— roughly 150 file reads) surfaced findings a faster pass had missed, all triaged and closed below,
+plus a full live/runtime pass covering every item on the team's own final checklist: tests, CI/lint,
+backend, frontend/UI, endpoints in exact spec format, API-vs-HTTP clarification behavior, the
+agentic tool-selection decision and its fallback, LLM-unavailable/available behavior, the
+budget-scope split, the off-topic domain gate, GitHub state, and Vercel configuration. **Verdict:
+GO.**
+
+**Two real correctness bugs found and fixed:**
+1. `app/api/routes.py` — a failed `SavedSearchStore.save_session()` call after a successful
+   `/api/execute` run (SQLite lock contention, `/tmp` pressure on a Vercel cold start) propagated
+   past the route handler, discarding an already-computed valid `status:"ok"` response in favor of a
+   generic 500. History-saving is a purely additive convenience feature; it must never be able to
+   turn a good run into a client-visible failure. Fixed with a try/except around the save call,
+   logged, response still returned. New test:
+   `tests/integration/test_execute_survives_history_failure.py`.
+2. `app/llm/budget.py` — `_calls_made_for_request()` counted every `llm_usage` ledger row, including
+   a module's own JSON-repair retries, against the `max_llm_calls_per_request=4` ceiling. A module
+   needing two repair attempts could burn 3 rows by itself, wrongly refusing a later required module
+   with a misleading "the project's LLM budget limit was reached" (the real $13 project budget was
+   nowhere near spent — this was a call-count artifact). Fixed to count distinct modules, not raw
+   rows; repairs remain separately bounded by `max_json_repair_attempts`. New test:
+   `test_a_modules_own_repair_attempts_do_not_consume_a_later_modules_slot` in `tests/unit/test_budget.py`.
+
+**Ten test-coverage and documentation gaps closed:** a stale `/api/health` reference and an
+outdated "not yet fixed" claim in this document's own 2026-08-18 entry (both same-day errors,
+corrected in place — not a change to historical record); ~9 stale "285 seconds"/"225 seconds"
+references throughout `docs/tool_implementation_master_plan.md` (actual: 270s/210s); stale
+prompt-count/deadline docstrings in `scripts/run_e2e_suite.py` and `scripts/e2e/prompts.py`;
+`README.md`'s `vercel.json` `rewrites`→`routes` key-name mismatch and an incorrect claim about
+`MOCK_LLM`'s deployed value; a missing `FakeLanguageTool` (the only one of 13 real tools without a
+fake counterpart, silently swallowed by every fake-registry test that selected it); the mock LLM
+client never populating `relevant_tools`, meaning the LLM-driven tool-selection code path merged
+2026-08-18 had **zero** offline test coverage before now — 4 new tests added
+(`tests/unit/test_mock_llm_tool_selection_coverage.py`); a real cache-key/fetch-URL divergence in
+`app/tools/place_context.py` (cache key used the canonical name, the live fetch used the raw
+candidate name — exactly the "cache collision could serve wrong data" risk this kind of audit exists
+to catch) with 3 new tests (`tests/unit/test_place_context_tool.py`); a dead, never-registered
+`json_decode_exception_handler`; a dead `max_research_iterations` setting referenced nowhere.
+Two more, lower-risk items also closed: redacted+truncated two raw-exception `LLMOutputError`
+messages in `app/llm/traced_client.py` for defense-in-depth (already safe end-to-end via the API
+boundary's own redaction); added an explicit TTL for `InternetConnectivityTool` in
+`app/evidence/cache.py`. One optional item was deliberately left as-is (`app/tools/timezone_fit.py`'s
+two unwrapped call sites — already safety-netted by the registry's outer catch-all, zero live blast
+radius). `pytest -q`: **1003 passed, 1 skipped, 0 failed** (up from 994 as of the previous entry).
+`ruff check .`: all checks passed.
+
+**Full live/runtime verification, all passed:**
+- **All 4 required endpoints, live against production, byte-checked against the exact spec shapes**:
+  `team_info` and `agent_info` match exactly; `model_architecture` serves `image/png`, HTTP 200, and
+  its SHA-256 hash (`9fb3b8a4…`) matches `assets/model_architecture.png` in the repo exactly;
+  `/api/execute` returns the strict 4-key envelope (`status`/`error`/`response`/`steps`) with no
+  leaked `detail` key on both a missing-`prompt` request and an extra-field request (the schema's
+  `extra="forbid"` working as intended).
+- **API-vs-HTTP clarification distinction**: confirmed at the orchestrator-logic level (zero cost,
+  `MOCK_LLM=true` locally) — no `X-Interactive-Mode` header always resolves to a full 4-module
+  answer; `X-Interactive-Mode: true` on the same ambiguous prompt returns a single bare clarification
+  question. This is orchestrator logic, not LLM judgment, so it needs no real-provider call to prove.
+- **Fallback, all 4 modules, genuinely unreachable LLM provider**: a throwaway local instance with
+  `LLMOD_BASE_URL` pointed at an unroutable address, `MOCK_LLM=false` — a real `httpx.ConnectError`
+  that never reaches the billed provider, so genuinely $0. Every module degraded to its deterministic
+  fallback correctly, including the LLM-driven tool-selection module's own fallback (fixed rule-based
+  tool selection instead of the model's judgment), and the final answer transparently disclosed the
+  reduced-capability run in a "Reduced-capability run" preamble while still producing a real, sourced,
+  useful ranked recommendation with 46 numbered citations.
+- **Off-topic domain gate, live on the newly-deployed production**: `POST /api/execute` with "Give
+  me a recipe for chocolate chip cookies." against `digitalnomadagent.vercel.app` (deployment
+  `4288083`, the commit containing all of today's fixes) returned `in_scope:false` after a single
+  cheap Request Interpreter call, a polite redirect back to travel/relocation topics, and correctly
+  skipped all three downstream modules — confirming the gate merged 2026-08-18 still works
+  end-to-end after today's changes, at negligible live cost. The LLM-driven tool-selection +
+  budget-scope live path was not separately re-spent on this round: it was exhaustively validated
+  with real paid calls during the 2026-08-18 merge (see that entry below), nothing in today's fixes
+  touches the production tool-selection call path itself (the mock-LLM changes only affect
+  `MOCK_LLM=true`, never used in production), and the fallback test above already proves the same
+  code path's failure mode deterministically — a second paid call would have added no new signal.
+- **Frontend/UI, live via browser automation**: production page loads with no authentication guard
+  and no console errors; the request textarea and an exact `"Run Agent"` button are present; the
+  light/dark theme toggle switches cleanly in both directions with no rendering breakage.
+- **GitHub repository state**: only `main` exists, locally and on `origin`; the working tree matched
+  `origin/main` exactly except for today's own uncommitted (at audit time) changes — nothing
+  unexpected; a full-history regex sweep for API-key/token/private-key patterns found only a code
+  reference (`llmod_api_key = None`), no real leaked credential; the only untracked files were the
+  three new test files (now committed) and `digitalNomadAgent.txt`, which is deliberately never
+  staged.
+- **Vercel configuration, re-checked live in the dashboard, not assumed from memory**:
+  `LLMOD_API_KEY` and `LLMOD_MODEL` both confirmed scoped to **Production and Preview** (the exact
+  scoping that caused a real ~25-minute outage during the 2026-08-18 merge round, re-verified rather
+  than trusted); the Production environment's tracked branch is confirmed as `main`, serving
+  `digitalnomadagent.vercel.app`; Deployment Protection has no active restriction (no "Require Log
+  In", password, or trusted-IP requirement), so graders reach the site with no auth barrier;
+  deployment `4288083` (today's push) built and reached "Ready" on Production before any of the
+  above live checks were run against it.
+
+**Total real dollars spent this round:** one Request Interpreter call (the off-topic domain-gate
+check above) — negligible, well inside the team's remaining shared budget. Every other check was
+either free (tests, lint, doc review, GitHub/Vercel dashboard inspection) or genuinely $0 by
+construction (a connection failure that never reaches the billed provider).
 
 ### Update — 2026-08-18 (final pre-submission dress rehearsal — GO)
 
