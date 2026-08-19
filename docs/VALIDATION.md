@@ -117,11 +117,22 @@ radius). `pytest -q`: **1003 passed, 1 skipped, 0 failed** (up from 994 as of th
   In", password, or trusted-IP requirement), so graders reach the site with no auth barrier;
   deployment `4288083` (today's push) built and reached "Ready" on Production before any of the
   above live checks were run against it.
+- **Follow-up: a real, on-topic, full 4-module pipeline run against the exact final commit.** The
+  checks above proved the fallback path (locally, $0) and the off-topic gate (live, cheap) against
+  today's deployed code, but not a normal successful recommendation end-to-end on this exact commit
+  — earlier full-pipeline timing evidence (192–221s) was against a prior commit. Closed with one more
+  live call: the standard three-month-Europe-remote-work prompt against
+  `https://digitalnomadagent.vercel.app/api/execute` (deployment `4288083`/`5141049`, the commit
+  containing every fix in this entry) returned `status:"ok"` in **187s** (well under the 300s cap,
+  real margin), all 4 modules ran, and the response confirms `"Generated using: a real LLM provider
+  (LLMod.ai)"` — a genuine LLM-authored answer, not a fallback. Teammates Shani and Ilay separately
+  confirmed they are good with everything in this round.
 
-**Total real dollars spent this round:** one Request Interpreter call (the off-topic domain-gate
-check above) — negligible, well inside the team's remaining shared budget. Every other check was
-either free (tests, lint, doc review, GitHub/Vercel dashboard inspection) or genuinely $0 by
-construction (a connection failure that never reaches the billed provider).
+**Total real dollars spent this round:** two live calls — the off-topic domain-gate check and the
+follow-up full-pipeline confirmation above — both negligible individually and well inside the
+team's remaining shared budget. Every other check was either free (tests, lint, doc review,
+GitHub/Vercel dashboard inspection) or genuinely $0 by construction (a connection failure that
+never reaches the billed provider).
 
 ### Update — 2026-08-18 (final pre-submission dress rehearsal — GO)
 
